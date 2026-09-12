@@ -4,13 +4,28 @@
 > exists, or manually). Read this + `CLAUDE.md` + `docs/PLAN.md` at the start of every session.
 
 ## Current position
-- **Phase:** 0 ✅ · Environment ✅ · Phase 1 slice 1 ✅ · **Phase 1, slice 2** ✅ complete
+- **Phase:** 0 ✅ · Environment ✅ · Phase 1 slices 1–3 ✅ complete
 - **Repo:** https://github.com/Nikhil-Oggu/healthcloud (private, branch `main`)
-- **Next up:** **Phase 1, slice 3** — deterministic demo seed (NorthCare / Green Valley orgs, synthetic
-  users + memberships + roles) via a dev-profile seeder + reset script, and `facility` /
-  `facility_membership` tables. Plan the slice first, then build.
+- **Next up:** **Phase 1, slice 4** — authentication foundation: Spring Security + Spring Session
+  (JDBC) + a local-dev login stand-in + a `/api/v1/me` current-user endpoint (Cognito/BFF wired
+  later). Backend-derived tenant/user context follows. Plan the slice first, then build.
+- **Run the demo:** `docker compose up -d postgres` then
+  `cd backend && ./mvnw spring-boot:run -Dspring-boot.run.profiles=local` (seeds NorthCare/Green Valley).
+  Reset with `./scripts/db-reset.sh`.
 
 ## Log (newest first)
+
+### 2026-09-12 — Phase 1, slice 3 ✅ (facilities + NorthCare/Green Valley demo seed)
+- Flyway `V3__facilities.sql`: `facility`, `facility_membership` (+ entities/repositories in
+  `com.healthcloud.organization`).
+- `DevDataSeeder` (`@Profile("local")`, idempotent): seeds NorthCare Health + Green Valley Clinic,
+  each with 1 facility and 5 users (patient/provider/coordinator/reviewer/admin) with memberships,
+  roles, and facility links for provider/coordinator.
+- `scripts/db-reset.sh`: wipe DB volume + fresh Postgres → deterministic reseed on next local run.
+- **Verified:** `./mvnw test` → 9 tests pass (added 4 seeder tests). Ran app with `local` profile
+  against dev DB and confirmed via psql: 2 orgs, 5 members each, correct roles/facilities.
+- Gotcha handled: a stale slice-1 app instance was still on :8080; ensure port is free before
+  launching, and wait for the seeder log line rather than a possibly-stale health response.
 
 ### 2026-09-12 — Phase 1, slice 2 ✅ (identity & organization data model)
 - Flyway `V2__identity_and_organization.sql`: `organization`, `app_user`, `role` (7 roles seeded),
