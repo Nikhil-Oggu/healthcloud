@@ -4,10 +4,10 @@
 > exists, or manually). Read this + `CLAUDE.md` + `docs/PLAN.md` at the start of every session.
 
 ## Current position
-- **Phase:** 0 — Project design & planning ✅ **COMPLETE**
+- **Phase:** 0 ✅ complete · **Environment setup** ✅ complete
 - **Repo:** https://github.com/Nikhil-Oggu/healthcloud (private, branch `main`)
-- **Next up:** Environment setup (install Java 25, Maven, Node 24, Docker — none installed yet),
-  then Phase 1 slice 1 (Spring Boot skeleton + Postgres in Docker Compose).
+- **Next up:** **Phase 1, slice 1** — Spring Boot 4.1 skeleton + PostgreSQL in Docker Compose,
+  runnable locally with a health endpoint. Plan the slice first, then build.
 
 ## Log (newest first)
 
@@ -21,9 +21,13 @@
 - `git init`, first commit, created **private** GitHub repo `Nikhil-Oggu/healthcloud`, pushed `main`. ✅
 - Phase 0 complete.
 
-## Environment status (2026-09-12)
-- ✅ Git, GitHub CLI (logged in as `Nikhil-Oggu`), VS Code, git identity all set.
-- ⬜ Not yet installed: Java 25, Maven, Node 24, Docker Desktop (needed from Phase 1 — done in the "Phase −1" setup session).
+## Environment status (2026-09-12) — ALL READY ✅
+- ✅ Git, GitHub CLI (logged in as `Nikhil-Oggu`), VS Code, git identity.
+- ✅ Java `25.0.4` (Homebrew `openjdk@25`), `javac` 25 — JAVA_HOME + PATH set in `~/.zshrc`.
+- ✅ Node `24.21.0` (Homebrew `node@24`) + npm `11.19` — on PATH via `~/.zshrc`.
+- ✅ Docker Desktop: daemon running (v29.7.2, aarch64), `hello-world` container ran; Compose v5.5.1.
+- Maven: not global — using the per-project Maven wrapper (`mvnw`) instead, per baseline.
+- Note: `~/.zshrc` created with a `HealthCloud dev env` block (openjdk@25 + node@24 on PATH); Docker Desktop appended its CLI-completions block.
 
 ## Definition of "slice done"
 Functionality works + negative/security cases pass + tests written + docs updated + committed + this file updated.
