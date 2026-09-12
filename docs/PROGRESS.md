@@ -4,9 +4,10 @@
 > exists, or manually). Read this + `CLAUDE.md` + `docs/PLAN.md` at the start of every session.
 
 ## Current position
-- **Phase:** 0 — Project design & planning (in progress)
-- **Next up:** finish Phase 0 (git + GitHub repo), then Phase −1 environment setup (install Java 25,
-  Node 24, Docker), then Phase 1 slice 1 (Spring Boot skeleton + Postgres in Docker Compose).
+- **Phase:** 0 — Project design & planning ✅ **COMPLETE**
+- **Repo:** https://github.com/Nikhil-Oggu/healthcloud (private, branch `main`)
+- **Next up:** Environment setup (install Java 25, Maven, Node 24, Docker — none installed yet),
+  then Phase 1 slice 1 (Spring Boot skeleton + Postgres in Docker Compose).
 
 ## Log (newest first)
 
@@ -17,7 +18,8 @@
 - Wrote `CLAUDE.md` (rulebook), `docs/PLAN.md` (roadmap), this `docs/PROGRESS.md`.
 - Drafted first ADRs (001 modular monolith, 002 shared-DB multi-tenancy, 004 Cognito+BFF) + ADR template/index.
 - Added `README.md`, `.gitignore`, `docker-compose.yml` placeholder, OpenAPI + event-catalog stubs.
-- **Pending in this phase:** `git init` + first commit + create private GitHub repo + push.
+- `git init`, first commit, created **private** GitHub repo `Nikhil-Oggu/healthcloud`, pushed `main`. ✅
+- Phase 0 complete.
 
 ## Environment status (2026-09-12)
 - ✅ Git, GitHub CLI (logged in as `Nikhil-Oggu`), VS Code, git identity all set.
