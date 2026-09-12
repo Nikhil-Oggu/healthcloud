@@ -4,13 +4,25 @@
 > exists, or manually). Read this + `CLAUDE.md` + `docs/PLAN.md` at the start of every session.
 
 ## Current position
-- **Phase:** 0 ✅ · Environment ✅ · **Phase 1, slice 1** ✅ complete
+- **Phase:** 0 ✅ · Environment ✅ · Phase 1 slice 1 ✅ · **Phase 1, slice 2** ✅ complete
 - **Repo:** https://github.com/Nikhil-Oggu/healthcloud (private, branch `main`)
-- **Next up:** **Phase 1, slice 2** — first real domain tables + tenant model. Likely: `organization`
-  and `app_user` Flyway migrations + JPA entities/repositories, and a backend-derived tenant context
-  skeleton (no auth yet). Plan the slice first, then build.
+- **Next up:** **Phase 1, slice 3** — deterministic demo seed (NorthCare / Green Valley orgs, synthetic
+  users + memberships + roles) via a dev-profile seeder + reset script, and `facility` /
+  `facility_membership` tables. Plan the slice first, then build.
 
 ## Log (newest first)
+
+### 2026-09-12 — Phase 1, slice 2 ✅ (identity & organization data model)
+- Flyway `V2__identity_and_organization.sql`: `organization`, `app_user`, `role` (7 roles seeded),
+  `organization_membership` (tenant key), `user_role`. UUID PKs, `@Version` columns, unique email
+  (case-insensitive), one-ACTIVE-membership-per-user partial unique index, tenant FKs.
+- JPA entities + Spring Data repositories in `com.healthcloud.organization` and `com.healthcloud.identity`.
+- Testing pattern established: **Testcontainers** (real PostgreSQL 17) via shared
+  `TestcontainersConfiguration` + `@ServiceConnection`; tests never use the dev DB (CI-friendly).
+- **Verified:** `./mvnw test` → 5 tests pass. Proves roles seeded, org/user/membership persist,
+  org-scoped query returns only that tenant's rows, duplicate email rejected, second active membership rejected.
+- Note: Testcontainers is **2.0.5** in Boot 4.1 → artifacts are `testcontainers-junit-jupiter` /
+  `testcontainers-postgresql` (renamed with prefix in TC 2.0).
 
 ### 2026-09-12 — Phase 1, slice 1 ✅ (bootable app + Postgres + Flyway)
 - Generated Spring Boot **4.1.0** / Java **25** project into `backend/` (Web, Actuator, Data JPA,
