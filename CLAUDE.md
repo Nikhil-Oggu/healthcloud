@@ -58,6 +58,39 @@ healthcare portfolio application built on **synthetic data only**. Full frozen d
 - **Idempotency:** retriable commands (create request, submit claim, start adjudication) require an Idempotency-Key.
 - **Errors:** consistent shape `{code, message, correlationId, details}`; secure 404 for existence-sensitive denials.
 
+## How to build, run & test (local)
+Non-interactive shells must set the toolchain first (interactive terminals get it from `~/.zshrc`):
+```
+export JAVA_HOME="/opt/homebrew/opt/openjdk@25"
+export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$HOME/.docker/bin:$PATH"
+```
+- **DB up:** `docker compose up -d postgres`  ·  **DB reset (reseed):** `./scripts/db-reset.sh`
+- **Run app (seeds demo data):** `cd backend && ./mvnw spring-boot:run -Dspring-boot.run.profiles=local`
+- **Tests:** `cd backend && ./mvnw test` (uses Testcontainers → Docker must be running)
+- **Health:** `curl localhost:8080/actuator/health` · **Login+me:**
+  `curl -c j -X POST localhost:8080/api/v1/dev-login --data email=provider@northcare.example.org && curl -b j localhost:8080/api/v1/me`
+- Only the **`local`** profile seeds demo data and exposes `dev-login`.
+
+## Current implementation (Phase 1 in progress; see docs/PROGRESS.md for status)
+- **Backend packages** under `com.healthcloud`: `organization` (Organization, Facility, FacilityMembership),
+  `identity` (AppUser, Role, OrganizationMembership, UserRole), `auth` (SecurityConfig, DevLoginController,
+  CurrentUserController/Service, CsrfCookieFilter), `devdata` (DevDataSeeder, local-only).
+- **Entities:** UUID PKs (`@GeneratedValue(strategy = UUID)`), `@Version` on mutable rows, enums as
+  `EnumType.STRING`, `OffsetDateTime` timestamps set via `@PrePersist`/`@PreUpdate`.
+- **Schema is owned by Flyway** (`db/migration/V*.sql`); Hibernate is `ddl-auto: validate` (never generates DDL).
+- **Auth:** session-based; `SESSION` cookie (HttpOnly), Spring Session JDBC (tables in `spring_session`);
+  CSRF via readable `XSRF-TOKEN` cookie + `X-XSRF-TOKEN` header; unauthenticated protected requests → 401.
+  Login is a **local dev stand-in** (email only, no password/MFA — ADR-018); Cognito+MFA come later.
+- **Testing pattern:** real PostgreSQL via `TestcontainersConfiguration` (`@ServiceConnection`), imported with
+  `@Import(TestcontainersConfiguration.class)`; repository/logic tests use `@SpringBootTest`; full HTTP/session
+  flows use a real server (`webEnvironment = RANDOM_PORT`) + JDK `HttpClient` (not MockMvc). No mocks for data access.
+
+## Boot 4.1 notes (learned; avoid re-discovering)
+- Testcontainers is **2.0.x** here → artifacts are `testcontainers-junit-jupiter` / `testcontainers-postgresql`.
+- Spring Session needs the **starter** `spring-boot-starter-session-jdbc` (the raw library alone doesn't auto-configure).
+- Some test types moved packages: `@AutoConfigureMockMvc` → `org.springframework.boot.webmvc.test.autoconfigure`.
+- MockMvc doesn't run the Spring Session filter → test real session cookies with RANDOM_PORT + HttpClient.
+
 ## Repo layout
 `backend/` `frontend/` `worker/` `infrastructure/{terraform,environments}` `api/openapi/`
 `docs/{architecture,er-diagram,events,threat-model,adr,runbooks,evidence,learning,source-of-truth}/`
