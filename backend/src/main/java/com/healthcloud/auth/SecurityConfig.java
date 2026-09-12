@@ -1,5 +1,9 @@
 package com.healthcloud.auth;
 
+import tools.jackson.databind.ObjectMapper;
+import com.healthcloud.context.UserContextFilter;
+import com.healthcloud.error.RestAccessDeniedHandler;
+import com.healthcloud.error.RestAuthenticationEntryPoint;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpStatus;
@@ -7,7 +11,7 @@ import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
-import org.springframework.security.web.authentication.HttpStatusEntryPoint;
+import org.springframework.security.web.access.intercept.AuthorizationFilter;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
 import org.springframework.security.web.csrf.CsrfFilter;
 import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
@@ -24,7 +28,9 @@ import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
 public class SecurityConfig {
 
     @Bean
-    SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+    SecurityFilterChain securityFilterChain(HttpSecurity http,
+                                            ObjectMapper objectMapper,
+                                            CurrentUserService currentUserService) throws Exception {
         http
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/actuator/health", "/actuator/health/**", "/actuator/info").permitAll()
@@ -35,8 +41,11 @@ public class SecurityConfig {
                         .csrfTokenRequestHandler(new CsrfTokenRequestAttributeHandler())
                         .ignoringRequestMatchers("/api/v1/dev-login"))
                 .addFilterAfter(new CsrfCookieFilter(), CsrfFilter.class)
+                // After authorization succeeds, resolve the backend-derived caller/tenant context.
+                .addFilterAfter(new UserContextFilter(currentUserService), AuthorizationFilter.class)
                 .exceptionHandling(ex -> ex
-                        .authenticationEntryPoint(new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED)))
+                        .authenticationEntryPoint(new RestAuthenticationEntryPoint(objectMapper))
+                        .accessDeniedHandler(new RestAccessDeniedHandler(objectMapper)))
                 .logout(logout -> logout
                         .logoutUrl("/api/v1/logout")
                         .logoutSuccessHandler((request, response, authentication) ->

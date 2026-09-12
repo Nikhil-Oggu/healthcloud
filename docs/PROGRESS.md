@@ -4,17 +4,41 @@
 > exists, or manually). Read this + `CLAUDE.md` + `docs/PLAN.md` at the start of every session.
 
 ## Current position
-- **Phase:** 0 ✅ · Environment ✅ · Phase 1 slices 1–4 ✅ complete
+- **Phase:** 0 ✅ · Environment ✅ · Phase 1 slices 1–5 ✅ complete
 - **Repo:** https://github.com/Nikhil-Oggu/healthcloud (private, branch `main`)
-- **Next up:** **Phase 1, slice 5** — backend-derived request-scoped tenant/user context + the global
-  error-handling model (`{code, message, correlationId, details}`), building on `/me`. Then the
-  React frontend shell (first visible UI). Plan the slice first, then build.
+- **Next up:** **Phase 1, slice 6** — the **React frontend shell** (first visible UI): Vite + TS app,
+  routing, a session-aware nav that calls `/me`, protected routes, CSRF header wiring, and
+  loading/error/denied states. Plan the slice first, then build.
 - **Run the demo:** `docker compose up -d postgres` then
   `cd backend && ./mvnw spring-boot:run -Dspring-boot.run.profiles=local`.
   Log in: `curl -c j.txt -X POST localhost:8080/api/v1/dev-login --data email=admin@greenvalley.example.org`
   then `curl -b j.txt localhost:8080/api/v1/me`. Reset DB with `./scripts/db-reset.sh`.
 
 ## Log (newest first)
+
+### 2026-09-12 — Phase 1, slice 5 ✅ (backend-derived request context + global error model)
+- **`com.healthcloud.context`:** `UserContext` (immutable snapshot: user, org/tenant, roles),
+  `UserContextFilter` (resolves the session principal → context, added after `AuthorizationFilter`,
+  cleared per request), `UserContextAccessor` (`current()`, `requireUser()` → 401,
+  `requireOrganizationId()` → 403). This is the trusted, backend-only source of caller/tenant identity.
+- **`com.healthcloud.error`:** `ApiError` `{code, message, correlationId, details}`, `ErrorCode` enum,
+  `ApiException`(+`NotFoundException`, `TenantContextRequiredException`), `GlobalExceptionHandler`
+  (@RestControllerAdvice: ApiException, validation, missing-param, AccessDenied, catch-all 500 with a
+  generic message — no internals leaked). Security-chain 401/403 now emit the same JSON via
+  `RestAuthenticationEntryPoint`/`RestAccessDeniedHandler` (replaced the empty-body 401 entry point).
+- **`CorrelationIdFilter`** (highest precedence, before security): reuses a *safe* inbound
+  `X-Correlation-Id` or generates one, exposes it in the log MDC (`%X{correlationId}`) and echoes it
+  on the response; hostile header values are rejected (anti log/response-injection).
+- Refactored `/me` to build its DTO from `UserContext` (proves the context populates end-to-end; the
+  response contract is unchanged).
+- **Verified:** `./mvnw test` → **22 tests pass** (+4 `UserContextAccessorTest`, +4
+  `ErrorContractIntegrationTest`; all 14 prior tests still green). Real-server tests confirm: 401 →
+  `{code:UNAUTHENTICATED,...}` with an `X-Correlation-Id` header; an inbound id is echoed in header +
+  body; an unsafe id is replaced; a missing required param → 400 `VALIDATION_FAILED` with field details.
+- **Boot 4.1 gotcha handled:** Jackson 3 → `tools.jackson.databind.ObjectMapper` (annotations stay
+  `com.fasterxml.jackson.annotation`). Recorded in CLAUDE.md.
+- Not in this slice (later, on purpose): Idempotency-Key + optimistic-lock conflict responses (arrive
+  with Phase 2 write endpoints); the React error UI (frontend shell slice).
 
 ### 2026-09-12 — Phase 1, slice 4 ✅ (authentication foundation: login + sessions + /me)
 - Added `spring-boot-starter-security` + `spring-boot-starter-session-jdbc`; `V4__spring_session.sql`.

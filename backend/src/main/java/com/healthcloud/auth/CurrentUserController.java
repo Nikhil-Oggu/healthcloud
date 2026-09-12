@@ -1,27 +1,38 @@
 package com.healthcloud.auth;
 
-import java.security.Principal;
-import org.springframework.http.ResponseEntity;
+import com.healthcloud.context.UserContext;
+import com.healthcloud.context.UserContextAccessor;
+import java.util.List;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-/** Returns the authenticated user's context ("who am I"). */
+/**
+ * Returns the authenticated user's context ("who am I"). The identity is read from the
+ * backend-derived {@link UserContext} (populated per request from the session), not re-derived from
+ * anything the client sent — the single trusted source for who the caller is and which tenant.
+ */
 @RestController
 @RequestMapping("/api/v1")
 public class CurrentUserController {
 
-    private final CurrentUserService currentUserService;
+    private final UserContextAccessor userContext;
 
-    public CurrentUserController(CurrentUserService currentUserService) {
-        this.currentUserService = currentUserService;
+    public CurrentUserController(UserContextAccessor userContext) {
+        this.userContext = userContext;
     }
 
     @GetMapping("/me")
-    public ResponseEntity<CurrentUserDto> me(Principal principal) {
-        // Principal is guaranteed non-null here: SecurityConfig requires authentication for this route.
-        return currentUserService.resolveByEmail(principal.getName())
-                .map(ResponseEntity::ok)
-                .orElseGet(() -> ResponseEntity.status(401).build());
+    public CurrentUserDto me() {
+        // Reaching here means SecurityConfig already required authentication; requireUser() defends
+        // against the (unexpected) case of an authenticated principal that could not be resolved.
+        UserContext ctx = userContext.requireUser();
+        return new CurrentUserDto(
+                ctx.userId(),
+                ctx.email(),
+                ctx.fullName(),
+                ctx.organizationId(),
+                ctx.organizationName(),
+                List.copyOf(ctx.roles()));
     }
 }

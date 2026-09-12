@@ -74,7 +74,17 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
 ## Current implementation (Phase 1 in progress; see docs/PROGRESS.md for status)
 - **Backend packages** under `com.healthcloud`: `organization` (Organization, Facility, FacilityMembership),
   `identity` (AppUser, Role, OrganizationMembership, UserRole), `auth` (SecurityConfig, DevLoginController,
-  CurrentUserController/Service, CsrfCookieFilter), `devdata` (DevDataSeeder, local-only).
+  CurrentUserController/Service, CsrfCookieFilter), `context` (UserContext + UserContextAccessor/Filter),
+  `error` (ApiError, ErrorCode, GlobalExceptionHandler, CorrelationId), `devdata` (DevDataSeeder, local-only).
+- **Caller/tenant context:** every request's identity is derived on the backend by `UserContextFilter`
+  (resolves the session principal → user/org/roles) into a request-scoped `UserContext`. Services read it
+  **only** via `UserContextAccessor` (`requireUser()`, `requireOrganizationId()`) — never trust a client-sent
+  org/tenant id. Constrain all tenant-owned queries by `requireOrganizationId()`.
+- **Errors:** one shape `{code, message, correlationId, details}` (`ApiError`). Throw `ApiException`
+  subclasses (e.g. `NotFoundException`) or add an `ErrorCode`; `GlobalExceptionHandler` (@RestControllerAdvice)
+  + the Security `RestAuthenticationEntryPoint`/`RestAccessDeniedHandler` render them uniformly (controllers
+  AND filter-chain 401/403). `CorrelationIdFilter` sets a per-request id (MDC `%X{correlationId}` in logs,
+  echoed as `X-Correlation-Id`). Never leak internal/sensitive text in `message`/`details`.
 - **Entities:** UUID PKs (`@GeneratedValue(strategy = UUID)`), `@Version` on mutable rows, enums as
   `EnumType.STRING`, `OffsetDateTime` timestamps set via `@PrePersist`/`@PreUpdate`.
 - **Schema is owned by Flyway** (`db/migration/V*.sql`); Hibernate is `ddl-auto: validate` (never generates DDL).
@@ -90,6 +100,8 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
 - Spring Session needs the **starter** `spring-boot-starter-session-jdbc` (the raw library alone doesn't auto-configure).
 - Some test types moved packages: `@AutoConfigureMockMvc` → `org.springframework.boot.webmvc.test.autoconfigure`.
 - MockMvc doesn't run the Spring Session filter → test real session cookies with RANDOM_PORT + HttpClient.
+- **Jackson 3** here: `ObjectMapper` is `tools.jackson.databind.ObjectMapper` (not `com.fasterxml.jackson.databind`);
+  annotations stay under `com.fasterxml.jackson.annotation`. `writeValue(...)` throws unchecked `JacksonException`.
 
 ## Repo layout
 `backend/` `frontend/` `worker/` `infrastructure/{terraform,environments}` `api/openapi/`
