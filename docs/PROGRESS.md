@@ -4,12 +4,23 @@
 > exists, or manually). Read this + `CLAUDE.md` + `docs/PLAN.md` at the start of every session.
 
 ## Current position
-- **Phase:** 0 ✅ complete · **Environment setup** ✅ complete
+- **Phase:** 0 ✅ · Environment ✅ · **Phase 1, slice 1** ✅ complete
 - **Repo:** https://github.com/Nikhil-Oggu/healthcloud (private, branch `main`)
-- **Next up:** **Phase 1, slice 1** — Spring Boot 4.1 skeleton + PostgreSQL in Docker Compose,
-  runnable locally with a health endpoint. Plan the slice first, then build.
+- **Next up:** **Phase 1, slice 2** — first real domain tables + tenant model. Likely: `organization`
+  and `app_user` Flyway migrations + JPA entities/repositories, and a backend-derived tenant context
+  skeleton (no auth yet). Plan the slice first, then build.
 
 ## Log (newest first)
+
+### 2026-09-12 — Phase 1, slice 1 ✅ (bootable app + Postgres + Flyway)
+- Generated Spring Boot **4.1.0** / Java **25** project into `backend/` (Web, Actuator, Data JPA,
+  PostgreSQL, Flyway, Validation) via Spring Initializr; Maven wrapper (`mvnw`).
+- `application.yml`: DB connection, Flyway enabled, actuator health with DB details; `ddl-auto: validate`.
+- `docker-compose.yml`: real `postgres:17` service (volume + healthcheck). `.env.example` added.
+- First migration `V1__baseline.sql` (creates `platform_metadata`).
+- **Verified:** `docker compose up -d postgres` (PostgreSQL 17.11 healthy) → `./mvnw spring-boot:run`
+  → `/actuator/health` = UP with `db: UP` → Flyway V1 applied (success) → `platform_metadata` row present.
+- Decision: local dev runs Postgres in Docker + app via `mvnw`; backend containerized later (Phase 10).
 
 ### 2026-09-12 — Phase 0 started
 - Created clean repo root `~/Desktop/healthcloud` (lowercase, no space).

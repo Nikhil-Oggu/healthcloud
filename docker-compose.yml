@@ -1,10 +1,31 @@
 # HealthCloud — local development stack
 #
-# PLACEHOLDER (Phase 0). The real services are added in Phase 1:
-#   - postgres   (PostgreSQL 17 — app database + Spring Session tables)
-#   - backend    (Spring Boot 4.1 BFF/API)
-#   - frontend   (React/Vite dev server)
-# Later phases add: kafka (KRaft), mailpit (email testing), a fake malware scanner.
+# Phase 1 slice 1: PostgreSQL only. The Spring Boot app is run locally with
+# `./mvnw spring-boot:run` during development (fast restarts). Later phases add
+# kafka (KRaft), mailpit (email testing), and a fake malware scanner; the backend
+# is containerized in Phase 10 (cloud).
 #
-# Kept intentionally empty until Phase 1 so `docker compose up` isn't run before the app exists.
-services: {}
+# Usage:  docker compose up -d postgres
+#         docker compose ps
+#         docker compose down          (add -v to also delete the data volume)
+
+services:
+  postgres:
+    image: postgres:17
+    container_name: healthcloud-postgres
+    environment:
+      POSTGRES_DB: healthcloud
+      POSTGRES_USER: ${HEALTHCLOUD_DB_USER:-healthcloud}
+      POSTGRES_PASSWORD: ${HEALTHCLOUD_DB_PASSWORD:-healthcloud}
+    ports:
+      - "5432:5432"
+    volumes:
+      - healthcloud-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${HEALTHCLOUD_DB_USER:-healthcloud} -d healthcloud"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  healthcloud-pgdata:
