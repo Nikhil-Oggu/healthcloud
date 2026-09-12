@@ -1,0 +1,22 @@
+openapi: 3.1.0
+info:
+  title: HealthCloud API
+  version: 0.0.1
+  description: >
+    PLACEHOLDER (Phase 0). The real API contract is filled in starting Phase 1
+    (auth/session, current-user) and grows each phase. Error responses use the
+    standard shape { code, message, correlationId, details }.
+servers:
+  - url: /api/v1
+paths: {}
+components:
+  schemas:
+    Error:
+      type: object
+      properties:
+        code: { type: string, example: AUTHORIZATION_DENIED }
+        message: { type: string }
+        correlationId: { type: string }
+        details:
+          type: array
+          items: { type: object }
