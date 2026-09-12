@@ -4,16 +4,31 @@
 > exists, or manually). Read this + `CLAUDE.md` + `docs/PLAN.md` at the start of every session.
 
 ## Current position
-- **Phase:** 0 ✅ · Environment ✅ · Phase 1 slices 1–3 ✅ complete
+- **Phase:** 0 ✅ · Environment ✅ · Phase 1 slices 1–4 ✅ complete
 - **Repo:** https://github.com/Nikhil-Oggu/healthcloud (private, branch `main`)
-- **Next up:** **Phase 1, slice 4** — authentication foundation: Spring Security + Spring Session
-  (JDBC) + a local-dev login stand-in + a `/api/v1/me` current-user endpoint (Cognito/BFF wired
-  later). Backend-derived tenant/user context follows. Plan the slice first, then build.
+- **Next up:** **Phase 1, slice 5** — backend-derived request-scoped tenant/user context + the global
+  error-handling model (`{code, message, correlationId, details}`), building on `/me`. Then the
+  React frontend shell (first visible UI). Plan the slice first, then build.
 - **Run the demo:** `docker compose up -d postgres` then
-  `cd backend && ./mvnw spring-boot:run -Dspring-boot.run.profiles=local` (seeds NorthCare/Green Valley).
-  Reset with `./scripts/db-reset.sh`.
+  `cd backend && ./mvnw spring-boot:run -Dspring-boot.run.profiles=local`.
+  Log in: `curl -c j.txt -X POST localhost:8080/api/v1/dev-login --data email=admin@greenvalley.example.org`
+  then `curl -b j.txt localhost:8080/api/v1/me`. Reset DB with `./scripts/db-reset.sh`.
 
 ## Log (newest first)
+
+### 2026-09-12 — Phase 1, slice 4 ✅ (authentication foundation: login + sessions + /me)
+- Added `spring-boot-starter-security` + `spring-boot-starter-session-jdbc`; `V4__spring_session.sql`.
+- `SecurityConfig`: session-based, 401 entry point (no redirect), CSRF via readable cookie +
+  `CsrfCookieFilter`, logout at `/api/v1/logout`; `/actuator/health` + `/dev-login` public, rest authenticated.
+- `DevLoginController` (`@Profile local`): email-only session login stand-in (NO password/MFA — ADR-018).
+- `CurrentUserController` `/api/v1/me` + `CurrentUserService` → user → active membership → org → roles.
+- **Verified:** `./mvnw test` → 14 tests pass (4 MockMvc logic + 1 real-server session lifecycle).
+  Live: dev-login sets HttpOnly SESSION cookie, /me returns correct org/roles, session row in
+  `spring_session`, /me without cookie → 401.
+- ADR-018 records the dev-login stand-in and its honest limitations (Cognito+MFA later).
+- Boot 4.1 gotchas handled: test annotations moved packages (`AutoConfigureMockMvc` →
+  `...webmvc.test.autoconfigure`); Spring Session needs the **starter** module, not the raw library;
+  session-cookie flow must be tested with a real server (RANDOM_PORT + JDK HttpClient), not MockMvc.
 
 ### 2026-09-12 — Phase 1, slice 3 ✅ (facilities + NorthCare/Green Valley demo seed)
 - Flyway `V3__facilities.sql`: `facility`, `facility_membership` (+ entities/repositories in

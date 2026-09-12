@@ -11,4 +11,7 @@ public interface OrganizationMembershipRepository extends JpaRepository<Organiza
     List<OrganizationMembership> findByOrganization_Id(UUID organizationId);
 
     Optional<OrganizationMembership> findByOrganization_IdAndAppUser_Id(UUID organizationId, UUID appUserId);
+
+    /** A user's single active membership (initial-version rule: at most one). */
+    Optional<OrganizationMembership> findByAppUser_IdAndStatus(UUID appUserId, MembershipStatus status);
 }

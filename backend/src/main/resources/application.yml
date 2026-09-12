@@ -15,6 +15,9 @@ spring:
   flyway:
     enabled: true
     locations: classpath:db/migration
+  session:
+    jdbc:
+      initialize-schema: never    # schema is owned by Flyway (V4), not auto-created by Spring Session
 
 server:
   port: 8080
