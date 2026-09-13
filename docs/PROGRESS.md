@@ -4,17 +4,37 @@
 > exists, or manually). Read this + `CLAUDE.md` + `docs/PLAN.md` at the start of every session.
 
 ## Current position
-- **Phase:** 0 ✅ · Environment ✅ · Phase 1 slices 1–5 ✅ complete
+- **Phase:** 0 ✅ · Environment ✅ · Phase 1 slices 1–6 ✅ complete
 - **Repo:** https://github.com/Nikhil-Oggu/healthcloud (private, branch `main`)
-- **Next up:** **Phase 1, slice 6** — the **React frontend shell** (first visible UI): Vite + TS app,
-  routing, a session-aware nav that calls `/me`, protected routes, CSRF header wiring, and
-  loading/error/denied states. Plan the slice first, then build.
+- **Next up:** **Phase 1, slice 7 (foundation wrap-up)** — the last Phase-1 loose ends before Phase 2:
+  a first **GitHub Actions CI** pipeline (backend `mvnw test` + frontend `npm ci && typecheck && test`),
+  and the acceptance proof of **cross-tenant isolation** (a NorthCare user cannot read Green Valley data).
+  Then Phase 1 is done and Phase 2 (care-coordination workflow) begins. Plan the slice first, then build.
+- **Run the frontend:** with Postgres + backend up, `cd frontend && npm run dev` → open
+  http://localhost:5173 → sign in as a seeded demo user.
 - **Run the demo:** `docker compose up -d postgres` then
   `cd backend && ./mvnw spring-boot:run -Dspring-boot.run.profiles=local`.
   Log in: `curl -c j.txt -X POST localhost:8080/api/v1/dev-login --data email=admin@greenvalley.example.org`
   then `curl -b j.txt localhost:8080/api/v1/me`. Reset DB with `./scripts/db-reset.sh`.
 
 ## Log (newest first)
+
+### 2026-09-12 — Phase 1, slice 6 ✅ (React frontend shell — first visible UI)
+- Scaffolded `frontend/`: Vite 8 + React 19 + TS 6, React Router 7, TanStack Query 5, MUI 9, Vitest + RTL.
+- **Same-origin dev setup:** Vite proxies `/api` + `/actuator` → `:8080`, so the HttpOnly `SESSION` and
+  readable `XSRF-TOKEN` cookies are first-party — no CORS, no tokens in JS (matches the BFF model).
+- `api/client.ts`: typed `fetch` wrapper, `ApiClientError` (carries `code`/`correlationId`), auto-injects
+  `X-XSRF-TOKEN` on state-changing calls. `useCurrentUser()` queries `/me` (401/403 not retried).
+- Screens: `LoginPage` (dev-login dropdown of the 10 seeded users), `AppLayout` (top bar: email · org ·
+  role chips · logout; role-aware nav placeholders), `HomePage` (identity card), `ProtectedRoute`
+  (spinner → redirect to /login on 401 → else render), plus `ErrorScreen` (shows message + correlationId)
+  and `DeniedPage`/`NotFoundPage`.
+- **Verified:** `npm run typecheck` clean; `npm test` → **3 Vitest tests pass** (org/roles render, 401→login
+  redirect, ErrorScreen shows correlationId). **Live in-browser:** unauth `/`→`/login`; sign in as
+  `provider@northcare.example.org` → shell shows *NorthCare Health / PROVIDER / Dana Provider*; **logout POST
+  returned 200** (CSRF header handshake works) → back to /login.
+- Added `.claude/launch.json` (frontend dev server). Gotcha: MUI 9 `Stack` `alignItems` as a direct prop
+  can fail typecheck with mixed children — put it in `sx` instead.
 
 ### 2026-09-12 — Phase 1, slice 5 ✅ (backend-derived request context + global error model)
 - **`com.healthcloud.context`:** `UserContext` (immutable snapshot: user, org/tenant, roles),
