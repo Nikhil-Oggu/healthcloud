@@ -1,6 +1,7 @@
 package com.healthcloud.patient;
 
 import com.healthcloud.context.UserContextAccessor;
+import com.healthcloud.error.ConflictException;
 import com.healthcloud.error.NotFoundException;
 import java.util.List;
 import java.util.UUID;
@@ -19,6 +20,9 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 @Transactional(readOnly = true)
 public class PatientService {
+
+    /** Roles allowed to create/modify patient profiles (reads are open to any same-tenant user). */
+    private static final String[] WRITE_ROLES = {"CARE_COORDINATOR", "ORG_ADMIN"};
 
     private final PatientRepository patients;
     private final UserContextAccessor userContext;
@@ -42,5 +46,49 @@ public class PatientService {
         return patients.findByOrganizationIdOrderByFullNameAsc(organizationId).stream()
                 .map(PatientDto::from)
                 .toList();
+    }
+
+    /**
+     * Create a patient in the caller's tenant. Requires a write role (403 otherwise). The tenant is
+     * stamped from context — never from the client. A duplicate MRN within the tenant is a 409.
+     */
+    @Transactional
+    public PatientDto create(PatientCreateRequest request) {
+        userContext.requireAnyRole(WRITE_ROLES);
+        UUID organizationId = userContext.requireOrganizationId();
+
+        if (patients.existsByOrganizationIdAndMedicalRecordNumber(organizationId, request.medicalRecordNumber())) {
+            throw new ConflictException("A patient with that medical record number already exists.");
+        }
+
+        Patient patient = patients.save(new Patient(
+                organizationId,
+                request.medicalRecordNumber(),
+                request.fullName(),
+                request.dateOfBirth()));
+        return PatientDto.from(patient);
+    }
+
+    /**
+     * Update a patient's mutable fields, scoped to the caller's tenant (cross-tenant → 404). Requires a
+     * write role. Optimistic locking: if the caller's {@code expectedVersion} no longer matches the row,
+     * a concurrent change happened → 409, and nothing is overwritten.
+     */
+    @Transactional
+    public PatientDto update(UUID id, PatientUpdateRequest request) {
+        userContext.requireAnyRole(WRITE_ROLES);
+        UUID organizationId = userContext.requireOrganizationId();
+
+        Patient patient = patients.findByIdAndOrganizationId(id, organizationId)
+                .orElseThrow(NotFoundException::new);
+
+        if (patient.getVersion() != request.expectedVersion()) {
+            throw new ConflictException("This patient was modified by someone else; reload and try again.");
+        }
+
+        patient.setFullName(request.fullName());
+        patient.setStatus(request.status());
+        // Flush now so the returned DTO carries the incremented @Version (the client's next expectedVersion).
+        return PatientDto.from(patients.saveAndFlush(patient));
     }
 }

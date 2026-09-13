@@ -4,12 +4,11 @@
 > exists, or manually). Read this + `CLAUDE.md` + `docs/PLAN.md` at the start of every session.
 
 ## Current position
-- **Phase:** 0 ✅ · Environment ✅ · Phase 1 COMPLETE ✅ · **Phase 2 slice 1 ✅ (patient profile)**
+- **Phase:** 0 ✅ · Environment ✅ · Phase 1 COMPLETE ✅ · **Phase 2 slices 1–2 ✅ (patient read + write)**
 - **Repo:** https://github.com/Nikhil-Oggu/healthcloud (private, branch `main`)
-- **Next up:** **Phase 2, slice 2** — the natural companions to the patient read model: provider profiles +
-  assignments (`provider`, `provider_patient_assignment`, `care_coordinator_assignment`) and/or the
-  patient **write** path (POST/PATCH create-update, stamping org from context) and a small frontend
-  Patients screen. Then service requests + the state machine (later slices). Plan the slice first, then build.
+- **Next up:** **Phase 2, slice 3** — the **Patients UI** (list + create form using React Hook Form 7 + Zod 4,
+  first use of both), wiring the read/write endpoints into a visible screen; then provider profiles +
+  assignments, then service requests + the state machine. Plan the slice first, then build.
 - **Run the frontend:** with Postgres + backend up, `cd frontend && npm run dev` → open
   http://localhost:5173 → sign in as a seeded demo user.
 - **Run the demo:** `docker compose up -d postgres` then
@@ -18,6 +17,26 @@
   then `curl -b j.txt localhost:8080/api/v1/me`. Reset DB with `./scripts/db-reset.sh`.
 
 ## Log (newest first)
+
+### 2026-09-13 — Phase 2, slice 2 ✅ (patient write path: create + update)
+- **Endpoints:** `POST /api/v1/patients` (201 + Location) and `PATCH /api/v1/patients/{id}` (200), thin
+  controller → `PatientService`. Requests: `PatientCreateRequest`/`PatientUpdateRequest` (Jakarta
+  validation → 400 `VALIDATION_FAILED` with field details).
+- **First backend role authorization:** writes require `CARE_COORDINATOR` or `ORG_ADMIN` via new
+  `UserContextAccessor.requireAnyRole(...)` (reads stay open to any same-tenant user); disallowed → 403
+  `ACCESS_DENIED`. Roles come from the backend-derived `UserContext`, never the client.
+- **Tenant stamping on write:** `organizationId` is set from context on create — a client can't create in
+  another tenant; cross-tenant `PATCH` → secure 404.
+- **Conflicts (409):** duplicate MRN within a tenant (pre-checked, `ConflictException` + new
+  `existsByOrganizationIdAndMedicalRecordNumber`); **optimistic locking** — client sends the `version` it
+  last saw as `expectedVersion`, mismatch → 409 (nothing overwritten). `PatientDto` now exposes `version`;
+  successful update flushes so the response carries the incremented version.
+- **Verified:** `./mvnw -B verify` → **35 tests pass** (+6 `PatientWriteApiIntegrationTest`: create-as-coordinator
+  → 201 & listed; provider → 403; duplicate MRN → 409; invalid → 400; stale version → 409; cross-tenant
+  update → 404). Writes exercise the real CSRF cookie→header handshake for the first time on a business write.
+- **Deferred on purpose:** Idempotency-Key (reserved for the retriable commands §31 names — create request /
+  submit claim / start adjudication; a patient create doesn't need it); Patients UI (slice 3); audit/outbox
+  on writes (Ph 3/7/8); consent/purpose + field masking (Phase 3).
 
 ### 2026-09-13 — Phase 2, slice 1 ✅ (patient profile — first tenant-owned business resource)
 - **`db/migration/V5__patient.sql`:** `patient` table — tenant key `organization_id`, synthetic MRN,

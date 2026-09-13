@@ -12,7 +12,8 @@ public record PatientDto(
         String medicalRecordNumber,
         String fullName,
         LocalDate dateOfBirth,
-        PatientStatus status) {
+        PatientStatus status,
+        long version) {
 
     public static PatientDto from(Patient patient) {
         return new PatientDto(
@@ -20,6 +21,7 @@ public record PatientDto(
                 patient.getMedicalRecordNumber(),
                 patient.getFullName(),
                 patient.getDateOfBirth(),
-                patient.getStatus());
+                patient.getStatus(),
+                patient.getVersion()); // clients send this back as expectedVersion on update (optimistic lock)
     }
 }

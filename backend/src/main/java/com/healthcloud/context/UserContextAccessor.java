@@ -37,4 +37,19 @@ public class UserContextAccessor {
         }
         return context.organizationId();
     }
+
+    /**
+     * Backend authorization gate: require that the caller holds at least one of the given role codes,
+     * otherwise 403. The frontend may also hide UI, but this is the enforced boundary (roles come from
+     * the backend-derived context, never from the client).
+     */
+    public void requireAnyRole(String... roleCodes) {
+        UserContext context = requireUser();
+        for (String roleCode : roleCodes) {
+            if (context.roles().contains(roleCode)) {
+                return;
+            }
+        }
+        throw new ApiException(ErrorCode.ACCESS_DENIED, ErrorCode.ACCESS_DENIED.defaultMessage());
+    }
 }
