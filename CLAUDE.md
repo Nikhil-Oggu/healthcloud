@@ -78,11 +78,16 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   Checks: `npm run typecheck`, `npm test` (Vitest), `npm run build`. Node runs from `openjdk@25`'s
   sibling `node@24` — use `export PATH="/opt/homebrew/opt/node@24/bin:$PATH"` in non-interactive shells.
 
-## Current implementation (Phase 1 COMPLETE; Phase 2 next — see docs/PROGRESS.md for status)
+## Current implementation (Phase 1 COMPLETE; Phase 2 in progress — see docs/PROGRESS.md for status)
 - **Backend packages** under `com.healthcloud`: `organization` (Organization, Facility, FacilityMembership),
   `identity` (AppUser, Role, OrganizationMembership, UserRole), `auth` (SecurityConfig, DevLoginController,
   CurrentUserController/Service, CsrfCookieFilter), `context` (UserContext + UserContextAccessor/Filter),
-  `error` (ApiError, ErrorCode, GlobalExceptionHandler, CorrelationId), `devdata` (DevDataSeeder, local-only).
+  `error` (ApiError, ErrorCode, GlobalExceptionHandler, CorrelationId), `patient` (Patient read model:
+  `GET /api/v1/patients[/{id}]`, tenant-scoped → secure 404 cross-tenant), `devdata` (DevDataSeeder, local-only).
+- **Tenant-owned entity pattern (Phase 2+):** hold `organizationId` as the tenant key; repositories expose
+  only org-scoped finders (`findByIdAndOrganizationId`, `findByOrganizationId…`) — no bare `findById` in
+  business code; services derive the org from `UserContextAccessor.requireOrganizationId()`. `patient` is
+  the reference implementation; add composite `UNIQUE(id, organization_id)` so child rows can FK-with-org (§32.10).
 - **Caller/tenant context:** every request's identity is derived on the backend by `UserContextFilter`
   (resolves the session principal → user/org/roles) into a request-scoped `UserContext`. Services read it
   **only** via `UserContextAccessor` (`requireUser()`, `requireOrganizationId()`) — never trust a client-sent

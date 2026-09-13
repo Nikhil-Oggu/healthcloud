@@ -4,12 +4,12 @@
 > exists, or manually). Read this + `CLAUDE.md` + `docs/PLAN.md` at the start of every session.
 
 ## Current position
-- **Phase:** 0 ✅ · Environment ✅ · **Phase 1 COMPLETE (slices 1–7 ✅)**
+- **Phase:** 0 ✅ · Environment ✅ · Phase 1 COMPLETE ✅ · **Phase 2 slice 1 ✅ (patient profile)**
 - **Repo:** https://github.com/Nikhil-Oggu/healthcloud (private, branch `main`)
-- **Next up:** **Phase 2, slice 1 (care-coordination workflow)** — begin the patient/provider profiles +
-  service-request domain with its state machine (DRAFT→SUBMITTED→…→APPROVED/REJECTED). This is the first
-  tenant-owned *business* resource, so it also carries the full cross-tenant "fetch another tenant's record
-  → secure 404" acceptance test that slice 7 deferred. Plan the slice first, then build.
+- **Next up:** **Phase 2, slice 2** — the natural companions to the patient read model: provider profiles +
+  assignments (`provider`, `provider_patient_assignment`, `care_coordinator_assignment`) and/or the
+  patient **write** path (POST/PATCH create-update, stamping org from context) and a small frontend
+  Patients screen. Then service requests + the state machine (later slices). Plan the slice first, then build.
 - **Run the frontend:** with Postgres + backend up, `cd frontend && npm run dev` → open
   http://localhost:5173 → sign in as a seeded demo user.
 - **Run the demo:** `docker compose up -d postgres` then
@@ -18,6 +18,27 @@
   then `curl -b j.txt localhost:8080/api/v1/me`. Reset DB with `./scripts/db-reset.sh`.
 
 ## Log (newest first)
+
+### 2026-09-13 — Phase 2, slice 1 ✅ (patient profile — first tenant-owned business resource)
+- **`db/migration/V5__patient.sql`:** `patient` table — tenant key `organization_id`, synthetic MRN,
+  `full_name`, `date_of_birth`, status, `@Version`. Constraints: `UNIQUE(organization_id, mrn)` and
+  `UNIQUE(id, organization_id)` (so future rows like `service_request` can use a **composite FK**
+  including org id — §32.10, a bug can't cross tenants); index `(organization_id, status)` (§32.11).
+- **`com.healthcloud.patient`:** `Patient` (holds `organizationId` as a plain UUID tenant key),
+  `PatientRepository` (tenant-safe by design — every finder takes `organizationId`, no bare
+  `findById` for business code), `PatientService` (reads via `UserContextAccessor.requireOrganizationId()`;
+  cross-tenant → `NotFoundException` = **secure 404, not 403**), thin `PatientController`
+  (`GET /api/v1/patients`, `GET /api/v1/patients/{id}`), `PatientDto`.
+- **Seed:** `DevDataSeeder` now adds 3 synthetic patients per org (MRN prefixes `NC-`/`GV-`).
+- **Fulfilled the Phase-1 deferral:** `PatientApiIntegrationTest` proves a NorthCare caller requesting a
+  **real Green Valley patient id → 404** (code `NOT_FOUND`, no data leak), own-tenant read → 200, each
+  tenant lists only its own patients, and unauth → 401. `PatientRepositoryTest` proves the
+  `(id, organizationId)` lookup denies cross-tenant reads.
+- **Verified:** `./mvnw -B verify` → **29 tests pass** (+1 repo, +3 API) and the jar packages.
+- **Deferred on purpose (per §34.5):** patient access here is **tenant-scoped only**. Object-relationship
+  checks (provider↔patient assignment) come with assignments; consent/purpose + **field-level masking**
+  are Phase 3; audit + outbox events on access arrive with the §31.6 one-transaction write path (Ph 3/7/8);
+  patient create/update (POST/PATCH) and the frontend Patients screen are the next slice.
 
 ### 2026-09-13 — Phase 1, slice 7 ✅ (CI pipeline + cross-tenant isolation proof) — **Phase 1 done**
 - **First GitHub Actions CI** (`.github/workflows/ci.yml`), on push + PR to `main`, two independent jobs:

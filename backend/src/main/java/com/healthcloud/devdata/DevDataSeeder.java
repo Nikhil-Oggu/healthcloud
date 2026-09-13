@@ -15,6 +15,9 @@ import com.healthcloud.organization.FacilityMembershipRepository;
 import com.healthcloud.organization.FacilityRepository;
 import com.healthcloud.organization.Organization;
 import com.healthcloud.organization.OrganizationRepository;
+import com.healthcloud.patient.Patient;
+import com.healthcloud.patient.PatientRepository;
+import java.time.LocalDate;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.ApplicationArguments;
@@ -44,6 +47,7 @@ public class DevDataSeeder implements ApplicationRunner {
     private final UserRoleRepository userRoleRepository;
     private final FacilityRepository facilityRepository;
     private final FacilityMembershipRepository facilityMembershipRepository;
+    private final PatientRepository patientRepository;
 
     public DevDataSeeder(OrganizationRepository organizationRepository,
                          AppUserRepository appUserRepository,
@@ -51,7 +55,8 @@ public class DevDataSeeder implements ApplicationRunner {
                          OrganizationMembershipRepository membershipRepository,
                          UserRoleRepository userRoleRepository,
                          FacilityRepository facilityRepository,
-                         FacilityMembershipRepository facilityMembershipRepository) {
+                         FacilityMembershipRepository facilityMembershipRepository,
+                         PatientRepository patientRepository) {
         this.organizationRepository = organizationRepository;
         this.appUserRepository = appUserRepository;
         this.roleRepository = roleRepository;
@@ -59,6 +64,7 @@ public class DevDataSeeder implements ApplicationRunner {
         this.userRoleRepository = userRoleRepository;
         this.facilityRepository = facilityRepository;
         this.facilityMembershipRepository = facilityMembershipRepository;
+        this.patientRepository = patientRepository;
     }
 
     @Override
@@ -69,12 +75,12 @@ public class DevDataSeeder implements ApplicationRunner {
             return;
         }
         log.info("Seeding synthetic demo data ({} and {})...", NORTHCARE, GREEN_VALLEY);
-        seedOrganization(NORTHCARE, "NorthCare Main Clinic", "northcare.example.org");
-        seedOrganization(GREEN_VALLEY, "Green Valley Family Center", "greenvalley.example.org");
+        seedOrganization(NORTHCARE, "NorthCare Main Clinic", "northcare.example.org", "NC");
+        seedOrganization(GREEN_VALLEY, "Green Valley Family Center", "greenvalley.example.org", "GV");
         log.info("Demo data seeded.");
     }
 
-    private void seedOrganization(String orgName, String facilityName, String emailDomain) {
+    private void seedOrganization(String orgName, String facilityName, String emailDomain, String mrnPrefix) {
         Organization org = organizationRepository.save(new Organization(orgName));
         Facility facility = facilityRepository.save(
                 new Facility(org, facilityName, "CLINIC", "123 Synthetic St"));
@@ -84,6 +90,15 @@ public class DevDataSeeder implements ApplicationRunner {
         createMember(org, facility, "coordinator", "Cory Coordinator",  "CARE_COORDINATOR", emailDomain, true);
         createMember(org, facility, "reviewer",    "Riley Reviewer",    "CLAIMS_REVIEWER",  emailDomain, false);
         createMember(org, facility, "admin",       "Alex Admin",        "ORG_ADMIN",        emailDomain, false);
+
+        seedPatients(org, mrnPrefix);
+    }
+
+    /** A few clearly-synthetic patient profiles per tenant (Phase 2). MRNs are unique within the org. */
+    private void seedPatients(Organization org, String mrnPrefix) {
+        patientRepository.save(new Patient(org.getId(), mrnPrefix + "-0001", "Sam Sample",   LocalDate.of(1985, 3, 14)));
+        patientRepository.save(new Patient(org.getId(), mrnPrefix + "-0002", "Fern Fixture", LocalDate.of(1992, 11, 2)));
+        patientRepository.save(new Patient(org.getId(), mrnPrefix + "-0003", "Mock Muller",  LocalDate.of(1978, 7, 30)));
     }
 
     private void createMember(Organization org, Facility facility, String localPart, String fullName,
