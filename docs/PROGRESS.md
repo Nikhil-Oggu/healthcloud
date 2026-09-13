@@ -37,6 +37,12 @@
 - **Deferred on purpose:** Idempotency-Key (reserved for the retriable commands §31 names — create request /
   submit claim / start adjudication; a patient create doesn't need it); Patients UI (slice 3); audit/outbox
   on writes (Ph 3/7/8); consent/purpose + field masking (Phase 3).
+- **Hardening (same day):** the service pre-checks (expected version, unique MRN) handle the common cases,
+  but under a *true* write race two callers can both pass the pre-check and collide at the DB. Mapped the
+  DB backstops — `ObjectOptimisticLockingFailureException` and `DataIntegrityViolationException` — to 409
+  `CONFLICT` in `GlobalExceptionHandler` (generic message, no SQL/constraint leak), so that edge returns
+  the right shape instead of a 500. Tests: `GlobalExceptionHandlerTest` (mapping + no-leak) and a repo test
+  proving the `UNIQUE(organization_id, mrn)` constraint actually throws. `./mvnw -B verify` → **38 tests pass**.
 
 ### 2026-09-13 — Phase 2, slice 1 ✅ (patient profile — first tenant-owned business resource)
 - **`db/migration/V5__patient.sql`:** `patient` table — tenant key `organization_id`, synthetic MRN,

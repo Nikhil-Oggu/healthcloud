@@ -1,6 +1,7 @@
 package com.healthcloud.patient;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.healthcloud.TestcontainersConfiguration;
@@ -11,6 +12,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
@@ -45,5 +47,17 @@ class PatientRepositoryTest {
         // Tenant-scoped listing returns only the caller-org's patients.
         assertEquals(1, patientRepository.findByOrganizationIdOrderByFullNameAsc(north.getId()).size());
         assertEquals(1, patientRepository.findByOrganizationIdOrderByFullNameAsc(green.getId()).size());
+    }
+
+    @Test
+    void duplicate_mrn_within_a_tenant_is_rejected_by_the_database() {
+        Organization org = organizationRepository.save(new Organization("Dupe Org (pt-test)"));
+        patientRepository.saveAndFlush(new Patient(org.getId(), "DUP-1", "First", LocalDate.of(1990, 1, 1)));
+
+        // Proves the UNIQUE(organization_id, mrn) constraint is real — the DB is the backstop the
+        // GlobalExceptionHandler maps to 409 when the service pre-check loses a race.
+        assertThrows(DataIntegrityViolationException.class,
+                () -> patientRepository.saveAndFlush(
+                        new Patient(org.getId(), "DUP-1", "Second", LocalDate.of(1991, 2, 2))));
     }
 }

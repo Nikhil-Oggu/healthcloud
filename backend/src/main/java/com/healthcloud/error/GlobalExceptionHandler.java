@@ -4,7 +4,9 @@ import java.util.List;
 import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.ResponseEntity;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
@@ -51,6 +53,18 @@ public class GlobalExceptionHandler {
         List<Map<String, String>> fields =
                 List.of(Map.of("field", ex.getParameterName(), "message", "is required"));
         return build(ErrorCode.VALIDATION_FAILED, ErrorCode.VALIDATION_FAILED.defaultMessage(), fields);
+    }
+
+    /**
+     * The database backstop for concurrent writes. Our services pre-check (expected version, unique
+     * value) for friendly messages, but under a true race two writers can both pass the pre-check and
+     * collide at the DB: a lost-update (optimistic {@code @Version}) or a unique-constraint violation.
+     * Both are genuine conflicts → 409, with a generic message (never echo the SQL/constraint detail).
+     */
+    @ExceptionHandler({ObjectOptimisticLockingFailureException.class, DataIntegrityViolationException.class})
+    public ResponseEntity<ApiError> handleConflict(Exception ex) {
+        log.warn("Data conflict mapped to 409: {}", ex.getClass().getSimpleName());
+        return build(ErrorCode.CONFLICT, ErrorCode.CONFLICT.defaultMessage(), null);
     }
 
     /** Anything unexpected: log the real cause server-side, return a generic 500 (never leak internals). */
