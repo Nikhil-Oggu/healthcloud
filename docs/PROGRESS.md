@@ -4,12 +4,12 @@
 > exists, or manually). Read this + `CLAUDE.md` + `docs/PLAN.md` at the start of every session.
 
 ## Current position
-- **Phase:** 0 ✅ · Environment ✅ · Phase 1 COMPLETE ✅ · **Phase 2 slices 1–3 ✅ (patient read + write + UI)**
+- **Phase:** 0 ✅ · Environment ✅ · Phase 1 COMPLETE ✅ · **Phase 2 slices 1–4 ✅ (patient CRUD+UI; service request create+read)**
 - **Repo:** https://github.com/Nikhil-Oggu/healthcloud (private, branch `main`)
-- **Next up:** **Phase 2, slice 4** — options: patient **edit/deactivate UI** (PATCH with the optimistic
-  `expectedVersion` flow already on the backend), or pivot to **provider profiles + assignments**
-  (`provider`, `provider_patient_assignment`) which unlock relationship-based access, then **service
-  requests + the state machine**. Plan the slice first, then build.
+- **Next up:** **Phase 2, slice 5 — the service-request state machine** (the heart): controlled transitions
+  `PATCH /api/v1/requests/{id}/status` per §14.6 (submit→triage→assign→review→approve/reject→close +
+  cancellation rules), backend-validated with optimistic locking, a `request_status_history` row per
+  transition, invalid-transition rejection, and **Idempotency-Key** on the command surface. Plan first, then build.
 - **Run the frontend:** with Postgres + backend up, `cd frontend && npm run dev` → open
   http://localhost:5173 → sign in as a seeded demo user.
 - **Run the demo:** `docker compose up -d postgres` then
@@ -18,6 +18,27 @@
   then `curl -b j.txt localhost:8080/api/v1/me`. Reset DB with `./scripts/db-reset.sh`.
 
 ## Log (newest first)
+
+### 2026-09-13 — Phase 2, slice 4 ✅ (service request — create DRAFT + read)
+- **`V6__service_request.sql`:** `service_request` (tenant key `organization_id`, `patient_id`, `type`,
+  `status` default DRAFT, `priority` default NORMAL, `title`, `description`, `created_by`, `@Version`;
+  CHECK constraints for the type/status/priority value sets) + `request_status_history` (append-only:
+  from/to status, actor, reason, correlation_id, created_at). **Composite FK** `(patient_id,
+  organization_id) → patient(id, organization_id)` so a request cannot reference another tenant's patient
+  (§32.10); `UNIQUE(id, organization_id)` on the request for future child FKs; §32.11 indexes.
+- **`com.healthcloud.request`:** enums (`ServiceRequestType` §14.4, `ServiceRequestStatus` §14.6,
+  `ServiceRequestPriority`), `ServiceRequest` + `RequestStatusHistory` entities, tenant-safe repositories,
+  `ServiceRequestService`, thin `ServiceRequestController`, DTO + validated create request.
+- **Endpoints:** `POST /api/v1/requests` (201; creates a **DRAFT** for a patient in the caller's tenant),
+  `GET /api/v1/requests` (optional `?patientId=`), `GET /api/v1/requests/{id}` (tenant-scoped → 404).
+- **§31.6 one-transaction pattern:** create writes the request **and** its initial history row
+  (`null → DRAFT`, actor + correlationId) atomically. Create gated to PATIENT/PROVIDER/CARE_COORDINATOR/
+  ORG_ADMIN; patient must be in the caller's tenant (else secure 404).
+- **Verified:** `./mvnw -B verify` → **42 tests pass** (+4 `ServiceRequestApiIntegrationTest`: create → DRAFT
+  + one `null→DRAFT` history row; another tenant's patient → 404; reviewer → 403; blank title → 400).
+- **Deferred to slice 5:** the controlled transition state machine (submit…close + cancellation, §14.6),
+  optimistic-locking on transitions, Idempotency-Key. **Later:** assignment + comments/timeline, Requests UI,
+  audit events + consent/field policy (Phase 3).
 
 ### 2026-09-13 — Phase 2, slice 3 ✅ (Patients UI — first visible business feature)
 - **New deps (first use of the form stack):** `react-hook-form@7.88`, `zod@4.6`, `@hookform/resolvers@5.9`

@@ -84,6 +84,8 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   CurrentUserController/Service, CsrfCookieFilter), `context` (UserContext + UserContextAccessor/Filter),
   `error` (ApiError, ErrorCode, GlobalExceptionHandler, CorrelationId), `patient` (Patient CRUD:
   `GET/POST /api/v1/patients`, `GET/PATCH /api/v1/patients/{id}`, tenant-scoped → secure 404 cross-tenant),
+  `request` (ServiceRequest + RequestStatusHistory: `GET/POST /api/v1/requests`, `GET /api/v1/requests/{id}`;
+  create makes a DRAFT + initial history row in one tx; §14 state-machine transitions land next),
   `devdata` (DevDataSeeder, local-only).
 - **Tenant-owned entity pattern (Phase 2+):** hold `organizationId` as the tenant key; repositories expose
   only org-scoped finders (`findByIdAndOrganizationId`, `findByOrganizationId…`) — no bare `findById` in
@@ -95,6 +97,11 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   client-supplied `expectedVersion` compared to the row's `@Version` (mismatch → `ConflictException` 409);
   pre-check uniqueness for a clean 409 rather than surfacing a raw DB-constraint error. Idempotency-Key is
   reserved for the retriable commands §31 names (create request / submit claim / start adjudication).
+- **Aggregate + history pattern (§31.6):** an important state change writes the domain row **and** a
+  status/history row in **one `@Transactional`** (e.g. `service_request` + `request_status_history`,
+  `null → DRAFT` on creation). Child tables carry `organization_id` and FK-with-org back to the parent's
+  `UNIQUE(id, organization_id)` so tenancy is structurally enforced. History is append-only; stamp the
+  actor and `CorrelationId.current()` on each row. State-machine transitions are validated on the backend.
 - **Caller/tenant context:** every request's identity is derived on the backend by `UserContextFilter`
   (resolves the session principal → user/org/roles) into a request-scoped `UserContext`. Services read it
   **only** via `UserContextAccessor` (`requireUser()`, `requireOrganizationId()`) — never trust a client-sent
