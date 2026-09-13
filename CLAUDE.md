@@ -120,8 +120,8 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
 - **Pure policy classes:** keep decision logic (state-machine transition tables, the consent evaluator) in a
   pure, unit-testable class with no Spring/DB deps — `RequestTransitions` (§14.6 moves) and `ConsentPolicy`
   (§22.5 consent+purpose) are the two exemplars; a thin service loads data and applies the policy.
-- **State machines:** keep the transition table + role rules in a pure, unit-testable policy class (e.g.
-  `RequestTransitions`); the service checks, in order, **exists → legal move → role → reason → version**, then
+- **State machines:** with the transition table in a pure policy class (`RequestTransitions`, above), the
+  service checks, in order, **exists → legal move → role → reason → version**, then
   updates status + appends history in one tx. An illegal move is `INVALID_STATE_TRANSITION` (409), distinct
   from a stale-version `CONFLICT` (409). For state changes, client-supplied `expectedVersion` gives
   double-apply safety, so a separate Idempotency-Key isn't needed there (reserve it for create-type commands).
@@ -204,8 +204,13 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   backend rule (e.g. patient create shown only to CARE_COORDINATOR/ORG_ADMIN), but the backend still enforces it.
   The requests UI mirrors the §14.6 transition table in `src/requests/transitions.ts` purely to choose which
   action buttons to show — the backend re-validates every move, so drift there is a UX bug, never a hole.
-- **Feature pages so far:** `src/patients/` (list + create) and `src/requests/` (list + create + detail with
-  status timeline and transition buttons). Both follow the feature-folder + hooks + RHF/Zod pattern.
+- **Feature pages so far:** `src/patients/` (list + create; the DOB column shows a muted "Restricted" when the
+  backend masks it — the API sends `dateOfBirth: null` + a `maskedFields` list, §23) and `src/requests/` (list +
+  create + detail with status timeline, transition buttons, comments, assignment). Both follow the
+  feature-folder + hooks + RHF/Zod pattern.
+- **Consent/field masking in the UI (Phase 3+):** the backend already withholds masked values, so the SPA only
+  *displays* the state — render a "Restricted"/placeholder for a `null` consent-controlled field (named in
+  `maskedFields`); never assume a field is present. This is display-only, not a security control.
 - **Native `<input type="date">` in tests/automation:** set its value directly (ISO `yyyy-mm-dd`), not by typing.
 
 ## Repo layout
