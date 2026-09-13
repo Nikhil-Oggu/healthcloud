@@ -5,17 +5,18 @@
 
 ## Current position
 - **Phase:** 0 ✅ · Environment ✅ · Phase 1 COMPLETE ✅ · Phase 2 COMPLETE ✅ (slices 1–8) ·
-  **Phase 3 IN PROGRESS 🚧 (slice 1 ✅ — consent directive lifecycle + versioning, backend)**
+  **Phase 3 IN PROGRESS 🚧 (slice 1 ✅ consent lifecycle · slice 2 ✅ consent+purpose decision engine §22.5)**
 - **Repo:** https://github.com/Nikhil-Oggu/healthcloud (private, branch `main`)
-- **Next up:** **Phase 3, slice 2** — the hybrid RBAC+attribute **policy evaluator** that *consumes* the
-  consent directives built in slice 1: the §21.3 access-decision pipeline (tenant → function → object →
-  **relationship** (backed by `request_assignment` + the future `provider_patient_assignment`) → **consent +
-  purpose** (§22.5: most-specific wins, DENY wins, deny-by-default) → business need) and, after that,
-  field-level visibility/masking (§23). Then secure S3 documents (§19) and consent-lifecycle audit (§22.6,
-  Phase 7). **Run `/security-review` in Phase 3.** Plan each slice before building. (Deferred consent items
-  from slice 1: patient self-service — needs a patient-user↔patient-record link; SCHEDULED→ACTIVE / →EXPIRED
-  time sweeps — need a scheduler, Phase 8; a consent UI. Deferred Phase-2 niceties: SLA/due-dates,
-  provider/coordinator-to-patient assignment tables, request edit/priority UI.)
+- **Next up:** **Phase 3, slice 3** — **field-level visibility/masking (§23)**: wire the `ConsentPolicy`
+  decision (slice 2) into a real resource read so the backend returns a **field-safe DTO** — the same patient
+  read yields different fields depending on role/consent/purpose (§60: "same role, different result", now
+  end-to-end). After that: the relationship layer (`provider_patient_assignment`, care-team — makes PROVIDER/
+  CARE_TEAM consent scopes fully evaluable), the fuller §21.3 pipeline (function-permission matrix §21.2,
+  business-need §21 layer 8), secure S3 documents (§19), consent-lifecycle audit (§22.6 → Phase 7).
+  **Run `/security-review` in Phase 3.** Plan each slice before building. (Deferred: CARE_TEAM consent scope
+  can't be evaluated until care-team data exists — the engine treats it as not-applicable for now; patient
+  self-service consent — needs a patient-user↔patient link; SCHEDULED→ACTIVE / →EXPIRED time sweeps — a
+  scheduler, Phase 8; a consent UI. Phase-2 niceties: SLA/due-dates, request edit/priority UI.)
 - **Run the frontend:** with Postgres + backend up, `cd frontend && npm run dev` → open
   http://localhost:5173 → sign in as a seeded demo user.
 - **Run the demo:** `docker compose up -d postgres` then
@@ -24,6 +25,35 @@
   then `curl -b j.txt localhost:8080/api/v1/me`. Reset DB with `./scripts/db-reset.sh`.
 
 ## Log (newest first)
+
+### 2026-09-13 — Phase 3, slice 2 ✅ (consent + purpose decision engine — §22.5)
+- **`ConsentPolicy`** (pure, no Spring/DB — same shape as `RequestTransitions`): implements §22.5 verbatim.
+  `decide(actorUserId, purpose, dataCategory, directives, today) → ConsentDecision`. Steps: (1) applicable =
+  status ACTIVE **and** in force today (`effective_from ≤ today ≤ effective_to`, re-checked here so a stale
+  ACTIVE row past its end date is correctly not-in-force — covers the deferred time sweep) **and** scope
+  applies to the actor **and** purpose+category match; (2) most-specific tier present — PROVIDER > CARE_TEAM >
+  ORGANIZATION; (3) within that tier, **DENY wins**; (4) none → **deny by default**. Scope applicability:
+  ORGANIZATION → always; PROVIDER → actor is the named provider (`scopeRefId == actor`); **CARE_TEAM → not
+  yet evaluable** (no care-team data — documented limitation).
+- **`ConsentDecision`** (record: effect, decidingScope, decidingDirectiveId, reason; `isGranted()`),
+  **`ConsentDecisionDto`** (self-describing: echoes patientId/purpose/dataCategory), **`ConsentPolicyService`**
+  (tenant-scoped → secure 404; actor = the calling session's user; loads ACTIVE directives + applies the
+  policy — you can only ask "may **I** access this?"). Endpoint:
+  `GET /api/v1/patients/{patientId}/consent-directives/decision?purpose=…&dataCategory=…`.
+- **`GlobalExceptionHandler`** now maps `MethodArgumentTypeMismatchException` → **400 VALIDATION_FAILED**
+  (general hardening; used by the decision endpoint's enum query params — an unknown value is a clean 400).
+- **Scope note:** this is the CONSENT decision in isolation — it does **not** yet gate real resource reads or
+  mask fields (that's slice 3), nor weigh role/relationship/business-need (§21.3 full pipeline, later). Purpose
+  is a validated allowlist here (§21.4); once wired into reads it'll be fixed by the action, not client-chosen.
+- **Verified — automated:** `./mvnw -B verify` → **88 tests pass** (+11 `ConsentPolicyTest`: deny-by-default;
+  org grant/deny; provider grant/deny each overriding the opposite org tier; **two different providers (same
+  role) get opposite results** — §60 at the policy level; expired & scheduled ignored; wrong-purpose not
+  applicable; DENY-wins within a tier; CARE_TEAM not-yet-evaluable. +5 `ConsentDecisionApiIntegrationTest`:
+  org grant visible to any actor; a provider DENY flips the same caller's decision; deny-by-default; bad
+  purpose → 400; cross-tenant patient → 404).
+- **Verified — live (curl, real server):** fresh patient → provider decision DENY (deny by default) → record
+  ORG GRANT → GRANT via ORGANIZATION → add PROVIDER DENY naming the provider → same caller flips to DENY via
+  PROVIDER; unknown purpose → 400.
 
 ### 2026-09-13 — Phase 3, slice 1 ✅ (consent directive lifecycle + versioning — the flagship begins)
 - **`V9__consent_directive.sql`:** `consent_directive` — tenant key `organization_id`, `patient_id`,

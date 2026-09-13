@@ -24,9 +24,11 @@ import org.springframework.web.bind.annotation.RestController;
 public class ConsentDirectiveController {
 
     private final ConsentDirectiveService service;
+    private final ConsentPolicyService policyService;
 
-    public ConsentDirectiveController(ConsentDirectiveService service) {
+    public ConsentDirectiveController(ConsentDirectiveService service, ConsentPolicyService policyService) {
         this.service = service;
+        this.policyService = policyService;
     }
 
     /** A patient's consent directives — the current set by default, or every version with includeHistory. */
@@ -53,5 +55,18 @@ public class ConsentDirectiveController {
             @PathVariable UUID patientId, @PathVariable UUID directiveId,
             @Valid @RequestBody RevokeConsentRequest request) {
         return service.revoke(patientId, directiveId, request);
+    }
+
+    /**
+     * The effective CONSENT decision (§22.5) for the calling actor accessing {@code dataCategory} for
+     * {@code purpose} — GRANT/DENY plus which directive decided. This is the consent layer only, not the
+     * full authorization decision (which also weighs role, relationship and business need).
+     */
+    @GetMapping("/decision")
+    public ConsentDecisionDto decision(
+            @PathVariable UUID patientId,
+            @RequestParam ConsentPurpose purpose,
+            @RequestParam ConsentDataCategory dataCategory) {
+        return policyService.decide(patientId, purpose, dataCategory);
     }
 }

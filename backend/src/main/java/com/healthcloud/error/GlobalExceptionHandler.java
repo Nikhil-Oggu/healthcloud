@@ -12,6 +12,7 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 /**
  * Turns every exception that reaches the DispatcherServlet into the single {@link ApiError} shape.
@@ -52,6 +53,13 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiError> handleMissingParameter(MissingServletRequestParameterException ex) {
         List<Map<String, String>> fields =
                 List.of(Map.of("field", ex.getParameterName(), "message", "is required"));
+        return build(ErrorCode.VALIDATION_FAILED, ErrorCode.VALIDATION_FAILED.defaultMessage(), fields);
+    }
+
+    /** A path/query parameter couldn't be converted to its type (e.g. an unknown enum value) → 400. */
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<ApiError> handleTypeMismatch(MethodArgumentTypeMismatchException ex) {
+        List<Map<String, String>> fields = List.of(Map.of("field", ex.getName(), "message", "is invalid"));
         return build(ErrorCode.VALIDATION_FAILED, ErrorCode.VALIDATION_FAILED.defaultMessage(), fields);
     }
 

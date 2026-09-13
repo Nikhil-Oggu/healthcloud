@@ -94,8 +94,12 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   `consent` (Phase 3 — ConsentDirective lifecycle §22: `GET/POST /api/v1/patients/{patientId}/consent-directives`,
   `POST .../consent-directives/{id}/revoke`; immutable/versioned per the supersede pattern — recording a change
   supersedes the current directive for a natural key and inserts version+1, revocation flips it to REVOKED;
-  writes gated to CARE_COORDINATOR/ORG_ADMIN, reads open to same-tenant users; **the policy evaluator that
-  consumes these directives + field masking are later Phase-3 slices**),
+  writes gated to CARE_COORDINATOR/ORG_ADMIN, reads open to same-tenant users. Plus the **consent+purpose
+  decision engine** (§22.5): `ConsentPolicy` (a pure policy class), `ConsentPolicyService`, and
+  `GET .../consent-directives/decision?purpose=&dataCategory=` — decides GRANT/DENY for the *calling actor*
+  by most-specific-tier (PROVIDER>CARE_TEAM>ORGANIZATION), DENY-wins, deny-by-default, with the effective-date
+  window re-checked at decision time. **Field-level masking + wiring this into real reads are the next slice;
+  CARE_TEAM scope isn't evaluable until care-team relationship data exists**),
   `devdata` (DevDataSeeder, local-only).
 - **Tenant-owned entity pattern (Phase 2+):** hold `organizationId` as the tenant key; repositories expose
   only org-scoped finders (`findByIdAndOrganizationId`, `findByOrganizationId…`) — no bare `findById` in
@@ -112,6 +116,9 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   `null → DRAFT` on creation). Child tables carry `organization_id` and FK-with-org back to the parent's
   `UNIQUE(id, organization_id)` so tenancy is structurally enforced. History is append-only; stamp the
   actor and `CorrelationId.current()` on each row. State-machine transitions are validated on the backend.
+- **Pure policy classes:** keep decision logic (state-machine transition tables, the consent evaluator) in a
+  pure, unit-testable class with no Spring/DB deps — `RequestTransitions` (§14.6 moves) and `ConsentPolicy`
+  (§22.5 consent+purpose) are the two exemplars; a thin service loads data and applies the policy.
 - **State machines:** keep the transition table + role rules in a pure, unit-testable policy class (e.g.
   `RequestTransitions`); the service checks, in order, **exists → legal move → role → reason → version**, then
   updates status + appends history in one tx. An illegal move is `INVALID_STATE_TRANSITION` (409), distinct
