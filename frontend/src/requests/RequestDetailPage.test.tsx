@@ -7,7 +7,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { api } from '../api/client'
 import { useCurrentUser } from '../auth/useAuth'
 import { RequestDetailPage } from './RequestDetailPage'
-import type { CurrentUser, RequestComment, RequestStatusHistory, ServiceRequest } from '../api/types'
+import type {
+  AssignableUser,
+  CurrentUser,
+  RequestAssignment,
+  RequestComment,
+  RequestStatusHistory,
+  ServiceRequest,
+} from '../api/types'
 
 vi.mock('../api/client', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../api/client')>()
@@ -20,6 +27,9 @@ vi.mock('../api/client', async (importOriginal) => {
       changeRequestStatus: vi.fn(),
       listComments: vi.fn(),
       addComment: vi.fn(),
+      getAssignment: vi.fn(),
+      listAssignableUsers: vi.fn(),
+      assign: vi.fn(),
     },
   }
 })
@@ -30,6 +40,9 @@ const getRequestHistory = vi.mocked(api.getRequestHistory)
 const changeRequestStatus = vi.mocked(api.changeRequestStatus)
 const listComments = vi.mocked(api.listComments)
 const addComment = vi.mocked(api.addComment)
+const getAssignment = vi.mocked(api.getAssignment)
+const listAssignableUsers = vi.mocked(api.listAssignableUsers)
+const assign = vi.mocked(api.assign)
 const useCurrentUserMock = vi.mocked(useCurrentUser)
 
 const DRAFT: ServiceRequest = {
@@ -42,6 +55,15 @@ const HISTORY: RequestStatusHistory[] = [
 const COMMENTS: RequestComment[] = [
   { id: 'c1', authorUserId: 'u1', body: 'First note', createdAt: '2026-09-13T10:05:00Z' },
 ]
+const TRIAGED: ServiceRequest = { ...DRAFT, status: 'TRIAGED', version: 5 }
+const ASSIGNABLE: AssignableUser[] = [
+  { userId: 'prov1', fullName: 'Dana Provider', role: 'PROVIDER' },
+  { userId: 'rev1', fullName: 'Riley Reviewer', role: 'CLAIMS_REVIEWER' },
+]
+const ASSIGNMENT: RequestAssignment = {
+  id: 'a1', assigneeUserId: 'prov1', assigneeName: 'Dana Provider', assigneeRole: 'PROVIDER',
+  assignedByUserId: 'u1', assignedAt: '2026-09-13T10:10:00Z',
+}
 
 function mockUser(roles: string[]) {
   useCurrentUserMock.mockReturnValue({
@@ -64,7 +86,12 @@ function renderDetail(ui: ReactNode) {
 }
 
 describe('RequestDetailPage', () => {
-  beforeEach(() => vi.clearAllMocks())
+  beforeEach(() => {
+    vi.clearAllMocks()
+    // Assignment queries run on every render; default to "unassigned / nothing" unless a test overrides.
+    getAssignment.mockResolvedValue(null)
+    listAssignableUsers.mockResolvedValue([])
+  })
 
   it('shows the status and the timeline', async () => {
     mockUser(['CARE_COORDINATOR'])
@@ -151,5 +178,56 @@ describe('RequestDetailPage', () => {
 
     expect(screen.queryByLabelText('Add a comment')).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Comment' })).not.toBeInTheDocument()
+  })
+
+  it('shows the current assignee', async () => {
+    mockUser(['PROVIDER'])
+    getRequest.mockResolvedValue({ ...TRIAGED, status: 'ASSIGNED' })
+    getRequestHistory.mockResolvedValue(HISTORY)
+    listComments.mockResolvedValue([])
+    getAssignment.mockResolvedValue(ASSIGNMENT)
+
+    renderDetail(<RequestDetailPage />)
+
+    expect(await screen.findByText(/Assigned to/)).toBeInTheDocument()
+    expect(screen.getByText('Dana Provider')).toBeInTheDocument()
+    // A provider is not an assigner — no selector.
+    expect(screen.queryByLabelText('Assign to')).not.toBeInTheDocument()
+  })
+
+  it('a coordinator can assign a triaged request', async () => {
+    mockUser(['CARE_COORDINATOR'])
+    getRequest.mockResolvedValue(TRIAGED)
+    getRequestHistory.mockResolvedValue(HISTORY)
+    listComments.mockResolvedValue([])
+    getAssignment.mockResolvedValue(null)
+    listAssignableUsers.mockResolvedValue(ASSIGNABLE)
+    assign.mockResolvedValue(ASSIGNMENT)
+
+    renderDetail(<RequestDetailPage />)
+    await screen.findByText('Help with a claim')
+    // Wait for the assignable users to populate the select.
+    await screen.findByRole('option', { name: 'Dana Provider (PROVIDER)' })
+
+    await userEvent.selectOptions(screen.getByLabelText('Assign to'), 'prov1')
+    await userEvent.click(screen.getByRole('button', { name: 'Assign' }))
+
+    await waitFor(() =>
+      expect(assign).toHaveBeenCalledWith('r1', { assigneeUserId: 'prov1', expectedVersion: 5 }),
+    )
+  })
+
+  it('a non-assigner role sees no assign selector', async () => {
+    mockUser(['PROVIDER'])
+    getRequest.mockResolvedValue(TRIAGED)
+    getRequestHistory.mockResolvedValue(HISTORY)
+    listComments.mockResolvedValue([])
+    getAssignment.mockResolvedValue(null)
+
+    renderDetail(<RequestDetailPage />)
+    await screen.findByText('Help with a claim')
+
+    expect(screen.queryByLabelText('Assign to')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Assign' })).not.toBeInTheDocument()
   })
 })

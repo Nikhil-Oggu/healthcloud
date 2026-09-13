@@ -4,12 +4,14 @@
 > exists, or manually). Read this + `CLAUDE.md` + `docs/PLAN.md` at the start of every session.
 
 ## Current position
-- **Phase:** 0 ✅ · Environment ✅ · Phase 1 COMPLETE ✅ · **Phase 2 slices 1–7 ✅ (patient CRUD+UI; service request create+read+state machine + Requests UI; request comments)**
+- **Phase:** 0 ✅ · Environment ✅ · Phase 1 COMPLETE ✅ · **Phase 2 COMPLETE ✅ (slices 1–8: patient CRUD+UI; service request create+read+state machine + Requests UI; comments; assignment)**
 - **Repo:** https://github.com/Nikhil-Oggu/healthcloud (private, branch `main`)
-- **Next up:** **Phase 2, slice 8** — **assignment** (`request_assignment`: assign/reassign a request to a
-  provider/coordinator, enabling the assignee-relationship check that Phase 3's authorization policy builds
-  on). After that Phase 2 is done → Phase 3 (consent, authorization policy, field masking, documents).
-  Plan the slice first, then build.
+- **Next up:** **Phase 3** — the flagship differentiator: consent lifecycle/versioning, the hybrid
+  RBAC+attribute **policy evaluator** (tenant → object → **relationship** (now backed by `request_assignment`
+  + the future `provider_patient_assignment`) → consent → purpose → field-level masking), secure S3 document
+  upload/download with malware-scan/quarantine, and audit integration. **Run `/security-review` in Phase 3.**
+  Plan the first slice before building. (Deferred Phase-2 niceties, if ever wanted: SLA/due-dates,
+  provider/coordinator-to-patient assignment tables, request edit/priority UI.)
 - **Run the frontend:** with Postgres + backend up, `cd frontend && npm run dev` → open
   http://localhost:5173 → sign in as a seeded demo user.
 - **Run the demo:** `docker compose up -d postgres` then
@@ -18,6 +20,41 @@
   then `curl -b j.txt localhost:8080/api/v1/me`. Reset DB with `./scripts/db-reset.sh`.
 
 ## Log (newest first)
+
+### 2026-09-13 — Phase 2, slice 8 ✅ (request assignment — Option A) — **Phase 2 COMPLETE**
+- **`V8__request_assignment.sql`:** `request_assignment` (tenant key, `service_request_id`,
+  `assignee_user_id`, `assigned_by_user_id`, `assignee_role`, `status` ACTIVE/SUPERSEDED, `assigned_at`,
+  `ended_at`, `@Version`). **Composite FK** `(service_request_id, organization_id) → service_request` (§32.10);
+  **partial unique index** `WHERE status='ACTIVE'` → at most one active assignment per request (also a
+  concurrency backstop for racing assigns); active-assignee index for future "assigned to me".
+- **`com.healthcloud.request`:** `RequestAssignment` (versioned; `supersede()`), `RequestAssignmentStatus`,
+  repository, `RequestAssignmentDto`, `AssignableUserDto`, `AssignRequest` (`assigneeUserId`,
+  `expectedVersion`), **`RequestAssignmentService`** (reads the `identity` repos to resolve/validate
+  assignable users). Endpoints on the requests controller: `GET /{id}/assignment` (current active, or null),
+  `GET /{id}/assignable-users` (coordinator/admin; same-tenant PROVIDER/CLAIMS_REVIEWER, minimum-necessary),
+  `PUT /{id}/assignment` (assign/reassign).
+- **Option A (chosen):** assignment is the **sole path to `ASSIGNED`**. Assigning a TRIAGED request advances
+  it TRIAGED→ASSIGNED and appends a status-history row in **one transaction** (§31.6); reassigning an ASSIGNED
+  request supersedes the prior row and swaps the assignee (status unchanged). A bare `PATCH /status` to
+  ASSIGNED is now rejected `INVALID_STATE_TRANSITION` (409). Assigner = CARE_COORDINATOR/ORG_ADMIN (else 403);
+  assignee must be a same-tenant provider/reviewer (else 400); cross-tenant request → secure 404;
+  optimistic-locked on the request `expectedVersion` (stale → 409). Ineligible-assignee returns 400
+  (`VALIDATION_FAILED`) without leaking whether the user exists.
+- **Frontend:** client `getAssignment`/`listAssignableUsers`/`assign` + `useAssignment`/`useAssignableUsers`
+  (enabled only for assigners)/`useAssign` hooks; an **Assignment card** on `RequestDetailPage` (current
+  assignee + an assign/reassign selector for coordinators/admins, shown only when the status is TRIAGED/
+  ASSIGNED). `transitions.ts` no longer offers ASSIGNED as a status button (Option A).
+- **Verified — automated:** `./mvnw -B verify` → **61 tests** (+8 `RequestAssignmentApiIntegrationTest`:
+  assign→ASSIGNED + one active row + history; reassign supersedes; non-assigner 403; ineligible assignee 400;
+  can't assign before triage 409; bare status→ASSIGNED 409; stale version 409; cross-tenant 404; the state
+  machine test now reaches ASSIGNED via the assign endpoint). Frontend: typecheck clean, `npm test` →
+  **19 pass** (+3: shows assignee, coordinator assigns a triaged request, non-assigner sees no selector), build OK.
+- **Verified — live in browser + curl:** assign a triaged request → ASSIGNED, timeline gains
+  "TRIAGED → ASSIGNED · Assigned to Dana Provider"; **reassigned Dana → Riley through the UI**; the status
+  actions correctly omit "Assign"; a manual PATCH to ASSIGNED returns 409. Flyway applied V8.
+- **Deferred:** `provider_patient_assignment` / `care_coordinator_assignment` (patient-level relationships)
+  and SLA/due-dates → Phase 3+/later. The assignee-relationship this slice records is what Phase 3's policy
+  evaluator will consume.
 
 ### 2026-09-13 — Phase 2, slice 7 ✅ (request comments — the collaboration thread)
 - **`V7__request_comment.sql`:** `request_comment` (tenant key `organization_id`, `service_request_id`,

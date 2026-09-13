@@ -1,11 +1,18 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api/client'
-import type { AddCommentRequest, ServiceRequestCreateRequest, StatusChangeRequest } from '../api/types'
+import type {
+  AddCommentRequest,
+  AssignRequest,
+  ServiceRequestCreateRequest,
+  StatusChangeRequest,
+} from '../api/types'
 
 export const REQUESTS_QUERY_KEY = ['requests'] as const
 export const requestKey = (id: string) => ['requests', id] as const
 export const requestHistoryKey = (id: string) => ['requests', id, 'history'] as const
 export const requestCommentsKey = (id: string) => ['requests', id, 'comments'] as const
+export const requestAssignmentKey = (id: string) => ['requests', id, 'assignment'] as const
+export const assignableUsersKey = (id: string) => ['requests', id, 'assignable-users'] as const
 
 /** The current tenant's requests (backend scopes to the caller's organization). */
 export function useRequests() {
@@ -51,5 +58,32 @@ export function useAddComment(id: string) {
   return useMutation({
     mutationFn: (body: AddCommentRequest) => api.addComment(id, body),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: requestCommentsKey(id) }),
+  })
+}
+
+export function useAssignment(id: string) {
+  return useQuery({ queryKey: requestAssignmentKey(id), queryFn: () => api.getAssignment(id) })
+}
+
+/** Candidate assignees — only fetched when the caller can assign (coordinator/admin). */
+export function useAssignableUsers(id: string, enabled: boolean) {
+  return useQuery({
+    queryKey: assignableUsersKey(id),
+    queryFn: () => api.listAssignableUsers(id),
+    enabled,
+  })
+}
+
+/** Assign/reassign, then refresh the assignment plus the request, its history, and the list (status may change). */
+export function useAssign(id: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (body: AssignRequest) => api.assign(id, body),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: requestAssignmentKey(id) })
+      queryClient.invalidateQueries({ queryKey: requestKey(id) })
+      queryClient.invalidateQueries({ queryKey: requestHistoryKey(id) })
+      queryClient.invalidateQueries({ queryKey: REQUESTS_QUERY_KEY })
+    },
   })
 }

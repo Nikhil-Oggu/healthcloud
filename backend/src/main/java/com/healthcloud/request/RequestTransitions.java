@@ -21,7 +21,9 @@ import java.util.Set;
  * backend is the sole enforcer of these rules (§12.1).
  *
  * <p>Cancellation authority is fixed by §14.6. The forward-transition role mapping is a defensible
- * synthetic choice for the MVP and will be refined once assignments exist (an assignee check).
+ * synthetic choice for the MVP. The move to {@code ASSIGNED} is structurally legal here (TRIAGED →
+ * ASSIGNED), but it is driven exclusively by {@code RequestAssignmentService} (assigning a user), never
+ * by a bare status change — so a request can never be ASSIGNED with no assignee.
  */
 final class RequestTransitions {
 

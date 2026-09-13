@@ -78,7 +78,7 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   Checks: `npm run typecheck`, `npm test` (Vitest), `npm run build`. Node runs from `openjdk@25`'s
   sibling `node@24` — use `export PATH="/opt/homebrew/opt/node@24/bin:$PATH"` in non-interactive shells.
 
-## Current implementation (Phase 1 COMPLETE; Phase 2 in progress — see docs/PROGRESS.md for status)
+## Current implementation (Phase 1 & 2 COMPLETE; Phase 3 next — see docs/PROGRESS.md for status)
 - **Backend packages** under `com.healthcloud`: `organization` (Organization, Facility, FacilityMembership),
   `identity` (AppUser, Role, OrganizationMembership, UserRole), `auth` (SecurityConfig, DevLoginController,
   CurrentUserController/Service, CsrfCookieFilter), `context` (UserContext + UserContextAccessor/Filter),
@@ -87,7 +87,10 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   `request` (ServiceRequest + RequestStatusHistory + `RequestTransitions` state machine: `GET/POST
   /api/v1/requests`, `GET /api/v1/requests/{id}`, `PATCH /api/v1/requests/{id}/status`,
   `GET /api/v1/requests/{id}/history`; controlled §14.6 transitions, optimistic-locked, history per move;
-  plus request comments — `POST/GET /api/v1/requests/{id}/comments`, participant-role gated, tenant-scoped),
+  request comments — `POST/GET /api/v1/requests/{id}/comments`, participant-role gated, tenant-scoped;
+  and assignment — `GET /api/v1/requests/{id}/assignment`, `GET .../assignable-users`, `PUT .../assignment`,
+  coordinator/admin-gated, `RequestAssignmentService`. **Assignment is the only path to ASSIGNED** — it
+  advances TRIAGED→ASSIGNED atomically; a bare status PATCH to ASSIGNED is rejected),
   `devdata` (DevDataSeeder, local-only).
 - **Tenant-owned entity pattern (Phase 2+):** hold `organizationId` as the tenant key; repositories expose
   only org-scoped finders (`findByIdAndOrganizationId`, `findByOrganizationId…`) — no bare `findById` in

@@ -52,9 +52,13 @@ export function reasonRequired(to: ServiceRequestStatus): boolean {
   return to === 'CANCELLED' || to === 'REJECTED'
 }
 
-/** The next statuses the given roles may move `from` to (for showing action buttons). */
+/**
+ * The next statuses the given roles may move `from` to (for showing action buttons). ASSIGNED is
+ * excluded: a request reaches ASSIGNED only by assigning a user (the Assignment card / backend
+ * PUT .../assignment), never a bare status change — so it never appears as a status button.
+ */
 export function allowedActions(from: ServiceRequestStatus, roles: string[]): ServiceRequestStatus[] {
-  return ALLOWED[from].filter((to) => isRoleAllowed(from, to, roles))
+  return ALLOWED[from].filter((to) => to !== 'ASSIGNED' && isRoleAllowed(from, to, roles))
 }
 
 /** Human label for a transition button. */

@@ -25,6 +25,9 @@ import { statusColor } from './statusColor'
 import { actionLabel, allowedActions, reasonRequired } from './transitions'
 import {
   useAddComment,
+  useAssign,
+  useAssignableUsers,
+  useAssignment,
   useChangeStatus,
   useComments,
   useRequest,
@@ -33,6 +36,8 @@ import {
 
 // Participant roles that may comment — mirrors the backend gate (server still enforces it).
 const COMMENT_ROLES = ['PATIENT', 'PROVIDER', 'CARE_COORDINATOR', 'ORG_ADMIN']
+// Roles that may assign — mirrors the backend gate (server still enforces it).
+const ASSIGN_ROLES = ['CARE_COORDINATOR', 'ORG_ADMIN']
 
 export function RequestDetailPage() {
   const { id = '' } = useParams()
@@ -184,8 +189,128 @@ export function RequestDetailPage() {
         </CardContent>
       </Card>
 
+      <AssignmentCard
+        requestId={id}
+        requestVersion={r.version}
+        status={r.status}
+        canAssign={roles.some((rr) => ASSIGN_ROLES.includes(rr))}
+      />
+
       <CommentsCard requestId={id} canComment={roles.some((r) => COMMENT_ROLES.includes(r))} />
     </Stack>
+  )
+}
+
+// Assignment is only meaningful once a request has been triaged (backend enforces this too).
+const ASSIGNABLE_STATUSES: ServiceRequestStatus[] = ['TRIAGED', 'ASSIGNED']
+
+/**
+ * The request's current assignee, plus an assign/reassign selector for coordinators/admins. Assigning
+ * a TRIAGED request advances it to ASSIGNED on the backend; the role gate here is UI convenience only.
+ */
+function AssignmentCard({
+  requestId,
+  requestVersion,
+  status,
+  canAssign,
+}: {
+  requestId: string
+  requestVersion: number
+  status: ServiceRequestStatus
+  canAssign: boolean
+}) {
+  const assignment = useAssignment(requestId)
+  const canAssignNow = canAssign && ASSIGNABLE_STATUSES.includes(status)
+  const assignableUsers = useAssignableUsers(requestId, canAssignNow)
+  const assign = useAssign(requestId)
+
+  const [selected, setSelected] = useState('')
+  const [actionError, setActionError] = useState<string | null>(null)
+  const [correlationId, setCorrelationId] = useState<string | undefined>(undefined)
+
+  const current = assignment.data ?? null
+
+  async function onAssign() {
+    if (!selected) return
+    setActionError(null)
+    setCorrelationId(undefined)
+    try {
+      await assign.mutateAsync({ assigneeUserId: selected, expectedVersion: requestVersion })
+      setSelected('')
+    } catch (err) {
+      if (err instanceof ApiClientError) {
+        setActionError(err.message)
+        setCorrelationId(err.correlationId)
+      } else {
+        setActionError('Could not assign the request.')
+      }
+    }
+  }
+
+  return (
+    <Card variant="outlined">
+      <CardContent>
+        <Typography variant="subtitle1" gutterBottom>
+          Assignment
+        </Typography>
+
+        <Typography variant="body2">
+          {assignment.isPending ? (
+            'Loading…'
+          ) : current ? (
+            <>
+              Assigned to <strong>{current.assigneeName}</strong> ({current.assigneeRole})
+            </>
+          ) : (
+            'Unassigned'
+          )}
+        </Typography>
+
+        {canAssignNow && (
+          <>
+            <Divider sx={{ my: 2 }} />
+            {actionError && (
+              <Alert severity="error" sx={{ mb: 2 }} onClose={() => setActionError(null)}>
+                {actionError}
+                {correlationId && (
+                  <Typography variant="caption" sx={{ display: 'block', mt: 0.5, opacity: 0.8 }}>
+                    Reference ID: {correlationId}
+                  </Typography>
+                )}
+              </Alert>
+            )}
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ alignItems: 'flex-start' }}>
+              <TextField
+                select
+                label="Assign to"
+                size="small"
+                sx={{ minWidth: 240 }}
+                slotProps={{ select: { native: true }, inputLabel: { shrink: true } }}
+                value={selected}
+                onChange={(e) => setSelected(e.target.value)}
+              >
+                <option value="">
+                  {assignableUsers.isPending ? 'Loading…' : 'Select a provider or reviewer'}
+                </option>
+                {(assignableUsers.data ?? []).map((u) => (
+                  <option key={u.userId} value={u.userId}>
+                    {u.fullName} ({u.role})
+                  </option>
+                ))}
+              </TextField>
+              <Button
+                variant="contained"
+                size="small"
+                disabled={!selected || assign.isPending}
+                onClick={() => void onAssign()}
+              >
+                {current ? 'Reassign' : 'Assign'}
+              </Button>
+            </Stack>
+          </>
+        )}
+      </CardContent>
+    </Card>
   )
 }
 

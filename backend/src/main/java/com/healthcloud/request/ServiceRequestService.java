@@ -121,6 +121,11 @@ public class ServiceRequestService {
         ServiceRequestStatus from = request.getStatus();
         ServiceRequestStatus to = change.targetStatus();
 
+        // ASSIGNED is reached only by assigning a responsible user (PUT .../assignment), which records the
+        // assignee and advances the status atomically — never by a bare status change (would leave no assignee).
+        if (to == ServiceRequestStatus.ASSIGNED) {
+            throw new InvalidStateTransitionException("Assign a user to move a request to ASSIGNED.");
+        }
         // 1. Is this a legal move at all? (e.g. DRAFT→APPROVED, or leaving a terminal state → 409)
         if (!RequestTransitions.isAllowed(from, to)) {
             throw new InvalidStateTransitionException(

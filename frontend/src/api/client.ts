@@ -1,9 +1,12 @@
 import type {
   AddCommentRequest,
   ApiError,
+  AssignableUser,
+  AssignRequest,
   CurrentUser,
   Patient,
   PatientCreateRequest,
+  RequestAssignment,
   RequestComment,
   RequestStatusHistory,
   ServiceRequest,
@@ -134,6 +137,19 @@ export const api = {
   addComment: (id: string, body: AddCommentRequest) =>
     request<RequestComment>(`/api/v1/requests/${id}/comments`, {
       method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }),
+
+  getAssignment: (id: string) =>
+    request<RequestAssignment | null>(`/api/v1/requests/${id}/assignment`),
+
+  listAssignableUsers: (id: string) =>
+    request<AssignableUser[]>(`/api/v1/requests/${id}/assignable-users`),
+
+  assign: (id: string, body: AssignRequest) =>
+    request<RequestAssignment>(`/api/v1/requests/${id}/assignment`, {
+      method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     }),

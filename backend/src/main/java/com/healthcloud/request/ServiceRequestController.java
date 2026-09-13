@@ -10,6 +10,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -24,9 +25,12 @@ import org.springframework.web.bind.annotation.RestController;
 public class ServiceRequestController {
 
     private final ServiceRequestService service;
+    private final RequestAssignmentService assignmentService;
 
-    public ServiceRequestController(ServiceRequestService service) {
+    public ServiceRequestController(ServiceRequestService service,
+                                    RequestAssignmentService assignmentService) {
         this.service = service;
+        this.assignmentService = assignmentService;
     }
 
     /** All requests in the caller's organization, optionally filtered to one patient. */
@@ -74,5 +78,23 @@ public class ServiceRequestController {
     @GetMapping("/{id}/comments")
     public List<RequestCommentDto> comments(@PathVariable UUID id) {
         return service.getComments(id);
+    }
+
+    /** The current active assignment for a request (null if unassigned), scoped to the caller's tenant. */
+    @GetMapping("/{id}/assignment")
+    public RequestAssignmentDto assignment(@PathVariable UUID id) {
+        return assignmentService.getCurrentAssignment(id);
+    }
+
+    /** Candidate assignees (same-tenant providers/reviewers) — coordinator/admin only. */
+    @GetMapping("/{id}/assignable-users")
+    public List<AssignableUserDto> assignableUsers(@PathVariable UUID id) {
+        return assignmentService.listAssignableUsers(id);
+    }
+
+    /** Assign or reassign a request (coordinator/admin); first assignment advances TRIAGED → ASSIGNED. */
+    @PutMapping("/{id}/assignment")
+    public RequestAssignmentDto assign(@PathVariable UUID id, @Valid @RequestBody AssignRequest request) {
+        return assignmentService.assign(id, request);
     }
 }

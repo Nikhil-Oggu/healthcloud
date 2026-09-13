@@ -108,3 +108,26 @@ export interface RequestComment {
 export interface AddCommentRequest {
   body: string
 }
+
+/** The current assignment on a request (mirrors RequestAssignmentDto); null when unassigned. */
+export interface RequestAssignment {
+  id: string
+  assigneeUserId: string
+  assigneeName: string
+  assigneeRole: string
+  assignedByUserId: string
+  assignedAt: string
+}
+
+/** A candidate assignee — a same-tenant provider or claims reviewer (mirrors AssignableUserDto). */
+export interface AssignableUser {
+  userId: string
+  fullName: string
+  role: string
+}
+
+/** Payload to assign/reassign a request. Tenant + assigner are set on the server (optimistic-locked). */
+export interface AssignRequest {
+  assigneeUserId: string
+  expectedVersion: number
+}

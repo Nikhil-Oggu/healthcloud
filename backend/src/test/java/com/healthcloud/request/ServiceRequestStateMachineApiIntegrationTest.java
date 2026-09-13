@@ -29,6 +29,7 @@ import org.springframework.test.context.ActiveProfiles;
 class ServiceRequestStateMachineApiIntegrationTest {
 
     private static final Pattern FIRST_ID = Pattern.compile("\"id\":\"([0-9a-fA-F-]{36})\"");
+    private static final Pattern FIRST_USER_ID = Pattern.compile("\"userId\":\"([0-9a-fA-F-]{36})\"");
     private static final Pattern VERSION = Pattern.compile("\"version\":(\\d+)");
 
     @Value("${local.server.port}")
@@ -48,7 +49,7 @@ class ServiceRequestStateMachineApiIntegrationTest {
         long v = 0;
         v = advance(s, id, "SUBMITTED", v, null);
         v = advance(s, id, "TRIAGED", v, null);
-        v = advance(s, id, "ASSIGNED", v, null);
+        v = assign(s, id, v); // ASSIGNED is reached by assigning a user (Option A), not a bare status change
         v = advance(s, id, "UNDER_REVIEW", v, null);
         v = advance(s, id, "APPROVED", v, null);
         HttpResponse<String> closed = patchStatus(s, id, "CLOSED", v, null);
@@ -112,7 +113,7 @@ class ServiceRequestStateMachineApiIntegrationTest {
         long v = 0;
         v = advance(coordinator, id, "SUBMITTED", v, null);
         v = advance(coordinator, id, "TRIAGED", v, null);
-        v = advance(coordinator, id, "ASSIGNED", v, null);
+        v = assign(coordinator, id, v);
         v = advance(coordinator, id, "UNDER_REVIEW", v, null);
 
         Session provider = loginWithCsrf("provider@northcare.example.org");
@@ -128,7 +129,7 @@ class ServiceRequestStateMachineApiIntegrationTest {
         long v = 0;
         v = advance(s, id, "SUBMITTED", v, null);
         v = advance(s, id, "TRIAGED", v, null);
-        v = advance(s, id, "ASSIGNED", v, null);
+        v = assign(s, id, v);
         v = advance(s, id, "UNDER_REVIEW", v, null);
 
         HttpResponse<String> noReason = patchStatus(s, id, "REJECTED", v, null);
@@ -161,6 +162,23 @@ class ServiceRequestStateMachineApiIntegrationTest {
                 {"patientId":"%s","type":"CLAIM_SUPPORT","title":"Lifecycle"}""".formatted(patientId));
         assertEquals(201, created.statusCode(), "create should succeed: " + created.body());
         return firstId(created.body());
+    }
+
+    /** Assign the request to its first eligible assignee (advances TRIAGED → ASSIGNED); returns the new version. */
+    private long assign(Session s, String id, long expectedVersion) throws Exception {
+        HttpResponse<String> candidates = get(s.session, "/api/v1/requests/" + id + "/assignable-users");
+        assertEquals(200, candidates.statusCode(), "assignable-users should succeed: " + candidates.body());
+        Matcher m = FIRST_USER_ID.matcher(candidates.body());
+        assertTrue(m.find(), "expected at least one assignable user in: " + candidates.body());
+        String assigneeUserId = m.group(1);
+
+        HttpResponse<String> assigned = put(s, "/api/v1/requests/" + id + "/assignment",
+                "{\"assigneeUserId\":\"%s\",\"expectedVersion\":%d}".formatted(assigneeUserId, expectedVersion));
+        assertEquals(200, assigned.statusCode(), "assign should succeed: " + assigned.body());
+
+        HttpResponse<String> reread = get(s.session, "/api/v1/requests/" + id);
+        assertTrue(reread.body().contains("\"status\":\"ASSIGNED\""), "request should now be ASSIGNED");
+        return version(reread.body());
     }
 
     /** Apply a transition expected to succeed; returns the new version. */
@@ -212,6 +230,17 @@ class ServiceRequestStateMachineApiIntegrationTest {
                         .header("X-XSRF-TOKEN", s.xsrf)
                         .header("Content-Type", "application/json")
                         .POST(HttpRequest.BodyPublishers.ofString(json))
+                        .build(),
+                HttpResponse.BodyHandlers.ofString());
+    }
+
+    private HttpResponse<String> put(Session s, String path, String json) throws Exception {
+        return http.send(
+                HttpRequest.newBuilder(uri(path))
+                        .header("Cookie", "SESSION=" + s.session + "; XSRF-TOKEN=" + s.xsrf)
+                        .header("X-XSRF-TOKEN", s.xsrf)
+                        .header("Content-Type", "application/json")
+                        .PUT(HttpRequest.BodyPublishers.ofString(json))
                         .build(),
                 HttpResponse.BodyHandlers.ofString());
     }
