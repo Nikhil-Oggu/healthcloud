@@ -59,4 +59,20 @@ public class ServiceRequestController {
     public List<RequestStatusHistoryDto> history(@PathVariable UUID id) {
         return service.getHistory(id);
     }
+
+    /** Add a comment to a request in the caller's tenant (participant roles only). */
+    @PostMapping("/{id}/comments")
+    public ResponseEntity<RequestCommentDto> addComment(
+            @PathVariable UUID id, @Valid @RequestBody AddCommentRequest request) {
+        RequestCommentDto created = service.addComment(id, request);
+        return ResponseEntity
+                .created(URI.create("/api/v1/requests/" + id + "/comments/" + created.id()))
+                .body(created);
+    }
+
+    /** The request's comments (oldest first), scoped to the caller's tenant. */
+    @GetMapping("/{id}/comments")
+    public List<RequestCommentDto> comments(@PathVariable UUID id) {
+        return service.getComments(id);
+    }
 }

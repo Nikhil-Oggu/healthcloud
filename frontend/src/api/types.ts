@@ -95,3 +95,16 @@ export interface StatusChangeRequest {
   expectedVersion: number
   reason?: string
 }
+
+/** One comment on a request (mirrors RequestCommentDto). */
+export interface RequestComment {
+  id: string
+  authorUserId: string
+  body: string
+  createdAt: string
+}
+
+/** Payload to add a comment. Tenant, request, and author are set on the server. */
+export interface AddCommentRequest {
+  body: string
+}

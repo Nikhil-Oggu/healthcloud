@@ -30,17 +30,23 @@ public class ServiceRequestService {
     /** Roles allowed to create a request (reviewers/auditors cannot). */
     private static final String[] CREATE_ROLES = {"PATIENT", "PROVIDER", "CARE_COORDINATOR", "ORG_ADMIN"};
 
+    /** Roles allowed to comment on a request — the workflow participants (read-only roles cannot). */
+    private static final String[] COMMENT_ROLES = {"PATIENT", "PROVIDER", "CARE_COORDINATOR", "ORG_ADMIN"};
+
     private final ServiceRequestRepository requests;
     private final RequestStatusHistoryRepository history;
+    private final RequestCommentRepository comments;
     private final PatientRepository patients;
     private final UserContextAccessor userContext;
 
     public ServiceRequestService(ServiceRequestRepository requests,
                                  RequestStatusHistoryRepository history,
+                                 RequestCommentRepository comments,
                                  PatientRepository patients,
                                  UserContextAccessor userContext) {
         this.requests = requests;
         this.history = history;
+        this.comments = comments;
         this.patients = patients;
         this.userContext = userContext;
     }
@@ -151,6 +157,35 @@ public class ServiceRequestService {
         requests.findByIdAndOrganizationId(id, organizationId).orElseThrow(NotFoundException::new);
         return history.findByOrganizationIdAndServiceRequestIdOrderByCreatedAtAsc(organizationId, id).stream()
                 .map(RequestStatusHistoryDto::from)
+                .toList();
+    }
+
+    /**
+     * Add a comment to a request in the caller's tenant. Participant roles only (read-only roles → 403);
+     * the request must be in the caller's tenant (else secure 404). Org + author are stamped from context.
+     */
+    @Transactional
+    public RequestCommentDto addComment(UUID requestId, AddCommentRequest request) {
+        userContext.requireAnyRole(COMMENT_ROLES);
+        UserContext caller = userContext.requireUser();
+        UUID organizationId = userContext.requireOrganizationId();
+
+        // The request must exist in the caller's tenant; another tenant's id → 404 (no existence leak).
+        requests.findByIdAndOrganizationId(requestId, organizationId).orElseThrow(NotFoundException::new);
+
+        RequestComment saved = comments.save(
+                new RequestComment(organizationId, requestId, caller.userId(), request.body()));
+        return RequestCommentDto.from(saved);
+    }
+
+    /** The request's comments (oldest first), scoped to the caller's tenant. */
+    public List<RequestCommentDto> getComments(UUID requestId) {
+        UUID organizationId = userContext.requireOrganizationId();
+        // 404 (not empty list) if the request isn't in the caller's tenant — don't leak existence.
+        requests.findByIdAndOrganizationId(requestId, organizationId).orElseThrow(NotFoundException::new);
+        return comments.findByOrganizationIdAndServiceRequestIdOrderByCreatedAtAsc(organizationId, requestId)
+                .stream()
+                .map(RequestCommentDto::from)
                 .toList();
     }
 }

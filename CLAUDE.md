@@ -86,7 +86,8 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   `GET/POST /api/v1/patients`, `GET/PATCH /api/v1/patients/{id}`, tenant-scoped → secure 404 cross-tenant),
   `request` (ServiceRequest + RequestStatusHistory + `RequestTransitions` state machine: `GET/POST
   /api/v1/requests`, `GET /api/v1/requests/{id}`, `PATCH /api/v1/requests/{id}/status`,
-  `GET /api/v1/requests/{id}/history`; controlled §14.6 transitions, optimistic-locked, history per move),
+  `GET /api/v1/requests/{id}/history`; controlled §14.6 transitions, optimistic-locked, history per move;
+  plus request comments — `POST/GET /api/v1/requests/{id}/comments`, participant-role gated, tenant-scoped),
   `devdata` (DevDataSeeder, local-only).
 - **Tenant-owned entity pattern (Phase 2+):** hold `organizationId` as the tenant key; repositories expose
   only org-scoped finders (`findByIdAndOrganizationId`, `findByOrganizationId…`) — no bare `findById` in

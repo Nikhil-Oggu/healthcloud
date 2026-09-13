@@ -4,12 +4,12 @@
 > exists, or manually). Read this + `CLAUDE.md` + `docs/PLAN.md` at the start of every session.
 
 ## Current position
-- **Phase:** 0 ✅ · Environment ✅ · Phase 1 COMPLETE ✅ · **Phase 2 slices 1–6 ✅ (patient CRUD+UI; service request create+read+state machine + Requests UI)**
+- **Phase:** 0 ✅ · Environment ✅ · Phase 1 COMPLETE ✅ · **Phase 2 slices 1–7 ✅ (patient CRUD+UI; service request create+read+state machine + Requests UI; request comments)**
 - **Repo:** https://github.com/Nikhil-Oggu/healthcloud (private, branch `main`)
-- **Next up:** **Phase 2, slice 7** — the remaining §14.5 backend pieces: **comments** (`request_comment`,
-  request-scoped, folded into the timeline) and/or **assignment** (`request_assignment` — assign/reassign,
-  enabling the assignee-relationship check). After that Phase 2 is essentially done → Phase 3 (consent,
-  authorization policy, field masking, documents). Plan the slice first, then build.
+- **Next up:** **Phase 2, slice 8** — **assignment** (`request_assignment`: assign/reassign a request to a
+  provider/coordinator, enabling the assignee-relationship check that Phase 3's authorization policy builds
+  on). After that Phase 2 is done → Phase 3 (consent, authorization policy, field masking, documents).
+  Plan the slice first, then build.
 - **Run the frontend:** with Postgres + backend up, `cd frontend && npm run dev` → open
   http://localhost:5173 → sign in as a seeded demo user.
 - **Run the demo:** `docker compose up -d postgres` then
@@ -18,6 +18,29 @@
   then `curl -b j.txt localhost:8080/api/v1/me`. Reset DB with `./scripts/db-reset.sh`.
 
 ## Log (newest first)
+
+### 2026-09-13 — Phase 2, slice 7 ✅ (request comments — the collaboration thread)
+- **`V7__request_comment.sql`:** `request_comment` (tenant key `organization_id`, `service_request_id`,
+  `author_user_id`, `body` ≤2000, `created_at`). **Composite FK** `(service_request_id, organization_id) →
+  service_request(id, organization_id)` so a comment cannot attach to another tenant's request (§32.10);
+  index `(organization_id, service_request_id)`.
+- **`com.healthcloud.request`:** `RequestComment` (append-only, author + org stamped from context),
+  `RequestCommentRepository` (tenant+request scoped, oldest-first), `RequestCommentDto`, `AddCommentRequest`
+  (`@NotBlank @Size(max=2000)`). Two service methods (`addComment`/`getComments`) on `ServiceRequestService`.
+- **Endpoints:** `POST /api/v1/requests/{id}/comments` (201; participant roles PATIENT/PROVIDER/
+  CARE_COORDINATOR/ORG_ADMIN — read-only roles → 403; request must be in the caller's tenant else secure 404),
+  `GET /api/v1/requests/{id}/comments` (same-tenant readers, oldest-first).
+- **Frontend:** `api/client.ts` listComments/addComment; `useComments`/`useAddComment` hooks (invalidate the
+  thread on add); a **Comments** card on `RequestDetailPage` (list + RHF/Zod add box ≤2000 chars, gated to
+  participant roles — UI convenience; backend enforces). Surfaces `ApiClientError` message + Reference ID.
+- **Verified — automated:** `./mvnw -B verify` → **53 tests pass** (+4 `RequestCommentApiIntegrationTest`:
+  add+list oldest-first with two different participants; CLAIMS_REVIEWER → 403; cross-tenant add & read → 404;
+  blank body → 400). Frontend: typecheck clean, `npm test` → **16 pass** (+3: renders thread, participant
+  posts, read-only sees no box), build OK.
+- **Verified — live in browser:** signed in as provider, opened a request, saw the comment thread (oldest
+  first), **posted a comment through the UI** (CSRF handshake via the Vite proxy) → it appeared and the form
+  reset. Confirmed end-to-end via curl too (201 add / list / blank→400) and that Flyway applied V7.
+- **Deferred:** assignment (`request_assignment`) → slice 8; documents/consent/field-policy (Phase 3).
 
 ### 2026-09-13 — Phase 2, slice 6 ✅ (Requests UI — drive the whole workflow in the browser)
 - **`src/requests/`:** `useRequests.ts` (list/one/create/change-status/history hooks with invalidation),

@@ -1,8 +1,10 @@
 import type {
+  AddCommentRequest,
   ApiError,
   CurrentUser,
   Patient,
   PatientCreateRequest,
+  RequestComment,
   RequestStatusHistory,
   ServiceRequest,
   ServiceRequestCreateRequest,
@@ -125,4 +127,14 @@ export const api = {
 
   getRequestHistory: (id: string) =>
     request<RequestStatusHistory[]>(`/api/v1/requests/${id}/history`),
+
+  listComments: (id: string) =>
+    request<RequestComment[]>(`/api/v1/requests/${id}/comments`),
+
+  addComment: (id: string, body: AddCommentRequest) =>
+    request<RequestComment>(`/api/v1/requests/${id}/comments`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }),
 }

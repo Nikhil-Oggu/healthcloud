@@ -1,4 +1,7 @@
 import { useState } from 'react'
+import { useForm } from 'react-hook-form'
+import { zodResolver } from '@hookform/resolvers/zod'
+import { z } from 'zod'
 import { Link as RouterLink, useParams } from 'react-router-dom'
 import {
   Alert,
@@ -20,7 +23,16 @@ import { ErrorScreen } from '../components/ErrorScreen'
 import type { ServiceRequestStatus } from '../api/types'
 import { statusColor } from './statusColor'
 import { actionLabel, allowedActions, reasonRequired } from './transitions'
-import { useChangeStatus, useRequest, useRequestHistory } from './useRequests'
+import {
+  useAddComment,
+  useChangeStatus,
+  useComments,
+  useRequest,
+  useRequestHistory,
+} from './useRequests'
+
+// Participant roles that may comment — mirrors the backend gate (server still enforces it).
+const COMMENT_ROLES = ['PATIENT', 'PROVIDER', 'CARE_COORDINATOR', 'ORG_ADMIN']
 
 export function RequestDetailPage() {
   const { id = '' } = useParams()
@@ -171,6 +183,117 @@ export function RequestDetailPage() {
           )}
         </CardContent>
       </Card>
+
+      <CommentsCard requestId={id} canComment={roles.some((r) => COMMENT_ROLES.includes(r))} />
     </Stack>
+  )
+}
+
+const commentSchema = z.object({
+  body: z.string().trim().min(1, 'Required').max(2000, 'At most 2000 characters'),
+})
+type CommentForm = z.infer<typeof commentSchema>
+
+/**
+ * The request's comment thread (oldest first) plus an add box for participant roles. The role gate is
+ * a UI convenience mirroring the backend rule — the server authorizes every add.
+ */
+function CommentsCard({ requestId, canComment }: { requestId: string; canComment: boolean }) {
+  const comments = useComments(requestId)
+  const addComment = useAddComment(requestId)
+  const [submitError, setSubmitError] = useState<string | null>(null)
+  const [correlationId, setCorrelationId] = useState<string | undefined>(undefined)
+
+  const {
+    register,
+    handleSubmit,
+    reset,
+    formState: { errors },
+  } = useForm<CommentForm>({ resolver: zodResolver(commentSchema), defaultValues: { body: '' } })
+
+  async function onSubmit(values: CommentForm) {
+    setSubmitError(null)
+    setCorrelationId(undefined)
+    try {
+      await addComment.mutateAsync({ body: values.body })
+      reset()
+    } catch (err) {
+      if (err instanceof ApiClientError) {
+        setSubmitError(err.message)
+        setCorrelationId(err.correlationId)
+      } else {
+        setSubmitError('Could not add the comment.')
+      }
+    }
+  }
+
+  return (
+    <Card variant="outlined">
+      <CardContent>
+        <Typography variant="subtitle1" gutterBottom>
+          Comments
+        </Typography>
+
+        {comments.isPending ? (
+          <Typography variant="body2" color="text.secondary">
+            Loading…
+          </Typography>
+        ) : comments.isError ? (
+          <Typography variant="body2" color="error">
+            Could not load comments.
+          </Typography>
+        ) : comments.data.length === 0 ? (
+          <Typography variant="body2" color="text.secondary">
+            No comments yet.
+          </Typography>
+        ) : (
+          <Stack spacing={1.5} divider={<Divider flexItem />}>
+            {comments.data.map((c) => (
+              <Box key={c.id}>
+                <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>
+                  {c.body}
+                </Typography>
+                <Typography variant="caption" color="text.secondary">
+                  {new Date(c.createdAt).toLocaleString()}
+                </Typography>
+              </Box>
+            ))}
+          </Stack>
+        )}
+
+        {canComment && (
+          <>
+            <Divider sx={{ my: 2 }} />
+            {submitError && (
+              <Alert severity="error" sx={{ mb: 2 }} onClose={() => setSubmitError(null)}>
+                {submitError}
+                {correlationId && (
+                  <Typography variant="caption" sx={{ display: 'block', mt: 0.5, opacity: 0.8 }}>
+                    Reference ID: {correlationId}
+                  </Typography>
+                )}
+              </Alert>
+            )}
+            <Box component="form" onSubmit={handleSubmit(onSubmit)} noValidate>
+              <Stack spacing={1} sx={{ alignItems: 'flex-start' }}>
+                <TextField
+                  label="Add a comment"
+                  size="small"
+                  fullWidth
+                  multiline
+                  minRows={2}
+                  {...register('body')}
+                  error={!!errors.body}
+                  helperText={errors.body?.message}
+                />
+                <Button type="submit" variant="contained" size="small" disabled={addComment.isPending}>
+                  {addComment.isPending ? 'Posting…' : 'Comment'}
+                </Button>
+              </Stack>
+            </Box>
+          </>
+        )}
+      </CardContent>
+    </Card>
   )
 }

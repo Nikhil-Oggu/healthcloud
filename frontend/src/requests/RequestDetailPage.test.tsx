@@ -7,13 +7,20 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { api } from '../api/client'
 import { useCurrentUser } from '../auth/useAuth'
 import { RequestDetailPage } from './RequestDetailPage'
-import type { CurrentUser, RequestStatusHistory, ServiceRequest } from '../api/types'
+import type { CurrentUser, RequestComment, RequestStatusHistory, ServiceRequest } from '../api/types'
 
 vi.mock('../api/client', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../api/client')>()
   return {
     ...actual,
-    api: { ...actual.api, getRequest: vi.fn(), getRequestHistory: vi.fn(), changeRequestStatus: vi.fn() },
+    api: {
+      ...actual.api,
+      getRequest: vi.fn(),
+      getRequestHistory: vi.fn(),
+      changeRequestStatus: vi.fn(),
+      listComments: vi.fn(),
+      addComment: vi.fn(),
+    },
   }
 })
 vi.mock('../auth/useAuth', () => ({ useCurrentUser: vi.fn() }))
@@ -21,6 +28,8 @@ vi.mock('../auth/useAuth', () => ({ useCurrentUser: vi.fn() }))
 const getRequest = vi.mocked(api.getRequest)
 const getRequestHistory = vi.mocked(api.getRequestHistory)
 const changeRequestStatus = vi.mocked(api.changeRequestStatus)
+const listComments = vi.mocked(api.listComments)
+const addComment = vi.mocked(api.addComment)
 const useCurrentUserMock = vi.mocked(useCurrentUser)
 
 const DRAFT: ServiceRequest = {
@@ -29,6 +38,9 @@ const DRAFT: ServiceRequest = {
 }
 const HISTORY: RequestStatusHistory[] = [
   { id: 'h1', fromStatus: null, toStatus: 'DRAFT', actorUserId: 'u1', reason: 'Request created', createdAt: '2026-09-13T10:00:00Z' },
+]
+const COMMENTS: RequestComment[] = [
+  { id: 'c1', authorUserId: 'u1', body: 'First note', createdAt: '2026-09-13T10:05:00Z' },
 ]
 
 function mockUser(roles: string[]) {
@@ -58,6 +70,7 @@ describe('RequestDetailPage', () => {
     mockUser(['CARE_COORDINATOR'])
     getRequest.mockResolvedValue(DRAFT)
     getRequestHistory.mockResolvedValue(HISTORY)
+    listComments.mockResolvedValue([])
 
     renderDetail(<RequestDetailPage />)
 
@@ -69,6 +82,7 @@ describe('RequestDetailPage', () => {
     mockUser(['CARE_COORDINATOR'])
     getRequest.mockResolvedValue(DRAFT)
     getRequestHistory.mockResolvedValue(HISTORY)
+    listComments.mockResolvedValue([])
     changeRequestStatus.mockResolvedValue({ ...DRAFT, status: 'SUBMITTED', version: 4 })
 
     renderDetail(<RequestDetailPage />)
@@ -89,6 +103,7 @@ describe('RequestDetailPage', () => {
     mockUser(['PATIENT'])
     getRequest.mockResolvedValue(DRAFT)
     getRequestHistory.mockResolvedValue(HISTORY)
+    listComments.mockResolvedValue([])
 
     renderDetail(<RequestDetailPage />)
     await screen.findByText('Help with a claim')
@@ -96,5 +111,45 @@ describe('RequestDetailPage', () => {
     // A patient may Submit or Cancel a DRAFT, but never Triage it.
     expect(screen.getByRole('button', { name: 'Submit' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Triage' })).not.toBeInTheDocument()
+  })
+
+  it('renders the comment thread', async () => {
+    mockUser(['CARE_COORDINATOR'])
+    getRequest.mockResolvedValue(DRAFT)
+    getRequestHistory.mockResolvedValue(HISTORY)
+    listComments.mockResolvedValue(COMMENTS)
+
+    renderDetail(<RequestDetailPage />)
+
+    expect(await screen.findByText('First note')).toBeInTheDocument()
+  })
+
+  it('a participant can post a comment', async () => {
+    mockUser(['CARE_COORDINATOR'])
+    getRequest.mockResolvedValue(DRAFT)
+    getRequestHistory.mockResolvedValue(HISTORY)
+    listComments.mockResolvedValue([])
+    addComment.mockResolvedValue({ id: 'c2', authorUserId: 'u1', body: 'A new note', createdAt: '2026-09-13T11:00:00Z' })
+
+    renderDetail(<RequestDetailPage />)
+    await screen.findByText('Help with a claim')
+
+    await userEvent.type(screen.getByLabelText('Add a comment'), 'A new note')
+    await userEvent.click(screen.getByRole('button', { name: 'Comment' }))
+
+    await waitFor(() => expect(addComment).toHaveBeenCalledWith('r1', { body: 'A new note' }))
+  })
+
+  it('a read-only role sees no comment box', async () => {
+    mockUser(['CLAIMS_REVIEWER'])
+    getRequest.mockResolvedValue(DRAFT)
+    getRequestHistory.mockResolvedValue(HISTORY)
+    listComments.mockResolvedValue(COMMENTS)
+
+    renderDetail(<RequestDetailPage />)
+    await screen.findByText('First note')
+
+    expect(screen.queryByLabelText('Add a comment')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Comment' })).not.toBeInTheDocument()
   })
 })
