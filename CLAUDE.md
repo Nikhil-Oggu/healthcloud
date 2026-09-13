@@ -84,8 +84,9 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   CurrentUserController/Service, CsrfCookieFilter), `context` (UserContext + UserContextAccessor/Filter),
   `error` (ApiError, ErrorCode, GlobalExceptionHandler, CorrelationId), `patient` (Patient CRUD:
   `GET/POST /api/v1/patients`, `GET/PATCH /api/v1/patients/{id}`, tenant-scoped → secure 404 cross-tenant),
-  `request` (ServiceRequest + RequestStatusHistory: `GET/POST /api/v1/requests`, `GET /api/v1/requests/{id}`;
-  create makes a DRAFT + initial history row in one tx; §14 state-machine transitions land next),
+  `request` (ServiceRequest + RequestStatusHistory + `RequestTransitions` state machine: `GET/POST
+  /api/v1/requests`, `GET /api/v1/requests/{id}`, `PATCH /api/v1/requests/{id}/status`,
+  `GET /api/v1/requests/{id}/history`; controlled §14.6 transitions, optimistic-locked, history per move),
   `devdata` (DevDataSeeder, local-only).
 - **Tenant-owned entity pattern (Phase 2+):** hold `organizationId` as the tenant key; repositories expose
   only org-scoped finders (`findByIdAndOrganizationId`, `findByOrganizationId…`) — no bare `findById` in
@@ -102,6 +103,11 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   `null → DRAFT` on creation). Child tables carry `organization_id` and FK-with-org back to the parent's
   `UNIQUE(id, organization_id)` so tenancy is structurally enforced. History is append-only; stamp the
   actor and `CorrelationId.current()` on each row. State-machine transitions are validated on the backend.
+- **State machines:** keep the transition table + role rules in a pure, unit-testable policy class (e.g.
+  `RequestTransitions`); the service checks, in order, **exists → legal move → role → reason → version**, then
+  updates status + appends history in one tx. An illegal move is `INVALID_STATE_TRANSITION` (409), distinct
+  from a stale-version `CONFLICT` (409). For state changes, client-supplied `expectedVersion` gives
+  double-apply safety, so a separate Idempotency-Key isn't needed there (reserve it for create-type commands).
 - **Caller/tenant context:** every request's identity is derived on the backend by `UserContextFilter`
   (resolves the session principal → user/org/roles) into a request-scoped `UserContext`. Services read it
   **only** via `UserContextAccessor` (`requireUser()`, `requireOrganizationId()`) — never trust a client-sent

@@ -2,7 +2,11 @@ package com.healthcloud.request;
 
 import com.healthcloud.context.UserContext;
 import com.healthcloud.context.UserContextAccessor;
+import com.healthcloud.error.ApiException;
+import com.healthcloud.error.ConflictException;
 import com.healthcloud.error.CorrelationId;
+import com.healthcloud.error.ErrorCode;
+import com.healthcloud.error.InvalidStateTransitionException;
 import com.healthcloud.error.NotFoundException;
 import com.healthcloud.patient.PatientRepository;
 import java.util.List;
@@ -93,5 +97,60 @@ public class ServiceRequestService {
                 .map(pid -> requests.findByOrganizationIdAndPatientIdOrderByCreatedAtDesc(organizationId, pid))
                 .orElseGet(() -> requests.findByOrganizationIdOrderByCreatedAtDesc(organizationId));
         return found.stream().map(ServiceRequestDto::from).toList();
+    }
+
+    /**
+     * Apply a controlled state transition (§14.6). In one transaction: validate the move is legal and
+     * the caller is allowed, enforce optimistic locking, update the status, and append a history row.
+     * Order of checks: exists → legal move → role → reason → version.
+     */
+    @Transactional
+    public ServiceRequestDto changeStatus(UUID id, StatusChangeRequest change) {
+        UserContext caller = userContext.requireUser();
+        UUID organizationId = userContext.requireOrganizationId();
+
+        ServiceRequest request = requests.findByIdAndOrganizationId(id, organizationId)
+                .orElseThrow(NotFoundException::new);
+
+        ServiceRequestStatus from = request.getStatus();
+        ServiceRequestStatus to = change.targetStatus();
+
+        // 1. Is this a legal move at all? (e.g. DRAFT→APPROVED, or leaving a terminal state → 409)
+        if (!RequestTransitions.isAllowed(from, to)) {
+            throw new InvalidStateTransitionException(
+                    "Cannot change status from " + from + " to " + to + ".");
+        }
+        // 2. May this caller perform it? (§12.1 function permission)
+        if (!RequestTransitions.isRoleAllowed(from, to, caller.roles())) {
+            throw new ApiException(ErrorCode.ACCESS_DENIED, ErrorCode.ACCESS_DENIED.defaultMessage());
+        }
+        // 3. Reason required for some transitions (cancel/reject).
+        if (RequestTransitions.reasonRequired(to) && (change.reason() == null || change.reason().isBlank())) {
+            throw new ApiException(ErrorCode.VALIDATION_FAILED, "A reason is required to " + to + " this request.");
+        }
+        // 4. Optimistic locking: reject a stale caller (someone else moved the request first).
+        if (request.getVersion() != change.expectedVersion()) {
+            throw new ConflictException("This request was modified by someone else; reload and try again.");
+        }
+
+        request.setStatus(to);
+        ServiceRequest saved = requests.saveAndFlush(request); // bump @Version; response carries the new one
+
+        // §31.6: the history row is written in the same transaction as the status change.
+        history.save(new RequestStatusHistory(
+                organizationId, request.getId(), from, to, caller.userId(),
+                change.reason(), CorrelationId.current()));
+
+        return ServiceRequestDto.from(saved);
+    }
+
+    /** The request's status timeline (append-only history), scoped to the caller's tenant. */
+    public List<RequestStatusHistoryDto> getHistory(UUID id) {
+        UUID organizationId = userContext.requireOrganizationId();
+        // 404 (not empty list) if the request isn't in the caller's tenant — don't leak existence.
+        requests.findByIdAndOrganizationId(id, organizationId).orElseThrow(NotFoundException::new);
+        return history.findByOrganizationIdAndServiceRequestIdOrderByCreatedAtAsc(organizationId, id).stream()
+                .map(RequestStatusHistoryDto::from)
+                .toList();
     }
 }

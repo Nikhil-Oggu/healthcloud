@@ -4,12 +4,12 @@
 > exists, or manually). Read this + `CLAUDE.md` + `docs/PLAN.md` at the start of every session.
 
 ## Current position
-- **Phase:** 0 ✅ · Environment ✅ · Phase 1 COMPLETE ✅ · **Phase 2 slices 1–4 ✅ (patient CRUD+UI; service request create+read)**
+- **Phase:** 0 ✅ · Environment ✅ · Phase 1 COMPLETE ✅ · **Phase 2 slices 1–5 ✅ (patient CRUD+UI; service request create+read+state machine)**
 - **Repo:** https://github.com/Nikhil-Oggu/healthcloud (private, branch `main`)
-- **Next up:** **Phase 2, slice 5 — the service-request state machine** (the heart): controlled transitions
-  `PATCH /api/v1/requests/{id}/status` per §14.6 (submit→triage→assign→review→approve/reject→close +
-  cancellation rules), backend-validated with optimistic locking, a `request_status_history` row per
-  transition, invalid-transition rejection, and **Idempotency-Key** on the command surface. Plan first, then build.
+- **Next up:** **Phase 2, slice 6** — options: **assignment** (`request_assignment` — assign/reassign a
+  request to a provider/coordinator, enabling the assignee-relationship check) and/or **comments/timeline**
+  (`request_comment` + a combined request timeline), and/or the **Requests UI** (create + list + drive the
+  state machine + history in the browser). Plan the slice first, then build.
 - **Run the frontend:** with Postgres + backend up, `cd frontend && npm run dev` → open
   http://localhost:5173 → sign in as a seeded demo user.
 - **Run the demo:** `docker compose up -d postgres` then
@@ -18,6 +18,28 @@
   then `curl -b j.txt localhost:8080/api/v1/me`. Reset DB with `./scripts/db-reset.sh`.
 
 ## Log (newest first)
+
+### 2026-09-13 — Phase 2, slice 5 ✅ (service-request state machine — the heart)
+- **`PATCH /api/v1/requests/{id}/status`** `{ targetStatus, expectedVersion, reason? }` — controlled
+  transitions per §14.6. In one transaction (§31.6): validate → update status (+`@Version` bump) → append a
+  `request_status_history` row (`from→to`, actor, reason, correlationId). **`GET /api/v1/requests/{id}/history`**
+  exposes the timeline.
+- **`RequestTransitions`** encodes the exact §14.6 table (forward flow + cancellation) and the role rules:
+  cancellation authority verbatim (patient: DRAFT/SUBMITTED/NEEDS_INFORMATION; coordinator/admin:
+  SUBMITTED/TRIAGED/ASSIGNED/NEEDS_INFORMATION with a reason; provider: none); forward-transition roles are a
+  documented synthetic MVP choice (refined once assignment exists). Terminal states (CANCELLED/CLOSED) have no
+  outgoing moves.
+- **New `ErrorCode.INVALID_STATE_TRANSITION` (409)** — distinct from a stale-version `CONFLICT`, so the UI can
+  tell "not allowed now" from "someone else changed it". Reason mandatory for CANCELLED/REJECTED (else 400).
+- **Verified:** `./mvnw -B verify` → **49 tests pass** (+7 `ServiceRequestStateMachineApiIntegrationTest`:
+  full DRAFT→…→CLOSED with a 7-row history then terminal-409; illegal move → 409 INVALID_STATE_TRANSITION;
+  stale version → 409 CONFLICT; provider approve → 403; patient cancels DRAFT → 200 / provider cancel → 403;
+  reject needs a reason → 400/200; cross-tenant transition → 404).
+- **Idempotency-Key: deferred (decided).** Optimistic `expectedVersion` already makes transitions safe against
+  double-apply (a repeated move hits a stale version → 409); the canonical Idempotency-Key need is claim
+  submission (Phase 4), where it'll be introduced.
+- **Deferred:** assignment + comments/timeline (slice 6), Requests UI, audit events + assignee-relationship
+  check on review (Phase 3 / assignment slice).
 
 ### 2026-09-13 — Phase 2, slice 4 ✅ (service request — create DRAFT + read)
 - **`V6__service_request.sql`:** `service_request` (tenant key `organization_id`, `patient_id`, `type`,

@@ -13,6 +13,7 @@ public enum ErrorCode {
     NOT_FOUND(HttpStatus.NOT_FOUND, "The requested resource was not found."),
     VALIDATION_FAILED(HttpStatus.BAD_REQUEST, "The request was invalid."),
     CONFLICT(HttpStatus.CONFLICT, "The request conflicts with the current state of the resource."),
+    INVALID_STATE_TRANSITION(HttpStatus.CONFLICT, "That action is not allowed from the current status."),
     INTERNAL_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "An unexpected error occurred.");
 
     private final HttpStatus status;

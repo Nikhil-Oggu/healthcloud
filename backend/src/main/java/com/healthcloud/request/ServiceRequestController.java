@@ -7,6 +7,7 @@ import java.util.Optional;
 import java.util.UUID;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -45,5 +46,17 @@ public class ServiceRequestController {
     public ResponseEntity<ServiceRequestDto> create(@Valid @RequestBody ServiceRequestCreateRequest request) {
         ServiceRequestDto created = service.create(request);
         return ResponseEntity.created(URI.create("/api/v1/requests/" + created.id())).body(created);
+    }
+
+    /** Apply a controlled status transition (§14.6) — backend-validated, optimistic-locked. */
+    @PatchMapping("/{id}/status")
+    public ServiceRequestDto changeStatus(@PathVariable UUID id, @Valid @RequestBody StatusChangeRequest change) {
+        return service.changeStatus(id, change);
+    }
+
+    /** The request's status timeline (append-only history). */
+    @GetMapping("/{id}/history")
+    public List<RequestStatusHistoryDto> history(@PathVariable UUID id) {
+        return service.getHistory(id);
     }
 }
