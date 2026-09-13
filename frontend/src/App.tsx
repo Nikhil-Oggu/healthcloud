@@ -3,6 +3,7 @@ import { AppLayout } from './layout/AppLayout'
 import { ProtectedRoute } from './auth/ProtectedRoute'
 import { LoginPage } from './auth/LoginPage'
 import { HomePage } from './pages/HomePage'
+import { PatientsPage } from './patients/PatientsPage'
 import { DeniedPage } from './pages/DeniedPage'
 import { NotFoundPage } from './pages/NotFoundPage'
 
@@ -17,6 +18,7 @@ const router = createBrowserRouter([
     ),
     children: [
       { index: true, element: <HomePage /> },
+      { path: 'patients', element: <PatientsPage /> },
       { path: 'denied', element: <DeniedPage /> },
     ],
   },

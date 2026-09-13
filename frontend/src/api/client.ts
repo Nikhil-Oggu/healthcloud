@@ -1,4 +1,4 @@
-import type { ApiError, CurrentUser } from './types'
+import type { ApiError, CurrentUser, Patient, PatientCreateRequest } from './types'
 
 /**
  * Error thrown for any non-2xx response. Carries the parsed {@link ApiError} body (when present) so
@@ -85,4 +85,13 @@ export const api = {
     }),
 
   logout: () => request<void>('/api/v1/logout', { method: 'POST' }),
+
+  listPatients: () => request<Patient[]>('/api/v1/patients'),
+
+  createPatient: (body: PatientCreateRequest) =>
+    request<Patient>('/api/v1/patients', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }),
 }

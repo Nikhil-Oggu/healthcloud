@@ -4,11 +4,12 @@
 > exists, or manually). Read this + `CLAUDE.md` + `docs/PLAN.md` at the start of every session.
 
 ## Current position
-- **Phase:** 0 ✅ · Environment ✅ · Phase 1 COMPLETE ✅ · **Phase 2 slices 1–2 ✅ (patient read + write)**
+- **Phase:** 0 ✅ · Environment ✅ · Phase 1 COMPLETE ✅ · **Phase 2 slices 1–3 ✅ (patient read + write + UI)**
 - **Repo:** https://github.com/Nikhil-Oggu/healthcloud (private, branch `main`)
-- **Next up:** **Phase 2, slice 3** — the **Patients UI** (list + create form using React Hook Form 7 + Zod 4,
-  first use of both), wiring the read/write endpoints into a visible screen; then provider profiles +
-  assignments, then service requests + the state machine. Plan the slice first, then build.
+- **Next up:** **Phase 2, slice 4** — options: patient **edit/deactivate UI** (PATCH with the optimistic
+  `expectedVersion` flow already on the backend), or pivot to **provider profiles + assignments**
+  (`provider`, `provider_patient_assignment`) which unlock relationship-based access, then **service
+  requests + the state machine**. Plan the slice first, then build.
 - **Run the frontend:** with Postgres + backend up, `cd frontend && npm run dev` → open
   http://localhost:5173 → sign in as a seeded demo user.
 - **Run the demo:** `docker compose up -d postgres` then
@@ -17,6 +18,25 @@
   then `curl -b j.txt localhost:8080/api/v1/me`. Reset DB with `./scripts/db-reset.sh`.
 
 ## Log (newest first)
+
+### 2026-09-13 — Phase 2, slice 3 ✅ (Patients UI — first visible business feature)
+- **New deps (first use of the form stack):** `react-hook-form@7.88`, `zod@4.6`, `@hookform/resolvers@5.9`
+  (resolvers v5 supports Zod 4). Lockfile committed for CI `npm ci`.
+- **`src/patients/`:** `usePatients.ts` (TanStack Query `usePatients` list + `useCreatePatient` mutation that
+  invalidates the list), `PatientsPage.tsx` — MUI table (name · MRN · DOB · status) + an **Add-patient form**
+  (RHF + Zod, schema mirrors the backend Jakarta rules). The form shows **only for `CARE_COORDINATOR`/
+  `ORG_ADMIN`** (role-aware UI mirroring the backend gate); other roles get the read-only list. Backend
+  errors surfaced via `ApiClientError` (message + Reference ID / correlationId).
+- **`api/client.ts`:** `listPatients()` + `createPatient()` (CSRF header auto-injected on POST).
+  **`App.tsx`:** `/patients` route. **`AppLayout`:** working "Patients" nav for provider/coordinator/admin.
+- **Verified — automated:** `npm run typecheck` clean; `npm test` → **7 pass** (+4 `PatientsPage.test.tsx`:
+  list renders, form hidden for non-write roles, coordinator create calls the API, empty form → Zod
+  "Required" and no submit); `npm run build` OK.
+- **Verified — live in browser** (fresh `db-reset` seed): coordinator sees list + Add form, **created a
+  patient** (appeared in the list, form reset), empty submit blocked by validation, **duplicate MRN → the
+  409 message + Reference ID shown**; provider sees the **list but no Add form**. CSRF POST works through the
+  Vite proxy end-to-end.
+- **Deferred:** edit/deactivate UI (uses the existing PATCH + `expectedVersion`), pagination/search (Phase 9).
 
 ### 2026-09-13 — Phase 2, slice 2 ✅ (patient write path: create + update)
 - **Endpoints:** `POST /api/v1/patients` (201 + Location) and `PATCH /api/v1/patients/{id}` (200), thin

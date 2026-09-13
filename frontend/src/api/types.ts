@@ -15,3 +15,22 @@ export interface ApiError {
   correlationId?: string
   details?: unknown
 }
+
+export type PatientStatus = 'ACTIVE' | 'INACTIVE'
+
+/** A patient profile, as returned by the patients API (mirrors PatientDto). */
+export interface Patient {
+  id: string
+  medicalRecordNumber: string
+  fullName: string
+  dateOfBirth: string // ISO date (yyyy-mm-dd)
+  status: PatientStatus
+  version: number
+}
+
+/** Payload to create a patient. The tenant is stamped on the server, never sent by the client. */
+export interface PatientCreateRequest {
+  medicalRecordNumber: string
+  fullName: string
+  dateOfBirth: string // ISO date (yyyy-mm-dd)
+}

@@ -134,7 +134,14 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   mixed/array set — put alignment in `sx={{ alignItems: 'center' }}` instead.
 - `tsconfig` uses `verbatimModuleSyntax` → import types with `import type { ... }`.
 - Dev server binds IPv6 `localhost` and proxies `/api` + `/actuator` to `:8080`; the backend must be running
-  or `/me` calls fail. RHF 7 + Zod 4 are in the stack but unused until the first real form (Phase 2).
+  or `/me` calls fail.
+- **Forms (Phase 2 slice 3+):** React Hook Form 7 + Zod 4 via `@hookform/resolvers/zod` (resolvers **v5**
+  supports Zod 4). Pattern: a Zod schema that **mirrors the backend Jakarta validation**, `useForm({ resolver:
+  zodResolver(schema) })`, and surface server errors from `ApiClientError` (show `message` + `correlationId`).
+  Feature code lives in a feature folder (e.g. `src/patients/`), mirroring `src/auth/`.
+- **Role-aware UI = convenience, not security.** Gate write UI by `useCurrentUser().roles` to match the
+  backend rule (e.g. patient create shown only to CARE_COORDINATOR/ORG_ADMIN), but the backend still enforces it.
+- **Native `<input type="date">` in tests/automation:** set its value directly (ISO `yyyy-mm-dd`), not by typing.
 
 ## Repo layout
 `backend/` `frontend/` `worker/` `infrastructure/{terraform,environments}` `api/openapi/`
