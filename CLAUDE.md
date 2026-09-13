@@ -78,7 +78,7 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   Checks: `npm run typecheck`, `npm test` (Vitest), `npm run build`. Node runs from `openjdk@25`'s
   sibling `node@24` — use `export PATH="/opt/homebrew/opt/node@24/bin:$PATH"` in non-interactive shells.
 
-## Current implementation (Phase 1 in progress; see docs/PROGRESS.md for status)
+## Current implementation (Phase 1 COMPLETE; Phase 2 next — see docs/PROGRESS.md for status)
 - **Backend packages** under `com.healthcloud`: `organization` (Organization, Facility, FacilityMembership),
   `identity` (AppUser, Role, OrganizationMembership, UserRole), `auth` (SecurityConfig, DevLoginController,
   CurrentUserController/Service, CsrfCookieFilter), `context` (UserContext + UserContextAccessor/Filter),
@@ -86,7 +86,9 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
 - **Caller/tenant context:** every request's identity is derived on the backend by `UserContextFilter`
   (resolves the session principal → user/org/roles) into a request-scoped `UserContext`. Services read it
   **only** via `UserContextAccessor` (`requireUser()`, `requireOrganizationId()`) — never trust a client-sent
-  org/tenant id. Constrain all tenant-owned queries by `requireOrganizationId()`.
+  org/tenant id. Constrain all tenant-owned queries by `requireOrganizationId()`: load rows by
+  `(organizationId, id)` so another tenant's row simply isn't found (a secure 404, not a 403). Isolation is
+  proven by the `TenantIsolation*` tests — **extend them whenever you add a tenant-owned resource** (Phase 2+).
 - **Errors:** one shape `{code, message, correlationId, details}` (`ApiError`). Throw `ApiException`
   subclasses (e.g. `NotFoundException`) or add an `ErrorCode`; `GlobalExceptionHandler` (@RestControllerAdvice)
   + the Security `RestAuthenticationEntryPoint`/`RestAccessDeniedHandler` render them uniformly (controllers
