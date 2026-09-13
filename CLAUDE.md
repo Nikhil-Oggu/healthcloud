@@ -131,8 +131,11 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
 `docs/PROGRESS.md`, `docker-compose.yml`, `README.md`.
 
 ## Custom tooling (see docs/PLAN.md Part C for the full plan)
-- **Exists today:** `.claude/launch.json` only (the `frontend` dev-server config for the browser preview).
+- **Exists today:** `.claude/launch.json` (the `frontend` dev-server config for the browser preview);
+  slash command **`/learning-module`** (`.claude/commands/learning-module.md`) — appends a per-session
+  learning + interview-prep note to `docs/learning/learning-module.md` (never overwrites; based on what
+  we actually built). This is the `/capture-module` idea from PLAN.md Part C, realized.
 - **Planned, NOT yet created** (don't assume these exist): commands `/status` (session start),
-  `/wrap` (session end), `/capture-module`, `/adr`; Phase-3 subagents (HealthCloud code-reviewer +
+  `/wrap` (session end), `/adr`; Phase-3 subagents (HealthCloud code-reviewer +
   security-reviewer); Phase-1+ hooks (format/compile after edits; later a synthetic-data guard).
 - Until they exist, use built-ins: `/code-review`, `/security-review`, and read the 3 files manually.
