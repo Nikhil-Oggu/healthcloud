@@ -112,6 +112,18 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   updates status + appends history in one tx. An illegal move is `INVALID_STATE_TRANSITION` (409), distinct
   from a stale-version `CONFLICT` (409). For state changes, client-supplied `expectedVersion` gives
   double-apply safety, so a separate Idempotency-Key isn't needed there (reserve it for create-type commands).
+  A given status may be **owned by a dedicated command** rather than a bare status change: reaching it goes
+  through an endpoint that does the extra work (e.g. `ASSIGNED` is reached only by `PUT .../assignment`, which
+  records the assignee *and* advances the status in one tx), and a plain `PATCH /status` to that status is
+  refused. Prefer this over letting a status be set with no accompanying record.
+- **Versioned relationship / supersede pattern (§31.7, e.g. `request_assignment`; Phase-3 consent follows it):**
+  a mutable relationship is an append-only, `@Version`-locked child table where **at most one row is ACTIVE**
+  (a partial unique index `WHERE status='ACTIVE'` enforces it and backstops races). "Changing" it *supersedes*
+  the current ACTIVE row (`status→SUPERSEDED`, stamp `ended_at`) and inserts a new ACTIVE one — never mutates
+  in place — so history is retained. Flush the supersede **before** the insert so the unique index is honored
+  within the tx. Read via `findBy…AndStatus(ACTIVE)`. Validate cross-package participants (e.g. an assignee's
+  role) through the owning module's repos, exposing only **minimum-necessary** fields, and return 400 (not a
+  leaky 404/403) when the referenced same-tenant user is ineligible.
 - **Caller/tenant context:** every request's identity is derived on the backend by `UserContextFilter`
   (resolves the session principal → user/org/roles) into a request-scoped `UserContext`. Services read it
   **only** via `UserContextAccessor` (`requireUser()`, `requireOrganizationId()`) — never trust a client-sent
