@@ -4,13 +4,17 @@
 > exists, or manually). Read this + `CLAUDE.md` + `docs/PLAN.md` at the start of every session.
 
 ## Current position
-- **Phase:** 0 ✅ · Environment ✅ · Phase 1 COMPLETE ✅ · **Phase 2 COMPLETE ✅ (slices 1–8: patient CRUD+UI; service request create+read+state machine + Requests UI; comments; assignment)**
+- **Phase:** 0 ✅ · Environment ✅ · Phase 1 COMPLETE ✅ · Phase 2 COMPLETE ✅ (slices 1–8) ·
+  **Phase 3 IN PROGRESS 🚧 (slice 1 ✅ — consent directive lifecycle + versioning, backend)**
 - **Repo:** https://github.com/Nikhil-Oggu/healthcloud (private, branch `main`)
-- **Next up:** **Phase 3** — the flagship differentiator: consent lifecycle/versioning, the hybrid
-  RBAC+attribute **policy evaluator** (tenant → object → **relationship** (now backed by `request_assignment`
-  + the future `provider_patient_assignment`) → consent → purpose → field-level masking), secure S3 document
-  upload/download with malware-scan/quarantine, and audit integration. **Run `/security-review` in Phase 3.**
-  Plan the first slice before building. (Deferred Phase-2 niceties, if ever wanted: SLA/due-dates,
+- **Next up:** **Phase 3, slice 2** — the hybrid RBAC+attribute **policy evaluator** that *consumes* the
+  consent directives built in slice 1: the §21.3 access-decision pipeline (tenant → function → object →
+  **relationship** (backed by `request_assignment` + the future `provider_patient_assignment`) → **consent +
+  purpose** (§22.5: most-specific wins, DENY wins, deny-by-default) → business need) and, after that,
+  field-level visibility/masking (§23). Then secure S3 documents (§19) and consent-lifecycle audit (§22.6,
+  Phase 7). **Run `/security-review` in Phase 3.** Plan each slice before building. (Deferred consent items
+  from slice 1: patient self-service — needs a patient-user↔patient-record link; SCHEDULED→ACTIVE / →EXPIRED
+  time sweeps — need a scheduler, Phase 8; a consent UI. Deferred Phase-2 niceties: SLA/due-dates,
   provider/coordinator-to-patient assignment tables, request edit/priority UI.)
 - **Run the frontend:** with Postgres + backend up, `cd frontend && npm run dev` → open
   http://localhost:5173 → sign in as a seeded demo user.
@@ -20,6 +24,48 @@
   then `curl -b j.txt localhost:8080/api/v1/me`. Reset DB with `./scripts/db-reset.sh`.
 
 ## Log (newest first)
+
+### 2026-09-13 — Phase 3, slice 1 ✅ (consent directive lifecycle + versioning — the flagship begins)
+- **`V9__consent_directive.sql`:** `consent_directive` — tenant key `organization_id`, `patient_id`,
+  `directive_group_id` (links versions of one logical directive), `effect` GRANT/DENY, `purpose` (§22.2 ×5),
+  `data_category` (§22.3 ×5), `scope_type` PROVIDER/CARE_TEAM/ORGANIZATION + `scope_ref_id` (the provider
+  when PROVIDER-scoped), `effective_from/to`, `status` (§22.4 SCHEDULED/ACTIVE/REVOKED/EXPIRED/SUPERSEDED),
+  domain `version` (per group) + `lock_version` (`@Version`, kept distinct). **Composite FK**
+  `(patient_id, organization_id) → patient` (§32.10); CHECK constraints for every enum + the scope/ref pairing;
+  **partial unique index** `WHERE status IN ('ACTIVE','SCHEDULED')` on the natural key
+  `(org, patient, purpose, category, scope_type, COALESCE(scope_ref_id, <sentinel>))` → at most one *current*
+  directive per logical key (COALESCE folds nullable scope so org/care-team currents also collide; also the
+  race backstop). Indexes on `(org, patient)` and `directive_group_id`.
+- **New `com.healthcloud.consent` package:** `ConsentDirective` (immutable/versioned; `supersede()`,
+  `revoke()`, `isCurrent()`), the 5 enums, tenant-safe `ConsentDirectiveRepository`, `ConsentDirectiveDto`
+  (exposes domain `version` + optimistic `expectedVersion`), `RecordConsentRequest`, `RevokeConsentRequest`,
+  and **`ConsentDirectiveService`**. Endpoints nested under the patient:
+  `GET /api/v1/patients/{patientId}/consent-directives` (current set, or `?includeHistory=true` for all
+  versions oldest-first), `POST …/consent-directives` (record), `POST …/consent-directives/{id}/revoke`.
+- **Versioned/supersede pattern reused (§31.7, §22.4):** recording a change to an existing natural key
+  supersedes the current row (→ SUPERSEDED, `ended_at`) and inserts version+1 in the same group **in one
+  transaction** (flush the supersede before the insert to honor the unique index — the assignment lesson);
+  revocation flips the current row to REVOKED immediately, history retained. Grant is create-type (no client
+  version; the natural-key upsert + unique index give safety); revoke is optimistic-locked (`expectedVersion`).
+- **Authz (backend-enforced):** writes gated to CARE_COORDINATOR/ORG_ADMIN (staff recording consent on a
+  patient's behalf — patient self-service deferred, needs a patient-user↔patient link); reads open to any
+  same-tenant user this slice (masking is a later slice). Cross-tenant patient → secure 404. Scope mismatch /
+  missing field → 400; revoking a non-current directive → 409 INVALID_STATE_TRANSITION; stale version → 409
+  CONFLICT.
+- **Scope note — NOT in this slice (deferred, tracked):** the policy evaluator that *reads* these directives
+  (§21.3, §22.5 most-specific/DENY-wins/deny-by-default) → slice 2; field-level masking (§23); S3 documents;
+  consent-lifecycle audit events (§22.6 → Phase 7); time-based SCHEDULED→ACTIVE/→EXPIRED sweeps (→ Phase 8);
+  a consent UI.
+- **Verified — automated:** `./mvnw -B verify` → **72 tests pass** (+9 `ConsentDirectiveApiIntegrationTest`:
+  record→ACTIVE v1; re-record same key→v2 + prior SUPERSEDED, one current / two in history; revoke→REVOKED,
+  leaves current set, kept in history; provider-scoped names the provider; read-only role 403 on write / 200
+  on read; stale version→409 CONFLICT; non-current revoke→409 INVALID_STATE_TRANSITION; scope mismatch &
+  missing field→400; cross-tenant patient→404. +2 `ConsentDirectiveRepositoryTest`: two currents for one
+  natural key violate the partial unique index; superseding frees the slot).
+- **Verified — live (curl, real server + CSRF):** recorded GRANT v1 (ACTIVE) → modified to DENY v2 (prior
+  GRANT SUPERSEDED, current set = the single v2) → revoked (REVOKED, `ended_at` stamped, current set empty) →
+  history shows `GRANT v1 SUPERSEDED` + `DENY v2 REVOKED`; reviewer write → 403 ACCESS_DENIED, reviewer read
+  → 200. Flyway applied V9 on a fresh start (killed the stale pre-V9 instance first).
 
 ### 2026-09-13 — Phase 2, slice 8 ✅ (request assignment — Option A) — **Phase 2 COMPLETE**
 - **`V8__request_assignment.sql`:** `request_assignment` (tenant key, `service_request_id`,

@@ -78,7 +78,7 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   Checks: `npm run typecheck`, `npm test` (Vitest), `npm run build`. Node runs from `openjdk@25`'s
   sibling `node@24` — use `export PATH="/opt/homebrew/opt/node@24/bin:$PATH"` in non-interactive shells.
 
-## Current implementation (Phase 1 & 2 COMPLETE; Phase 3 next — see docs/PROGRESS.md for status)
+## Current implementation (Phase 1 & 2 COMPLETE; Phase 3 IN PROGRESS — see docs/PROGRESS.md for status)
 - **Backend packages** under `com.healthcloud`: `organization` (Organization, Facility, FacilityMembership),
   `identity` (AppUser, Role, OrganizationMembership, UserRole), `auth` (SecurityConfig, DevLoginController,
   CurrentUserController/Service, CsrfCookieFilter), `context` (UserContext + UserContextAccessor/Filter),
@@ -91,6 +91,11 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   and assignment — `GET /api/v1/requests/{id}/assignment`, `GET .../assignable-users`, `PUT .../assignment`,
   coordinator/admin-gated, `RequestAssignmentService`. **Assignment is the only path to ASSIGNED** — it
   advances TRIAGED→ASSIGNED atomically; a bare status PATCH to ASSIGNED is rejected),
+  `consent` (Phase 3 — ConsentDirective lifecycle §22: `GET/POST /api/v1/patients/{patientId}/consent-directives`,
+  `POST .../consent-directives/{id}/revoke`; immutable/versioned per the supersede pattern — recording a change
+  supersedes the current directive for a natural key and inserts version+1, revocation flips it to REVOKED;
+  writes gated to CARE_COORDINATOR/ORG_ADMIN, reads open to same-tenant users; **the policy evaluator that
+  consumes these directives + field masking are later Phase-3 slices**),
   `devdata` (DevDataSeeder, local-only).
 - **Tenant-owned entity pattern (Phase 2+):** hold `organizationId` as the tenant key; repositories expose
   only org-scoped finders (`findByIdAndOrganizationId`, `findByOrganizationId…`) — no bare `findById` in
@@ -116,14 +121,19 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   through an endpoint that does the extra work (e.g. `ASSIGNED` is reached only by `PUT .../assignment`, which
   records the assignee *and* advances the status in one tx), and a plain `PATCH /status` to that status is
   refused. Prefer this over letting a status be set with no accompanying record.
-- **Versioned relationship / supersede pattern (§31.7, e.g. `request_assignment`; Phase-3 consent follows it):**
+- **Versioned relationship / supersede pattern (§31.7; `request_assignment` and now `consent_directive`):**
   a mutable relationship is an append-only, `@Version`-locked child table where **at most one row is ACTIVE**
   (a partial unique index `WHERE status='ACTIVE'` enforces it and backstops races). "Changing" it *supersedes*
   the current ACTIVE row (`status→SUPERSEDED`, stamp `ended_at`) and inserts a new ACTIVE one — never mutates
   in place — so history is retained. Flush the supersede **before** the insert so the unique index is honored
   within the tx. Read via `findBy…AndStatus(ACTIVE)`. Validate cross-package participants (e.g. an assignee's
   role) through the owning module's repos, exposing only **minimum-necessary** fields, and return 400 (not a
-  leaky 404/403) when the referenced same-tenant user is ineligible.
+  leaky 404/403) when the referenced same-tenant user is ineligible. Variations: a table can hold **many
+  concurrent** current rows keyed by a natural key (e.g. `consent_directive` per patient×purpose×category×scope)
+  — then the "one current" invariant is a partial unique index on that **natural key** (fold nullable key parts
+  with `COALESCE(col, <sentinel>)` since Postgres treats NULLs as distinct), the "current" set can be
+  `status IN ('ACTIVE','SCHEDULED')`, and a `<thing>_group_id` links the versions of one logical row. When the
+  domain needs its own version number, keep it separate from the JPA `@Version` (e.g. `version` vs `lock_version`).
 - **Caller/tenant context:** every request's identity is derived on the backend by `UserContextFilter`
   (resolves the session principal → user/org/roles) into a request-scoped `UserContext`. Services read it
   **only** via `UserContextAccessor` (`requireUser()`, `requireOrganizationId()`) — never trust a client-sent
