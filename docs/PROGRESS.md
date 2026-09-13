@@ -4,12 +4,12 @@
 > exists, or manually). Read this + `CLAUDE.md` + `docs/PLAN.md` at the start of every session.
 
 ## Current position
-- **Phase:** 0 ✅ · Environment ✅ · Phase 1 COMPLETE ✅ · **Phase 2 slices 1–5 ✅ (patient CRUD+UI; service request create+read+state machine)**
+- **Phase:** 0 ✅ · Environment ✅ · Phase 1 COMPLETE ✅ · **Phase 2 slices 1–6 ✅ (patient CRUD+UI; service request create+read+state machine + Requests UI)**
 - **Repo:** https://github.com/Nikhil-Oggu/healthcloud (private, branch `main`)
-- **Next up:** **Phase 2, slice 6** — options: **assignment** (`request_assignment` — assign/reassign a
-  request to a provider/coordinator, enabling the assignee-relationship check) and/or **comments/timeline**
-  (`request_comment` + a combined request timeline), and/or the **Requests UI** (create + list + drive the
-  state machine + history in the browser). Plan the slice first, then build.
+- **Next up:** **Phase 2, slice 7** — the remaining §14.5 backend pieces: **comments** (`request_comment`,
+  request-scoped, folded into the timeline) and/or **assignment** (`request_assignment` — assign/reassign,
+  enabling the assignee-relationship check). After that Phase 2 is essentially done → Phase 3 (consent,
+  authorization policy, field masking, documents). Plan the slice first, then build.
 - **Run the frontend:** with Postgres + backend up, `cd frontend && npm run dev` → open
   http://localhost:5173 → sign in as a seeded demo user.
 - **Run the demo:** `docker compose up -d postgres` then
@@ -18,6 +18,24 @@
   then `curl -b j.txt localhost:8080/api/v1/me`. Reset DB with `./scripts/db-reset.sh`.
 
 ## Log (newest first)
+
+### 2026-09-13 — Phase 2, slice 6 ✅ (Requests UI — drive the whole workflow in the browser)
+- **`src/requests/`:** `useRequests.ts` (list/one/create/change-status/history hooks with invalidation),
+  `transitions.ts` (a client mirror of the §14.6 table + role rules — **UX only**; backend is the enforcer),
+  `statusColor.ts`, `RequestsPage.tsx` (list + create form via RHF+Zod, native selects for patient/type/
+  priority; create gated to create-roles), `RequestDetailPage.tsx` (fields + status + timeline from the
+  history endpoint + transition buttons for allowed *and* role-authorized moves, sending `expectedVersion`
+  and prompting for a reason on cancel/reject; surfaces `ApiClientError` incl. 409/403 + Reference ID).
+- **`api/client.ts`:** listRequests/getRequest/createRequest/changeRequestStatus/getRequestHistory.
+  **`App.tsx`:** `/requests` + `/requests/:id`. **`AppLayout`:** working "Requests" nav.
+- **Verified — automated:** typecheck clean; `npm test` → **13 pass** (+6: RequestsPage list/create/role-gate,
+  RequestDetailPage status+timeline / submit sends loaded version / patient sees no coordinator-only actions);
+  build OK.
+- **Verified — live in browser:** as coordinator, created a request → opened it → drove
+  **DRAFT→SUBMITTED→TRIAGED→ASSIGNED→UNDER_REVIEW→APPROVED→CLOSED**, timeline grew to 7 entries, buttons
+  changed per state, DRAFT offered no Cancel to the coordinator (correct §14.6), Reject revealed a required-
+  reason field (Confirm disabled until filled), and CLOSED showed no further actions (terminal).
+- **Deferred:** comments + assignment (slice 7); documents/consent/field-policy (Phase 3).
 
 ### 2026-09-13 — Phase 2, slice 5 ✅ (service-request state machine — the heart)
 - **`PATCH /api/v1/requests/{id}/status`** `{ targetStatus, expectedVersion, reason? }` — controlled

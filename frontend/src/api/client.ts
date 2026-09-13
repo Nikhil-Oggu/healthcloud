@@ -1,4 +1,13 @@
-import type { ApiError, CurrentUser, Patient, PatientCreateRequest } from './types'
+import type {
+  ApiError,
+  CurrentUser,
+  Patient,
+  PatientCreateRequest,
+  RequestStatusHistory,
+  ServiceRequest,
+  ServiceRequestCreateRequest,
+  StatusChangeRequest,
+} from './types'
 
 /**
  * Error thrown for any non-2xx response. Carries the parsed {@link ApiError} body (when present) so
@@ -94,4 +103,26 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     }),
+
+  listRequests: (patientId?: string) =>
+    request<ServiceRequest[]>('/api/v1/requests' + (patientId ? `?patientId=${patientId}` : '')),
+
+  getRequest: (id: string) => request<ServiceRequest>(`/api/v1/requests/${id}`),
+
+  createRequest: (body: ServiceRequestCreateRequest) =>
+    request<ServiceRequest>('/api/v1/requests', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }),
+
+  changeRequestStatus: (id: string, body: StatusChangeRequest) =>
+    request<ServiceRequest>(`/api/v1/requests/${id}/status`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }),
+
+  getRequestHistory: (id: string) =>
+    request<RequestStatusHistory[]>(`/api/v1/requests/${id}/history`),
 }

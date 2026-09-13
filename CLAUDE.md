@@ -154,6 +154,10 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   Feature code lives in a feature folder (e.g. `src/patients/`), mirroring `src/auth/`.
 - **Role-aware UI = convenience, not security.** Gate write UI by `useCurrentUser().roles` to match the
   backend rule (e.g. patient create shown only to CARE_COORDINATOR/ORG_ADMIN), but the backend still enforces it.
+  The requests UI mirrors the §14.6 transition table in `src/requests/transitions.ts` purely to choose which
+  action buttons to show — the backend re-validates every move, so drift there is a UX bug, never a hole.
+- **Feature pages so far:** `src/patients/` (list + create) and `src/requests/` (list + create + detail with
+  status timeline and transition buttons). Both follow the feature-folder + hooks + RHF/Zod pattern.
 - **Native `<input type="date">` in tests/automation:** set its value directly (ISO `yyyy-mm-dd`), not by typing.
 
 ## Repo layout

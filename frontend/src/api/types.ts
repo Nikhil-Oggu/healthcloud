@@ -34,3 +34,64 @@ export interface PatientCreateRequest {
   fullName: string
   dateOfBirth: string // ISO date (yyyy-mm-dd)
 }
+
+export type ServiceRequestStatus =
+  | 'DRAFT'
+  | 'SUBMITTED'
+  | 'TRIAGED'
+  | 'ASSIGNED'
+  | 'UNDER_REVIEW'
+  | 'NEEDS_INFORMATION'
+  | 'APPROVED'
+  | 'REJECTED'
+  | 'CANCELLED'
+  | 'CLOSED'
+
+export type ServiceRequestType =
+  | 'CLAIM_SUPPORT'
+  | 'REFERRAL_REQUEST'
+  | 'DOCUMENT_REVIEW'
+  | 'APPOINTMENT_HELP'
+  | 'BENEFIT_CLARIFICATION'
+
+export type ServiceRequestPriority = 'LOW' | 'NORMAL' | 'HIGH' | 'URGENT'
+
+/** A service request (mirrors ServiceRequestDto). */
+export interface ServiceRequest {
+  id: string
+  patientId: string
+  type: ServiceRequestType
+  status: ServiceRequestStatus
+  priority: ServiceRequestPriority
+  title: string
+  description: string | null
+  createdBy: string
+  version: number
+  createdAt: string
+}
+
+/** One status-history entry (mirrors RequestStatusHistoryDto). */
+export interface RequestStatusHistory {
+  id: string
+  fromStatus: ServiceRequestStatus | null
+  toStatus: ServiceRequestStatus
+  actorUserId: string
+  reason: string | null
+  createdAt: string
+}
+
+/** Payload to create a request. Tenant + creator are set on the server. */
+export interface ServiceRequestCreateRequest {
+  patientId: string
+  type: ServiceRequestType
+  priority?: ServiceRequestPriority
+  title: string
+  description?: string
+}
+
+/** Payload to apply a controlled status transition (optimistic-locked). */
+export interface StatusChangeRequest {
+  targetStatus: ServiceRequestStatus
+  expectedVersion: number
+  reason?: string
+}
