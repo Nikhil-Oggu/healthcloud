@@ -70,6 +70,9 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
 - **Health:** `curl localhost:8080/actuator/health` · **Login+me:**
   `curl -c j -X POST localhost:8080/api/v1/dev-login --data email=provider@northcare.example.org && curl -b j localhost:8080/api/v1/me`
 - Only the **`local`** profile seeds demo data and exposes `dev-login`.
+- **CI** (`.github/workflows/ci.yml`, on push + PR to `main`): a **backend** job (Temurin JDK 25 →
+  `./mvnw -B verify`; the runner's Docker powers the Testcontainers tests) and a **frontend** job
+  (Node 24 → `npm ci` → `typecheck` → `test` → `build`). Keep both green — don't merge red.
 - **Frontend (needs the backend running):** `cd frontend && npm install` once, then `npm run dev`
   (Vite on **:5173**, proxies `/api` + `/actuator` → `:8080`, so cookies are same-origin — no CORS).
   Checks: `npm run typecheck`, `npm test` (Vitest), `npm run build`. Node runs from `openjdk@25`'s

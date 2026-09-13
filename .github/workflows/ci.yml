@@ -1,0 +1,64 @@
+name: CI
+
+# First CI pipeline (Phase 1, slice 7). Proves both halves of the app build and pass their tests
+# on every push and pull request to main, before anything is trusted. Two independent jobs so a
+# frontend failure doesn't mask a backend pass (and vice versa).
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Cancel superseded runs on the same ref (e.g. rapid pushes) to save runner time.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend (Java 25 · Maven · Testcontainers)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 25 (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: maven
+
+      # GitHub-hosted ubuntu runners ship Docker, so the Testcontainers-backed tests
+      # (real PostgreSQL 17) run unchanged — no service container wiring needed.
+      - name: Build & test
+        working-directory: backend
+        run: ./mvnw -B --no-transfer-progress verify
+
+  frontend:
+    name: Frontend (Node 24 · Vitest · build)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install (clean, from lockfile)
+        working-directory: frontend
+        run: npm ci
+
+      - name: Typecheck
+        working-directory: frontend
+        run: npm run typecheck
+
+      - name: Test
+        working-directory: frontend
+        run: npm test
+
+      - name: Build
+        working-directory: frontend
+        run: npm run build

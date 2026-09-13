@@ -4,12 +4,12 @@
 > exists, or manually). Read this + `CLAUDE.md` + `docs/PLAN.md` at the start of every session.
 
 ## Current position
-- **Phase:** 0 ✅ · Environment ✅ · Phase 1 slices 1–6 ✅ complete
+- **Phase:** 0 ✅ · Environment ✅ · **Phase 1 COMPLETE (slices 1–7 ✅)**
 - **Repo:** https://github.com/Nikhil-Oggu/healthcloud (private, branch `main`)
-- **Next up:** **Phase 1, slice 7 (foundation wrap-up)** — the last Phase-1 loose ends before Phase 2:
-  a first **GitHub Actions CI** pipeline (backend `mvnw test` + frontend `npm ci && typecheck && test`),
-  and the acceptance proof of **cross-tenant isolation** (a NorthCare user cannot read Green Valley data).
-  Then Phase 1 is done and Phase 2 (care-coordination workflow) begins. Plan the slice first, then build.
+- **Next up:** **Phase 2, slice 1 (care-coordination workflow)** — begin the patient/provider profiles +
+  service-request domain with its state machine (DRAFT→SUBMITTED→…→APPROVED/REJECTED). This is the first
+  tenant-owned *business* resource, so it also carries the full cross-tenant "fetch another tenant's record
+  → secure 404" acceptance test that slice 7 deferred. Plan the slice first, then build.
 - **Run the frontend:** with Postgres + backend up, `cd frontend && npm run dev` → open
   http://localhost:5173 → sign in as a seeded demo user.
 - **Run the demo:** `docker compose up -d postgres` then
@@ -18,6 +18,25 @@
   then `curl -b j.txt localhost:8080/api/v1/me`. Reset DB with `./scripts/db-reset.sh`.
 
 ## Log (newest first)
+
+### 2026-09-13 — Phase 1, slice 7 ✅ (CI pipeline + cross-tenant isolation proof) — **Phase 1 done**
+- **First GitHub Actions CI** (`.github/workflows/ci.yml`), on push + PR to `main`, two independent jobs:
+  **backend** (Temurin JDK 25 + Maven cache → `./mvnw -B verify`; runner's Docker powers the
+  Testcontainers/real-Postgres tests) and **frontend** (Node 24 + npm cache → `npm ci` → `typecheck`
+  → `test` → `build`). `concurrency` cancels superseded runs on the same ref.
+- **Cross-tenant isolation acceptance proof** (§60), two layers, honestly scoped for Phase 1:
+  - **HTTP** `TenantIsolationIntegrationTest` (RANDOM_PORT): each session sees only its own org via
+    `/me` (NorthCare user never sees Green Valley and vice-versa); a spoof attempt with
+    `?organizationId=…` + `X-Organization-Id` header is **ignored** — the tenant is derived from the
+    session, so a browser cannot pick a different tenant.
+  - **Tenant-key** `TenantIsolationRepositoryTest`: the `(organizationId, id)` lookup pattern every
+    Phase-2 endpoint will use returns nothing for another tenant's row, and scoped listings never leak.
+- **Verified:** `./mvnw -B verify` → **25 tests pass** (+2 HTTP, +1 repo) and the app jar packages;
+  frontend `npm ci` + `typecheck` + `test` (3 pass) + `build` all green locally with the exact CI commands.
+  The GitHub Actions run itself is verified on the first push (watched, not assumed).
+- **Deferred on purpose (recorded):** the full "fetch another tenant's *business* record → secure 404"
+  test needs a tenant-owned resource endpoint, which arrives with Phase 2's service requests. At Phase 1
+  the only tenant-owned surface is the caller's own identity (`/me`), which is what the proof asserts.
 
 ### 2026-09-12 — Phase 1, slice 6 ✅ (React frontend shell — first visible UI)
 - Scaffolded `frontend/`: Vite 8 + React 19 + TS 6, React Router 7, TanStack Query 5, MUI 9, Vitest + RTL.
