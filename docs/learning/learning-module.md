@@ -321,6 +321,176 @@ exactly why `/me` builds a `CurrentUserDto` in the service). This avoids surpris
 
 ---
 
+## Phase 2 care coordination — patients, service requests & the state machine (slices 1–6) — 2026-09-13
+
+> Backfill note: slices 1–6 were built in an earlier working session; this section documents them from
+> the committed code and `docs/PROGRESS.md` so the learning file covers all of Phase 2. Slices 7–8
+> (comments & assignment) are the section below.
+
+### What we built
+The core care-coordination workflow on top of the Phase 1 foundation:
+
+- **Patient profiles** (slices 1–3): a tenant-owned `patient` entity with read + create/update, and a
+  React Patients screen (list + add form).
+- **Service requests** (slices 4–6): create a request in `DRAFT` and read it; the full **§14.6 state
+  machine** (submit → triage → … → approve/reject → close, plus cancellation); and a Requests UI that
+  drives the whole lifecycle in the browser (list, create, detail with a status timeline and transition
+  buttons).
+
+Test totals grew slice by slice (all observed green): backend 29 → 35 → 38 → 42 → 49; frontend 7 → 13.
+
+### How it works
+
+**Tenant-owned entity pattern (the reference implementation is `patient`).** The row holds
+`organization_id` as a plain tenant key, and the repository exposes *only* org-scoped finders — there is
+no bare `findById` in business code:
+
+```java
+// PatientRepository
+Optional<Patient> findByIdAndOrganizationId(UUID id, UUID organizationId);
+List<Patient> findByOrganizationIdOrderByFullNameAsc(UUID organizationId);
+boolean existsByOrganizationIdAndMedicalRecordNumber(UUID organizationId, String mrn);
+```
+
+The service always derives the org from `UserContextAccessor.requireOrganizationId()` and loads by
+`(id, organizationId)`, so another tenant's row is simply **not found** — a secure 404, not a 403
+(`PatientService.getById`). The migration adds `UNIQUE(organization_id, medical_record_number)` (MRN is
+unique *within* a tenant) and `UNIQUE(id, organization_id)` so child tables can later FK-with-org.
+
+**Write path (slice 2).** Create/update require a write role, stamp the tenant from context, validate
+with Jakarta `@Valid`, and use optimistic locking:
+
+```java
+// PatientService.create — abridged
+userContext.requireAnyRole(WRITE_ROLES);              // CARE_COORDINATOR / ORG_ADMIN, else 403
+UUID organizationId = userContext.requireOrganizationId();
+if (patients.existsByOrganizationIdAndMedicalRecordNumber(organizationId, request.medicalRecordNumber()))
+    throw new ConflictException("A patient with that medical record number already exists."); // clean 409
+```
+
+Update compares a client-supplied `expectedVersion` to the row's `@Version` (mismatch → 409) and
+`saveAndFlush`es so the response DTO carries the incremented version (the client's next
+`expectedVersion`).
+
+**Service request + one-transaction history (slice 4).** `service_request` is tenant-owned and points at
+a patient via a **composite FK that includes the tenant** (`(patient_id, organization_id) →
+patient(id, organization_id)`), so a request can't reference another tenant's patient. Creation writes
+the request *and* its first `request_status_history` row (`null → DRAFT`) in one `@Transactional`
+(§31.6).
+
+**State machine (slice 5).** The transition table and role rules live in a pure, unit-testable policy
+class, `RequestTransitions`:
+
+```java
+ALLOWED.put(DRAFT, Set.of(SUBMITTED, CANCELLED));
+ALLOWED.put(SUBMITTED, Set.of(TRIAGED, CANCELLED));
+// … UNDER_REVIEW → {NEEDS_INFORMATION, APPROVED, REJECTED}; CANCELLED/CLOSED are terminal
+```
+
+`ServiceRequestService.changeStatus` checks, in order, **exists → legal move → role → reason →
+version**, then updates the status and appends a history row in one transaction. An illegal move is
+`INVALID_STATE_TRANSITION` (409); a stale `expectedVersion` is a distinct `CONFLICT` (409); cancel/reject
+require a reason (else 400). `PATCH /api/v1/requests/{id}/status` and `GET .../history` expose it.
+
+**Frontend (slices 3 & 6).** Feature folders `src/patients/` and `src/requests/` follow the same shape:
+a hooks file (TanStack Query list/mutation with invalidation), a page, and RHF + Zod forms whose schema
+mirrors the backend Jakarta rules. Write UI is role-gated for convenience (e.g. the patient Add form
+shows only to `CARE_COORDINATOR`/`ORG_ADMIN`), but the backend still enforces it. `transitions.ts` is a
+**client mirror** of §14.6 used only to decide which action buttons to show; the backend re-validates
+every move, so drift is a UX bug, never a hole. `RequestDetailPage` renders the status, a timeline from
+the history endpoint, and transition buttons that send `expectedVersion` and prompt for a reason on
+cancel/reject.
+
+### Key points to remember
+- **Secure 404, not 403, for cross-tenant reads** — loading by `(id, organizationId)` means you never
+  confirm another tenant's row exists.
+- **No bare `findById` in business code.** Every finder takes `organizationId`. This is the single most
+  important habit for the shared-DB tenant model.
+- **`expectedVersion` is the client's optimistic-lock token.** Return the bumped version in the response
+  so the client always has the next one.
+- **Pre-check uniqueness for a clean 409**, but also map the DB backstop (see failures below) so a true
+  race still returns 409, not 500.
+- **Keep the state machine pure and unit-testable**; the service orchestrates, the policy class decides.
+- **Native `<input type="date">` in tests/automation:** set its value directly (ISO `yyyy-mm-dd`) — you
+  can't reliably "type" into it.
+
+### Failures and how we fixed them
+- **True write race fell through to a 500.** The service pre-checks (unique MRN, `expectedVersion`)
+  handle the common cases, but two callers can both pass the pre-check and collide at the DB. Symptom:
+  `ObjectOptimisticLockingFailureException` / `DataIntegrityViolationException` hit the catch-all 500
+  instead of 409. Fix: map both in `GlobalExceptionHandler` to a 409 `CONFLICT` with a generic message
+  (no SQL/constraint text leaked); added a test proving the `UNIQUE` constraint actually throws.
+- **`RequestsPage` test race.** `userEvent.selectOptions` ran before the patients query populated the
+  dropdown (only the "Loading…" option existed). Fix: `await screen.findByRole('option', { name: 'Sam
+  Sample (NC-0001)' })` before selecting.
+- **Live browser: native date input.** Typing `1990-01-01` into `<input type="date">` didn't register →
+  Zod reported "Required" (validation working correctly). Fix in automation: set the ISO value directly.
+- **MUI select mixed `MenuItem` with a native select** in the create form. Fix: use plain `<option>` for
+  native selects and drop the unused `MenuItem` import.
+
+### Interview Q&A
+
+#### 1. Beginner
+
+**Q: What makes an entity "tenant-owned" here?**
+A: It carries an `organization_id` column (the tenant key), and all access goes through repository
+finders that require that org id. The org comes from the backend session context, never the client, so a
+user only ever sees rows in their own organization.
+
+**Q: What's a service request and what states can it be in?**
+A: It's a unit of care-coordination work about a patient. Its lifecycle is DRAFT → SUBMITTED → TRIAGED →
+ASSIGNED → UNDER_REVIEW → (NEEDS_INFORMATION ↔ UNDER_REVIEW) → APPROVED/REJECTED → CLOSED, with
+CANCELLED as an allowed early exit. CANCELLED and CLOSED are terminal.
+
+**Q: Why does creating a request also write a history row?**
+A: For an auditable timeline. The first row records `null → DRAFT` with the actor and correlation id;
+every later transition appends another. It's written in the same transaction as the request so the two
+can never drift.
+
+#### 2. Intermediate
+
+**Q: Why 404 (not 403) when a user requests another tenant's patient?**
+A: A 403 would confirm the row exists ("it's there, but you can't have it"), which leaks information
+across tenants. Loading by `(id, organizationId)` returns nothing for another tenant's id, so we honestly
+report "not found" — the source-of-truth's "secure 404 for existence-sensitive denials".
+
+**Q: How do you prevent lost updates when two users edit the same request/patient?**
+A: Optimistic locking. The row has a `@Version`; the client sends the `expectedVersion` it last saw. If
+it no longer matches, someone changed the row first, so we throw a 409 and overwrite nothing. The client
+reloads and retries.
+
+**Q: Why keep the transition rules in a separate class instead of inline in the service?**
+A: `RequestTransitions` is pure logic (no I/O), so it's trivially unit-testable and is the single source
+of truth for "what moves are legal and who may make them". The service just orchestrates the ordered
+checks and the transaction. It also lets the frontend mirror the same rules for UX without duplicating
+service code.
+
+**Q: The frontend hides buttons by role. Isn't that a security risk?**
+A: No, because it's not the control. The UI gating is convenience; every transition, create, and update
+is authorized again on the backend. If the client mirror drifts from the server rules, the worst case is
+a button that shouldn't be there returning a 403/409 — a UX bug, not a breach.
+
+#### 3. Advanced
+
+**Q: You pre-check the unique MRN and the version — why also map DB exceptions to 409?**
+A: Pre-checks lose a genuine race: two requests can both pass the check, then one loses at the DB
+(`DataIntegrityViolationException` on the unique index, or `ObjectOptimisticLockingFailureException` on
+the version). Without mapping, that surfaces as a 500. Mapping both to a 409 with a generic message
+closes the race window and avoids leaking SQL/constraint internals.
+
+**Q: How does the composite FK `(patient_id, organization_id)` add safety over a plain FK?**
+A: A plain FK on `patient_id` alone would let a bug link a request to a patient in a *different* tenant.
+Including `organization_id` in the FK (backed by `patient`'s `UNIQUE(id, organization_id)`) makes
+cross-tenant linkage impossible at the schema level — the database refuses it, independent of app code.
+
+**Q: Why is `expectedVersion` enough for state transitions instead of an Idempotency-Key?**
+A: A repeated transition carries the version the caller last saw; once applied, that version is stale, so
+a duplicate hits a 409 rather than applying twice. That gives double-apply safety without an extra
+mechanism. Idempotency-Key is reserved for create-type retriable commands (create request / submit claim
+/ start adjudication) where there's no prior version to compare against.
+
+---
+
 ## Phase 2 collaboration — request comments & assignment (slices 7–8) — 2026-09-13
 
 ### What we built
