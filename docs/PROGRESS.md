@@ -5,18 +5,19 @@
 
 ## Current position
 - **Phase:** 0 ✅ · Environment ✅ · Phase 1 COMPLETE ✅ · Phase 2 COMPLETE ✅ (slices 1–8) ·
-  **Phase 3 IN PROGRESS 🚧 (slice 1 ✅ consent lifecycle · slice 2 ✅ consent+purpose decision engine §22.5)**
+  **Phase 3 IN PROGRESS 🚧 (slice 1 ✅ consent lifecycle · slice 2 ✅ decision engine §22.5 · slice 3 ✅
+  field-level masking on patient read §23)**
 - **Repo:** https://github.com/Nikhil-Oggu/healthcloud (private, branch `main`)
-- **Next up:** **Phase 3, slice 3** — **field-level visibility/masking (§23)**: wire the `ConsentPolicy`
-  decision (slice 2) into a real resource read so the backend returns a **field-safe DTO** — the same patient
-  read yields different fields depending on role/consent/purpose (§60: "same role, different result", now
-  end-to-end). After that: the relationship layer (`provider_patient_assignment`, care-team — makes PROVIDER/
-  CARE_TEAM consent scopes fully evaluable), the fuller §21.3 pipeline (function-permission matrix §21.2,
-  business-need §21 layer 8), secure S3 documents (§19), consent-lifecycle audit (§22.6 → Phase 7).
-  **Run `/security-review` in Phase 3.** Plan each slice before building. (Deferred: CARE_TEAM consent scope
-  can't be evaluated until care-team data exists — the engine treats it as not-applicable for now; patient
-  self-service consent — needs a patient-user↔patient link; SCHEDULED→ACTIVE / →EXPIRED time sweeps — a
-  scheduler, Phase 8; a consent UI. Phase-2 niceties: SLA/due-dates, request edit/priority UI.)
+- **Next up:** **Phase 3, slice 4 (pick one when planning)** — candidates: (a) the **relationship layer**
+  (`provider_patient_assignment` / care-team) so PROVIDER/CARE_TEAM consent scopes are fully live and object
+  reads can require an assignment (§21 layer 6); (b) extend masking to **service requests** / more patient
+  fields; (c) **secure S3 documents** with download authorization + fake malware scan (§19); (d) the
+  **function-permission matrix** (§21.2) / business-need (§21 layer 8). Then consent-lifecycle **audit**
+  (§22.6 → Phase 7). **Run `/security-review` in Phase 3.** Plan each slice before building. (Deferred:
+  CARE_TEAM consent scope not evaluable until care-team data exists — engine treats it as not-applicable;
+  patient self-service consent — needs a patient-user↔patient link; SCHEDULED→ACTIVE/→EXPIRED time sweeps —
+  a scheduler, Phase 8; batch consent lookups for list reads — perf follow-up; a consent-management UI.
+  Phase-2 niceties: SLA/due-dates, request edit/priority UI.)
 - **Run the frontend:** with Postgres + backend up, `cd frontend && npm run dev` → open
   http://localhost:5173 → sign in as a seeded demo user.
 - **Run the demo:** `docker compose up -d postgres` then
@@ -25,6 +26,35 @@
   then `curl -b j.txt localhost:8080/api/v1/me`. Reset DB with `./scripts/db-reset.sh`.
 
 ## Log (newest first)
+
+### 2026-09-13 — Phase 3, slice 3 ✅ (field-level masking on the patient read — §23; the flagship, end-to-end)
+- **The consent decision (slice 2) now shapes a real read.** `dateOfBirth` is consent-controlled
+  (`DEMOGRAPHICS_CONTACT` / classification `CONFIDENTIAL`); name/MRN/status stay role-visible. The patient
+  read's purpose is **backend-fixed** to `CARE_COORDINATION` (§21.4) — not client-chosen.
+- **`DataClassification`** enum (§23.1: INTERNAL/CONFIDENTIAL/SENSITIVE_HEALTH_DATA/AUDIT_ONLY/SECURITY_SECRET)
+  and **`PatientFieldPolicy`** (the field→category+classification map; the extension point for more fields).
+- **`PatientDto`** is now field-safe: `dateOfBirth` nullable + **`maskedFields: List<String>`** (§23.3 — the
+  client shows "Restricted" without ever receiving the value). `PatientDto.from` = unmasked (write responses —
+  the caller supplied the data); `PatientDto.masked(...)` = read view. **`PatientService`** reads
+  (`getById` + list) build the masked DTO by asking `ConsentPolicyService.decideForActor(org, actor, patient,
+  purpose, category)` per consent-controlled field — **deny-by-default**, so a sensitive field is withheld
+  unless an applicable consent GRANT exists.
+- **`GlobalExceptionHandler`** unchanged from slice 2 (enum type-mismatch → 400 already added).
+- **Frontend:** `Patient.dateOfBirth` is `string | null` + optional `maskedFields`; the Patients list renders
+  the date or a muted **"Restricted"**. Create/edit form unchanged (writes still send DOB).
+- **Verified — automated:** backend `./mvnw -B verify` → **92 tests pass** (+4 `PatientFieldMaskingApiIntegrationTest`:
+  no consent → DOB null + `maskedFields=[dateOfBirth]`, write response NOT masked; ORG grant → DOB revealed;
+  **list** masks DOB without consent; a PROVIDER-scoped DENY re-masks for that provider while another actor
+  keeps the org grant). Existing patient tests still green (they key on MRN/name, never DOB). Frontend:
+  typecheck clean, `npm test` → **20 pass** (+1: masked DOB renders "Restricted"), build OK.
+- **Verified — live in browser:** signed in as coordinator, opened `/patients` → **every DOB showed
+  "Restricted"** (deny-by-default). Granted a DEMOGRAPHICS_CONTACT/CARE_COORDINATION ORG directive for Sam
+  Sample via the API → refreshed → **Sam's row showed `1985-03-14` while all others stayed "Restricted"** —
+  consent-driven field masking working through the full stack.
+- **Scope note / deferred:** only `dateOfBirth` is gated this slice (the map extends trivially); list masking
+  does one consent lookup per row (fine at synthetic scale — batch later); §23.4 log/event masking is a
+  Phase-7 audit concern (the API omission is done); relationship-based access + PROVIDER/CARE_TEAM full
+  evaluation await the assignment tables.
 
 ### 2026-09-13 — Phase 3, slice 2 ✅ (consent + purpose decision engine — §22.5)
 - **`ConsentPolicy`** (pure, no Spring/DB — same shape as `RequestTransitions`): implements §22.5 verbatim.

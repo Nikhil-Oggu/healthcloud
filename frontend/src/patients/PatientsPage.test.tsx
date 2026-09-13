@@ -62,6 +62,19 @@ describe('PatientsPage', () => {
     expect(screen.getByText('NC-0001')).toBeInTheDocument()
   })
 
+  it('shows "Restricted" when the date of birth is masked by consent', async () => {
+    mockUserWithRoles(['PROVIDER'])
+    listPatients.mockResolvedValue([
+      { ...PATIENT, dateOfBirth: null, maskedFields: ['dateOfBirth'] },
+    ])
+
+    renderPage(<PatientsPage />)
+
+    await screen.findByText('Sam Sample')
+    expect(screen.getByText('Restricted')).toBeInTheDocument()
+    expect(screen.queryByText('1985-03-14')).not.toBeInTheDocument()
+  })
+
   it('hides the add form for non-write roles', async () => {
     mockUserWithRoles(['PROVIDER'])
     listPatients.mockResolvedValue([PATIENT])

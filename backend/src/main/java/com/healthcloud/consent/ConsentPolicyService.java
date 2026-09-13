@@ -40,10 +40,19 @@ public class ConsentPolicyService {
         UUID organizationId = userContext.requireOrganizationId();
         patients.findByIdAndOrganizationId(patientId, organizationId).orElseThrow(NotFoundException::new);
         UUID actorUserId = userContext.requireUser().userId();
+        return ConsentDecisionDto.from(patientId, purpose, dataCategory,
+                decideForActor(organizationId, actorUserId, patientId, purpose, dataCategory));
+    }
 
+    /**
+     * The raw consent decision for an already-resolved (organization, actor, patient) — used by field-level
+     * masking, where the caller has already loaded the resource in its tenant and knows the actor. Skips the
+     * tenant/existence check the public {@link #decide} does.
+     */
+    public ConsentDecision decideForActor(UUID organizationId, UUID actorUserId, UUID patientId,
+                                          ConsentPurpose purpose, ConsentDataCategory dataCategory) {
         List<ConsentDirective> active = directives.findByOrganizationIdAndPatientIdAndStatusInOrderByCreatedAtAsc(
                 organizationId, patientId, List.of(ConsentStatus.ACTIVE));
-        ConsentDecision decision = ConsentPolicy.decide(actorUserId, purpose, dataCategory, active, LocalDate.now());
-        return ConsentDecisionDto.from(patientId, purpose, dataCategory, decision);
+        return ConsentPolicy.decide(actorUserId, purpose, dataCategory, active, LocalDate.now());
     }
 }

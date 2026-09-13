@@ -1,11 +1,14 @@
 package com.healthcloud.patient;
 
 import java.time.LocalDate;
+import java.util.List;
 import java.util.UUID;
 
 /**
- * Client-facing view of a patient. Field-level masking by consent/purpose is a Phase 3 concern; for
- * now the whole profile is returned to any authorized same-tenant caller.
+ * Client-facing view of a patient. Reads are <b>field-safe</b> (source-of-truth §23.3): a consent-controlled
+ * field the caller may not see is returned as {@code null} and named in {@code maskedFields}, so the client
+ * can show "restricted" without ever receiving the value. Write responses (create/update) are unmasked — the
+ * caller just supplied the data — via {@link #from(Patient)} (empty {@code maskedFields}).
  */
 public record PatientDto(
         UUID id,
@@ -13,8 +16,10 @@ public record PatientDto(
         String fullName,
         LocalDate dateOfBirth,
         PatientStatus status,
-        long version) {
+        long version,
+        List<String> maskedFields) {
 
+    /** Unmasked view (write responses): every field present, nothing masked. */
     public static PatientDto from(Patient patient) {
         return new PatientDto(
                 patient.getId(),
@@ -22,6 +27,24 @@ public record PatientDto(
                 patient.getFullName(),
                 patient.getDateOfBirth(),
                 patient.getStatus(),
-                patient.getVersion()); // clients send this back as expectedVersion on update (optimistic lock)
+                patient.getVersion(), // clients send this back as expectedVersion on update (optimistic lock)
+                List.of());
+    }
+
+    /**
+     * Field-safe read view: any field name in {@code maskedFieldNames} is blanked in the response and listed
+     * in {@code maskedFields}. Currently only {@code dateOfBirth} is consent-controlled (see
+     * {@link PatientFieldPolicy}).
+     */
+    public static PatientDto masked(Patient patient, List<String> maskedFieldNames) {
+        boolean maskDob = maskedFieldNames.contains("dateOfBirth");
+        return new PatientDto(
+                patient.getId(),
+                patient.getMedicalRecordNumber(),
+                patient.getFullName(),
+                maskDob ? null : patient.getDateOfBirth(),
+                patient.getStatus(),
+                patient.getVersion(),
+                List.copyOf(maskedFieldNames));
     }
 }

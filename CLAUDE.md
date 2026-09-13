@@ -98,8 +98,9 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   decision engine** (§22.5): `ConsentPolicy` (a pure policy class), `ConsentPolicyService`, and
   `GET .../consent-directives/decision?purpose=&dataCategory=` — decides GRANT/DENY for the *calling actor*
   by most-specific-tier (PROVIDER>CARE_TEAM>ORGANIZATION), DENY-wins, deny-by-default, with the effective-date
-  window re-checked at decision time. **Field-level masking + wiring this into real reads are the next slice;
-  CARE_TEAM scope isn't evaluable until care-team relationship data exists**),
+  window re-checked at decision time; **CARE_TEAM scope isn't evaluable until care-team relationship data
+  exists**. `ConsentPolicyService.decideForActor(org, actor, patient, purpose, category)` is the low-level
+  hook field masking calls),
   `devdata` (DevDataSeeder, local-only).
 - **Tenant-owned entity pattern (Phase 2+):** hold `organizationId` as the tenant key; repositories expose
   only org-scoped finders (`findByIdAndOrganizationId`, `findByOrganizationId…`) — no bare `findById` in
@@ -128,6 +129,15 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   through an endpoint that does the extra work (e.g. `ASSIGNED` is reached only by `PUT .../assignment`, which
   records the assignee *and* advances the status in one tx), and a plain `PATCH /status` to that status is
   refused. Prefer this over letting a status be set with no accompanying record.
+- **Field-level masking (§23; Phase 3+):** the backend is the only trusted masker — build **field-safe DTOs**,
+  never rely on the frontend to hide a value it received (§23.3). Map each resource's fields to a
+  §23.1 `DataClassification` (+ a `ConsentDataCategory` when consent-controlled) in a small policy enum (e.g.
+  `PatientFieldPolicy`); the read's **purpose is backend-fixed** per action (§21.4), not client-chosen. For each
+  consent-controlled field, call `ConsentPolicy` (via `ConsentPolicyService.decideForActor`) for (purpose,
+  category) as the calling actor; **deny-by-default** → withhold unless an applicable GRANT exists. A masked read
+  returns the field as `null` and names it in a `maskedFields` list; **write responses stay unmasked** (the
+  caller supplied the data). Omitted fields must not resurface in logs/exports/events (§23.4). `dateOfBirth` on
+  the patient read is the reference implementation.
 - **Versioned relationship / supersede pattern (§31.7; `request_assignment` and now `consent_directive`):**
   a mutable relationship is an append-only, `@Version`-locked child table where **at most one row is ACTIVE**
   (a partial unique index `WHERE status='ACTIVE'` enforces it and backstops races). "Changing" it *supersedes*

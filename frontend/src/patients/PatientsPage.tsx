@@ -86,7 +86,13 @@ export function PatientsPage() {
                 <TableRow key={p.id}>
                   <TableCell>{p.fullName}</TableCell>
                   <TableCell>{p.medicalRecordNumber}</TableCell>
-                  <TableCell>{p.dateOfBirth}</TableCell>
+                  <TableCell>
+                    {p.dateOfBirth ?? (
+                      <Typography component="span" variant="body2" color="text.secondary" sx={{ fontStyle: 'italic' }}>
+                        Restricted
+                      </Typography>
+                    )}
+                  </TableCell>
                   <TableCell>
                     <Chip
                       label={p.status}

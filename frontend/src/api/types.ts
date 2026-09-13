@@ -23,9 +23,12 @@ export interface Patient {
   id: string
   medicalRecordNumber: string
   fullName: string
-  dateOfBirth: string // ISO date (yyyy-mm-dd)
+  // Consent-controlled (§23): null when the backend masked it for this caller; the field name then
+  // appears in `maskedFields`. Never trust the client to hide it — the backend omits the value.
+  dateOfBirth: string | null // ISO date (yyyy-mm-dd), or null when masked
   status: PatientStatus
   version: number
+  maskedFields?: string[]
 }
 
 /** Payload to create a patient. The tenant is stamped on the server, never sent by the client. */

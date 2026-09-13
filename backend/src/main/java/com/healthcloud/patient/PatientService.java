@@ -1,8 +1,11 @@
 package com.healthcloud.patient;
 
+import com.healthcloud.consent.ConsentPolicyService;
+import com.healthcloud.consent.ConsentPurpose;
 import com.healthcloud.context.UserContextAccessor;
 import com.healthcloud.error.ConflictException;
 import com.healthcloud.error.NotFoundException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
@@ -24,28 +27,53 @@ public class PatientService {
     /** Roles allowed to create/modify patient profiles (reads are open to any same-tenant user). */
     private static final String[] WRITE_ROLES = {"CARE_COORDINATOR", "ORG_ADMIN"};
 
+    /** The backend-fixed purpose for reading a patient profile (§21.4) — not chosen by the client. */
+    private static final ConsentPurpose READ_PURPOSE = ConsentPurpose.CARE_COORDINATION;
+
     private final PatientRepository patients;
+    private final ConsentPolicyService consentPolicy;
     private final UserContextAccessor userContext;
 
-    public PatientService(PatientRepository patients, UserContextAccessor userContext) {
+    public PatientService(PatientRepository patients, ConsentPolicyService consentPolicy,
+                          UserContextAccessor userContext) {
         this.patients = patients;
+        this.consentPolicy = consentPolicy;
         this.userContext = userContext;
     }
 
-    /** A single patient in the caller's tenant, or 404 if it is not in that tenant (or doesn't exist). */
+    /** A single patient in the caller's tenant (field-masked by consent), or a secure 404 across tenants. */
     public PatientDto getById(UUID id) {
         UUID organizationId = userContext.requireOrganizationId();
+        UUID actorUserId = userContext.requireUser().userId();
         return patients.findByIdAndOrganizationId(id, organizationId)
-                .map(PatientDto::from)
+                .map(patient -> toFieldSafeDto(patient, organizationId, actorUserId))
                 .orElseThrow(NotFoundException::new);
     }
 
-    /** All patients in the caller's tenant. */
+    /** All patients in the caller's tenant, each field-masked by consent for the calling actor. */
     public List<PatientDto> listForCurrentTenant() {
         UUID organizationId = userContext.requireOrganizationId();
+        UUID actorUserId = userContext.requireUser().userId();
         return patients.findByOrganizationIdOrderByFullNameAsc(organizationId).stream()
-                .map(PatientDto::from)
+                .map(patient -> toFieldSafeDto(patient, organizationId, actorUserId))
                 .toList();
+    }
+
+    /**
+     * Build a field-safe patient view (§23.3): for each consent-controlled field, the consent+purpose
+     * decision (§22.5) for this actor determines whether the field is returned or masked. Deny-by-default —
+     * a sensitive field is withheld unless an applicable consent GRANT exists.
+     */
+    private PatientDto toFieldSafeDto(Patient patient, UUID organizationId, UUID actorUserId) {
+        List<String> maskedFields = new ArrayList<>();
+        for (PatientFieldPolicy field : PatientFieldPolicy.consentControlled()) {
+            boolean granted = consentPolicy.decideForActor(
+                    organizationId, actorUserId, patient.getId(), READ_PURPOSE, field.dataCategory()).isGranted();
+            if (!granted) {
+                maskedFields.add(field.jsonField());
+            }
+        }
+        return PatientDto.masked(patient, maskedFields);
     }
 
     /**
