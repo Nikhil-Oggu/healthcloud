@@ -112,13 +112,22 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
 - **Jackson 3** here: `ObjectMapper` is `tools.jackson.databind.ObjectMapper` (not `com.fasterxml.jackson.databind`);
   annotations stay under `com.fasterxml.jackson.annotation`. `writeValue(...)` throws unchecked `JacksonException`.
 
+## Frontend notes (learned; avoid re-discovering)
+- **MUI 9 `Stack`:** passing `alignItems` (etc.) as a direct prop can fail typecheck when children are a
+  mixed/array set — put alignment in `sx={{ alignItems: 'center' }}` instead.
+- `tsconfig` uses `verbatimModuleSyntax` → import types with `import type { ... }`.
+- Dev server binds IPv6 `localhost` and proxies `/api` + `/actuator` to `:8080`; the backend must be running
+  or `/me` calls fail. RHF 7 + Zod 4 are in the stack but unused until the first real form (Phase 2).
+
 ## Repo layout
 `backend/` `frontend/` `worker/` `infrastructure/{terraform,environments}` `api/openapi/`
 `docs/{architecture,er-diagram,events,threat-model,adr,runbooks,evidence,learning,source-of-truth}/`
 `synthetic-data/` `scripts/` `.github/workflows/` · plus `CLAUDE.md`, `docs/PLAN.md`,
 `docs/PROGRESS.md`, `docker-compose.yml`, `README.md`.
 
-## Custom tooling (created across Phase 0+; see docs/PLAN.md Part C)
-- Commands: `/status` (session start), `/wrap` (session end), `/capture-module`, `/adr`.
-- Subagents (Phase 3): HealthCloud-specific code-reviewer + security-reviewer.
-- Hooks (Phase 1+): format/compile after edits; later a synthetic-data guard.
+## Custom tooling (see docs/PLAN.md Part C for the full plan)
+- **Exists today:** `.claude/launch.json` only (the `frontend` dev-server config for the browser preview).
+- **Planned, NOT yet created** (don't assume these exist): commands `/status` (session start),
+  `/wrap` (session end), `/capture-module`, `/adr`; Phase-3 subagents (HealthCloud code-reviewer +
+  security-reviewer); Phase-1+ hooks (format/compile after edits; later a synthetic-data guard).
+- Until they exist, use built-ins: `/code-review`, `/security-review`, and read the 3 files manually.
