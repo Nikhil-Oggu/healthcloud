@@ -318,3 +318,186 @@ A: It disables the Open-Session-In-View anti-pattern, so lazy associations can't
 view rendering. It forces loading/DTO-assembly to happen inside the service transaction (which is
 exactly why `/me` builds a `CurrentUserDto` in the service). This avoids surprise N+1 queries and
 `LazyInitializationException`s leaking into the web layer.
+
+---
+
+## Phase 2 collaboration — request comments & assignment (slices 7–8) — 2026-09-13
+
+### What we built
+Two features that complete the Phase 2 care-coordination workflow on top of the service-request state
+machine that already existed:
+
+- **Comments** — a collaboration thread on each request. Workflow participants (patient, provider,
+  coordinator, admin) can post notes; read-only roles can view but not write.
+- **Assignment** — a coordinator/admin can assign a request to a responsible **provider or claims
+  reviewer**, and reassign it later. We chose **"Option A": assignment is the only way a request
+  reaches the `ASSIGNED` status** — so a request can never be "assigned" with nobody on it.
+
+Both are backend + React UI, tenant-scoped, and fully tested. After these, backend was **61 tests** and
+frontend **19 tests** (both observed green locally and in CI).
+
+### How it works
+
+**Comments (slice 7).** A tenant-owned append-only child of `service_request`:
+
+```sql
+-- V7__request_comment.sql (abridged)
+CREATE TABLE request_comment (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id UUID NOT NULL REFERENCES organization (id),
+    service_request_id UUID NOT NULL,
+    author_user_id UUID NOT NULL,
+    body VARCHAR(2000) NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT fk_request_comment_request FOREIGN KEY (service_request_id, organization_id)
+        REFERENCES service_request (id, organization_id)   -- composite FK includes the tenant (§32.10)
+);
+```
+
+`POST/GET /api/v1/requests/{id}/comments` in `ServiceRequestService.addComment/getComments`
+(`backend/src/main/java/com/healthcloud/request/`). The author and org are stamped from
+`UserContextAccessor` — never the client. Participant roles gate writes; another tenant's request id is
+a secure 404. The React side (`RequestDetailPage.tsx` `CommentsCard`) lists the thread oldest-first and
+shows an add box (React Hook Form + Zod, ≤2000 chars) only to participant roles.
+
+**Assignment (slice 8).** A **versioned relationship table** where at most one row is ACTIVE:
+
+```sql
+-- V8__request_assignment.sql (abridged)
+CREATE TABLE request_assignment (
+    ..., assignee_user_id UUID NOT NULL, assigned_by_user_id UUID NOT NULL,
+    assignee_role VARCHAR(40) NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE',   -- ACTIVE | SUPERSEDED
+    ended_at TIMESTAMPTZ, version BIGINT NOT NULL DEFAULT 0,
+    CONSTRAINT fk_request_assignment_request FOREIGN KEY (service_request_id, organization_id)
+        REFERENCES service_request (id, organization_id)
+);
+CREATE UNIQUE INDEX ux_request_assignment_active
+    ON request_assignment (service_request_id) WHERE status = 'ACTIVE';  -- one active per request
+```
+
+`RequestAssignmentService.assign(...)` does the work in one `@Transactional`:
+
+1. `requireAnyRole(CARE_COORDINATOR, ORG_ADMIN)` → else 403.
+2. Load the request by `(id, organizationId)` → else secure 404.
+3. Status must be `TRIAGED` (first assign → advances to `ASSIGNED`) or `ASSIGNED` (reassign) → else
+   `INVALID_STATE_TRANSITION` (409).
+4. Optimistic lock: `request.version == expectedVersion` → else `CONFLICT` (409).
+5. Assignee must be a same-tenant user with an ACTIVE membership holding `PROVIDER`/`CLAIMS_REVIEWER`
+   → else `VALIDATION_FAILED` (400). We resolve this by reading the `identity` module's repos
+   (`OrganizationMembershipRepository`, `UserRoleRepository`).
+6. **Supersede then insert:** if an ACTIVE row exists, `supersede()` it (`status→SUPERSEDED`, stamp
+   `ended_at`) and **`saveAndFlush` before inserting** the new ACTIVE row (so the partial unique index
+   is honored inside the tx), then insert.
+7. On a first assignment (from TRIAGED) set status `ASSIGNED`, `saveAndFlush` the request to bump
+   `@Version`, and append a `request_status_history` row (`TRIAGED → ASSIGNED`).
+
+Endpoints: `GET /{id}/assignment` (current active or null), `GET /{id}/assignable-users`
+(coordinator/admin; minimum-necessary `{userId, fullName, role}`), `PUT /{id}/assignment`. The React
+`AssignmentCard` shows the current assignee to everyone and an assign/reassign `<select>` to
+coordinators/admins, but only while the status is TRIAGED/ASSIGNED.
+
+Because assignment now owns the ASSIGNED transition, `ServiceRequestService.changeStatus` explicitly
+rejects a bare `PATCH /status` to `ASSIGNED`, and the client mirror `transitions.ts` no longer offers
+it as a status button.
+
+### Key points to remember
+- **Option A (assignment owns ASSIGNED)** keeps status and assignee always consistent. The cost was a
+  small state-machine change and updating the state-machine test to reach ASSIGNED via the assign
+  endpoint. Worth it — the alternative left two disconnected notions of "assigned".
+- **Supersede, don't mutate.** Reassignment keeps full history; the partial unique index
+  (`WHERE status='ACTIVE'`) enforces the one-active invariant *and* backstops two coordinators racing
+  to assign (the second insert violates the index → mapped to 409).
+- **Flush ordering matters.** Hibernate can order INSERTs before UPDATEs in a flush; without an explicit
+  `saveAndFlush` on the supersede, the new ACTIVE insert would collide with the still-active old row.
+- **Minimum-necessary + no existence leak.** `assignable-users` returns only id/name/role; an ineligible
+  same-tenant user returns **400**, not a 403/404 that would reveal role or existence details.
+- **Composite tenant FK** on every request child (`comment`, `assignment`, `status_history`) makes
+  cross-tenant linkage structurally impossible, not just checked in code.
+- This assignee relationship is the input Phase 3's authorization policy evaluator will consume (the
+  "unassigned provider → denied" scenario).
+
+### Failures and how we fixed them
+- **Existing state-machine test drove ASSIGNED via `PATCH /status`.** Adopting Option A made that path
+  return 409, which would have broken three tests. Fix: added an `assign()` helper to
+  `ServiceRequestStateMachineApiIntegrationTest` (GET assignable-users → PUT assignment → re-read the
+  request's new version) and replaced the `advance(..., "ASSIGNED", ...)` calls with it.
+- **Detail-page tests failed once the page called `getAssignment` on every render.** The mocked `api`
+  didn't have the new methods, so the assignment query errored. Fix: added `getAssignment` /
+  `listAssignableUsers` / `assign` to the mock and set safe defaults (`null` / `[]`) in `beforeEach`.
+- No production/runtime bugs this session — backend `verify` and frontend tests were green on the first
+  full run after wiring, and the live browser + curl checks matched.
+
+### Interview Q&A
+
+#### 1. Beginner
+
+**Q: What does "assignment is the only path to ASSIGNED" mean?**
+A: You can't move a request to the ASSIGNED status with a plain status change. The only way in is to
+assign a specific user via `PUT .../assignment`, which records who is responsible *and* flips the status
+in the same transaction. A bare `PATCH /status` to ASSIGNED is rejected. This guarantees an ASSIGNED
+request always has an assignee.
+
+**Q: Who can comment, and who can assign?**
+A: Comment: workflow participants — patient, provider, coordinator, admin (read-only roles like the
+claims reviewer can view but not post). Assign: coordinators and org admins only, and the assignee must
+be a same-tenant provider or claims reviewer. All of this is enforced on the backend; the UI only
+hides controls as a convenience.
+
+**Q: How do we stop a comment or assignment from attaching to another tenant's request?**
+A: Two layers. The service loads the parent request by `(id, organizationId)` from the caller's
+backend-derived context, so another tenant's id is simply not found (secure 404). And the child table's
+foreign key is composite — `(service_request_id, organization_id)` — so the database itself refuses a
+cross-tenant link.
+
+#### 2. Intermediate
+
+**Q: Why supersede rows instead of updating the assignment in place?**
+A: To keep an auditable history of who was assigned and when, and to make "one current assignee" an
+explicit, enforceable invariant. Updating in place would lose the previous assignment and give us no
+record of reassignments. Supersession (old row → SUPERSEDED with `ended_at`, new row ACTIVE) preserves
+the trail; a partial unique index on `status='ACTIVE'` enforces exactly one current row.
+
+**Q: How is concurrency handled for assignment?**
+A: Two mechanisms. The request carries `@Version` and the caller sends `expectedVersion`; a stale value
+→ 409 CONFLICT (someone changed the request first). And for the assignment rows themselves, the partial
+unique index means two simultaneous assigns can't both insert an ACTIVE row — the loser hits a
+constraint violation that maps to 409. So we don't rely on read-then-write being atomic in app code.
+
+**Q: Why did assigning to an ineligible user return 400 rather than 403 or 404?**
+A: 403 or 404 could leak information ("this id exists but isn't allowed" vs "doesn't exist"). The
+request is well-formed but references a user who isn't an assignable role in this tenant, so it's a
+validation failure (400) with a generic message. It doesn't confirm whether that user id exists.
+
+**Q: Why does reassignment not append a status-history row, but the first assignment does?**
+A: The first assignment changes the request's *status* (TRIAGED → ASSIGNED), which is exactly what the
+status timeline records. A reassignment doesn't change status, so writing a `to=ASSIGNED,from=ASSIGNED`
+row would pollute the timeline with non-transitions. The assignment table (superseded + new active
+rows) is itself the audit trail for reassignments.
+
+#### 3. Advanced
+
+**Q: Why must you flush the supersede before inserting the new ACTIVE assignment?**
+A: The partial unique index allows only one `status='ACTIVE'` row per request. Within a single flush,
+Hibernate may order the INSERT before the UPDATE, so the new ACTIVE row would momentarily coexist with
+the old ACTIVE row and trip the index. Calling `saveAndFlush` on the superseded row forces the UPDATE to
+hit the DB first, so the invariant holds throughout the transaction.
+
+**Q: What changed in the state machine to support Option A, and how do you keep the client honest?**
+A: The structural table still lists `TRIAGED → ASSIGNED` (the assign service uses it), but
+`changeStatus` explicitly refuses any bare move whose target is `ASSIGNED`. On the client,
+`transitions.ts` filters `ASSIGNED` out of the action buttons. The client mirror is a UX convenience
+only — the backend re-validates every move — so drift is a UX bug, never a security hole.
+
+**Q: This slice reaches across modules (request → identity). How did you keep that clean?**
+A: `RequestAssignmentService` reads the `identity` module's repositories to resolve and validate
+assignable users, but exposes only minimum-necessary fields (`userId`, `fullName`, `role`) via a
+purpose-specific `assignable-users` endpoint — not a general user directory, which would carry its own
+privacy concerns. The dependency direction is one-way (request depends on identity), matching the
+modular-monolith conventions.
+
+**Q: How does this set up Phase 3?**
+A: Phase 3's hybrid RBAC + attribute policy evaluator checks a **relationship** dimension — e.g. "is
+this provider actually assigned to / related to this request or patient?". `request_assignment` is the
+first concrete relationship the evaluator can consult; `provider_patient_assignment` and consent join it
+later. The seed's "unassigned provider → denied" scenario is precisely this check.
