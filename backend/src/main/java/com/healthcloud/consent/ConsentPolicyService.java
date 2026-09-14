@@ -1,8 +1,7 @@
 package com.healthcloud.consent;
 
 import com.healthcloud.context.UserContextAccessor;
-import com.healthcloud.error.NotFoundException;
-import com.healthcloud.patient.PatientRepository;
+import com.healthcloud.patient.PatientAccessGuard;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
@@ -25,20 +24,23 @@ import org.springframework.transaction.annotation.Transactional;
 public class ConsentPolicyService {
 
     private final ConsentDirectiveRepository directives;
-    private final PatientRepository patients;
+    private final PatientAccessGuard accessGuard;
     private final UserContextAccessor userContext;
 
-    public ConsentPolicyService(ConsentDirectiveRepository directives, PatientRepository patients,
+    public ConsentPolicyService(ConsentDirectiveRepository directives, PatientAccessGuard accessGuard,
                                 UserContextAccessor userContext) {
         this.directives = directives;
-        this.patients = patients;
+        this.accessGuard = accessGuard;
         this.userContext = userContext;
     }
 
-    /** The effective consent decision for the calling actor accessing {@code dataCategory} for {@code purpose}. */
+    /**
+     * The effective consent decision for the calling actor accessing {@code dataCategory} for {@code purpose}.
+     * Passes the object/relationship gate first (§21 layer 6): a provider not assigned to the patient gets a
+     * secure 404, so this endpoint cannot be used to probe consent for a patient they cannot otherwise reach.
+     */
     public ConsentDecisionDto decide(UUID patientId, ConsentPurpose purpose, ConsentDataCategory dataCategory) {
-        UUID organizationId = userContext.requireOrganizationId();
-        patients.findByIdAndOrganizationId(patientId, organizationId).orElseThrow(NotFoundException::new);
+        UUID organizationId = accessGuard.requireAccessibleInTenant(patientId).getOrganizationId();
         UUID actorUserId = userContext.requireUser().userId();
         return ConsentDecisionDto.from(patientId, purpose, dataCategory,
                 decideForActor(organizationId, actorUserId, patientId, purpose, dataCategory));

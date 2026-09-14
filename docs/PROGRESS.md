@@ -6,13 +6,14 @@
 ## Current position
 - **Phase:** 0 ✅ · Environment ✅ · Phase 1 COMPLETE ✅ · Phase 2 COMPLETE ✅ (slices 1–8) ·
   **Phase 3 IN PROGRESS 🚧 (slice 1 ✅ consent lifecycle · 2 ✅ decision engine §22.5 · 3 ✅ field masking §23 ·
-  4 ✅ provider↔patient record §14.3 · 5 ✅ object/relationship gate on patient reads §21 layer 6)**
+  4 ✅ provider↔patient record §14.3 · 5 ✅ object/relationship gate on patient reads §21 layer 6 ·
+  6 ✅ gate applied to the patient-nested endpoints — single `PatientAccessGuard` choke point)**
 - **Repo:** https://github.com/Nikhil-Oggu/healthcloud (private, branch `main`)
-- **Next up:** **Phase 3, slice 6 (pick one when planning)** — candidates: wire the relationship into consent
-  **PROVIDER/CARE_TEAM scope** + `care_coordinator_assignment`; extend the relationship gate to the nested
-  endpoints (consent-directives / provider-assignments / service requests *about* a patient); (c) **secure S3
-  documents** (§19); the **function-permission matrix** (§21.2) / business-need (§21 layer 8) incl. finer
-  PATIENT/CLAIMS_REVIEWER patient-read rules; extend field-masking (b) to more resources. Then consent-lifecycle
+- **Next up:** **Phase 3, slice 7 (pick one when planning)** — candidates: wire the relationship into consent
+  **PROVIDER/CARE_TEAM scope** + `care_coordinator_assignment`; **secure S3 documents** (§19); the
+  **function-permission matrix** (§21.2) / business-need (§21 layer 8) incl. finer PATIENT/CLAIMS_REVIEWER
+  patient-read rules (incl. requests *about* a patient — `GET /requests?patientId=`, a separate resource left
+  ungated in slice 6); extend field-masking to more resources. Then consent-lifecycle
   **audit** (§22.6 → Phase 7). **Run `/security-review` in Phase 3.** Plan each slice before building. (Deferred:
   CARE_TEAM consent scope not evaluable until care-team data exists; PROVIDER/CLAIMS_REVIEWER/PATIENT finer
   read rules; provider-patient PENDING→ACTIVE/→EXPIRED time sweeps — scheduler, Phase 8; patient self-service
@@ -26,6 +27,38 @@
   then `curl -b j.txt localhost:8080/api/v1/me`. Reset DB with `./scripts/db-reset.sh`.
 
 ## Log (newest first)
+
+### 2026-09-14 — Phase 3, slice 6 ✅ (close the gate's back doors — the §21 layer-6 gate now covers the patient-nested endpoints)
+- **The hole this closed:** slice 5 gated the patient read itself, but the endpoints *nested* under a patient
+  (`consent-directives` list + `/decision`, `provider-assignments` list) resolved only the **tenant**, not the
+  relationship. So an unassigned provider — 404'd on the patient — could still read that patient's consent set,
+  probe consent via `/decision`, and enumerate their provider assignments, leaking existence + data **around**
+  the gate. §21 says each layer is an independent check; a nested route must not be a way past it.
+- **New `PatientAccessGuard`** (in `com.healthcloud.patient`) — the **single choke point** for "may this caller
+  reach this patient at all?": load the patient in the caller's tenant (cross-tenant → secure 404), then a
+  **PROVIDER without a broad coordinator/admin role** must be **actively assigned** (else secure 404). It owns
+  the "actively assigned" query (`activePatientIdsFor`/`isActivelyAssigned`, moved out of
+  `ProviderPatientAssignmentService`) and depends **only on repositories** — so every service can use it with
+  no bean cycle. `isProviderGated(...)` also lives here now.
+- **Wired the guard into every patient-scoped read:** `PatientService` (`getById`/list — refactored to the
+  guard, behavior unchanged, its inline gate + direct PPA-service dep removed), `ConsentDirectiveService.list`,
+  `ConsentPolicyService.decide` (the `/decision` endpoint; the low-level `decideForActor` masking hook is
+  **not** re-gated — it runs after the gate has already passed), and `ProviderPatientAssignmentService.listCurrent`.
+  Consent record/revoke + assignment assign/revoke stay coordinator/admin-gated (a provider is 403 there before
+  any patient check), so the gate is a no-op for them — left on the plain tenant check.
+- **Blast radius (fixed in-slice):** `ConsentDecisionApiIntegrationTest`'s two provider-reads-a-decision tests
+  predate assignments (slice 2) — they now **assign the provider first** (same pattern slice 5 used for masking).
+  No other test moved: `assign` checks role (403) before the patient, and reviewers aren't provider-gated.
+- **Verified — automated:** `./mvnw -B verify` → **108 tests pass** (+3 `PatientNestedEndpointGateApiIntegrationTest`:
+  unassigned provider → secure 404 on all three nested endpoints; assigned provider → 200 on all three;
+  coordinator → 200 with no assignment). All prior tests green.
+- **Verified — live (curl, fresh seed):** as the seeded provider (Dana, assigned to NC-0001/0002, **not**
+  NC-0003): NC-0003 consent-list / decision / provider-assignments all **404**, NC-0001 all **200**; coordinator
+  gets **200** on NC-0003's three endpoints. Matches the acceptance intent exactly.
+- **No migration, no frontend change** — pure backend authorization-hardening. **Deferred → slice 7+:** requests
+  *about* a patient (`GET /requests?patientId=`, a separate resource with its own participant model — still
+  ungated); consent PROVIDER/CARE_TEAM scope wiring; `care_coordinator_assignment`; finer PATIENT/CLAIMS_REVIEWER
+  rules; secure S3 documents.
 
 ### 2026-09-14 — Phase 3, slice 5 ✅ (object/relationship gate — "a provider sees only assigned patients"; §60)
 - **The relationship (slice 4) now enforces access.** `PatientService` reads apply the §21 layer-6 gate: a

@@ -84,8 +84,8 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   CurrentUserController/Service, CsrfCookieFilter), `context` (UserContext + UserContextAccessor/Filter),
   `error` (ApiError, ErrorCode, GlobalExceptionHandler, CorrelationId), `patient` (Patient CRUD:
   `GET/POST /api/v1/patients`, `GET/PATCH /api/v1/patients/{id}`, tenant-scoped → secure 404 cross-tenant;
-  reads are relationship-gated (providers see only assigned patients) and consent-field-masked — see the
-  Authorization-layering + Field-masking conventions below),
+  reads are relationship-gated (providers see only assigned patients, via the shared `PatientAccessGuard`) and
+  consent-field-masked — see the Authorization-layering + Field-masking conventions below),
   `request` (ServiceRequest + RequestStatusHistory + `RequestTransitions` state machine: `GET/POST
   /api/v1/requests`, `GET /api/v1/requests/{id}`, `PATCH /api/v1/requests/{id}/status`,
   `GET /api/v1/requests/{id}/history`; controlled §14.6 transitions, optimistic-locked, history per move;
@@ -102,14 +102,16 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   by most-specific-tier (PROVIDER>CARE_TEAM>ORGANIZATION), DENY-wins, deny-by-default, with the effective-date
   window re-checked at decision time; **CARE_TEAM scope isn't evaluable until care-team relationship data
   exists**. `ConsentPolicyService.decideForActor(org, actor, patient, purpose, category)` is the low-level
-  hook field masking calls),
+  hook field masking calls. The consent **reads** (`list` + `/decision`) pass the shared `PatientAccessGuard`
+  first, so an unassigned provider gets a secure 404 here too),
   `relationship` (Phase 3 — provider↔patient care relationship §14.3: `GET/POST
   /api/v1/patients/{patientId}/provider-assignments`, `POST .../{id}/revoke`; effective-dated, auditable,
   states PENDING/ACTIVE/EXPIRED/REVOKED, at most one current per (patient, provider); coordinator/admin-gated,
   the assignee must be a same-tenant PROVIDER. **Enforces the object/relationship gate** (§21 layer 6): a
-  PROVIDER reads only actively-assigned patients (`PatientService` uses
-  `ProviderPatientAssignmentService.activePatientIdsFor/isActivelyAssigned`); unassigned → secure 404,
-  coordinators/admins broad. `DevDataSeeder` assigns each provider to 2 of 3 patients),
+  PROVIDER reads only actively-assigned patients — the gate logic lives in the shared `PatientAccessGuard`
+  (patient package), which `PatientService`, the consent reads, and this module's `listCurrent` all route
+  through; unassigned → secure 404, coordinators/admins broad. `DevDataSeeder` assigns each provider to 2 of 3
+  patients),
   `devdata` (DevDataSeeder, local-only).
 - **Tenant-owned entity pattern (Phase 2+):** hold `organizationId` as the tenant key; repositories expose
   only org-scoped finders (`findByIdAndOrganizationId`, `findByOrganizationId…`) — no bare `findById` in
@@ -144,7 +146,12 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   masking** (§23). Each is a separate check that can only *narrow* access; a broad role (coordinator/admin) may
   skip the relationship layer but still faces consent/field policy. An object/relationship denial is a **secure
   404** (§21.5), never a 403 that would confirm the row exists. Gate role-agnostically off the caller's actual
-  roles from `UserContext`, never the client.
+  roles from `UserContext`, never the client. **The relationship layer has ONE implementation —
+  `PatientAccessGuard.requireAccessibleInTenant(patientId)`** (in `com.healthcloud.patient`) — and **every**
+  patient-scoped read routes through it: the patient read itself *and* everything nested under a patient
+  (consent directives, the consent decision, provider assignments). A new endpoint that exposes a patient or
+  patient-nested data MUST call the guard, so the gate can never be side-stepped by a nested route. The guard
+  depends only on repositories (not on the services it protects), so any service can use it with no bean cycle.
 - **Field-level masking (§23; Phase 3+):** the backend is the only trusted masker — build **field-safe DTOs**,
   never rely on the frontend to hide a value it received (§23.3). Map each resource's fields to a
   §23.1 `DataClassification` (+ a `ConsentDataCategory` when consent-controlled) in a small policy enum (e.g.

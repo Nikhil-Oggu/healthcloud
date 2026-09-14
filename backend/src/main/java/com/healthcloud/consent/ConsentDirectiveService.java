@@ -7,6 +7,7 @@ import com.healthcloud.error.ConflictException;
 import com.healthcloud.error.ErrorCode;
 import com.healthcloud.error.InvalidStateTransitionException;
 import com.healthcloud.error.NotFoundException;
+import com.healthcloud.patient.PatientAccessGuard;
 import com.healthcloud.patient.PatientRepository;
 import java.time.LocalDate;
 import java.util.List;
@@ -40,12 +41,14 @@ public class ConsentDirectiveService {
 
     private final ConsentDirectiveRepository directives;
     private final PatientRepository patients;
+    private final PatientAccessGuard accessGuard;
     private final UserContextAccessor userContext;
 
     public ConsentDirectiveService(ConsentDirectiveRepository directives, PatientRepository patients,
-                                   UserContextAccessor userContext) {
+                                   PatientAccessGuard accessGuard, UserContextAccessor userContext) {
         this.directives = directives;
         this.patients = patients;
+        this.accessGuard = accessGuard;
         this.userContext = userContext;
     }
 
@@ -54,7 +57,7 @@ public class ConsentDirectiveService {
      * (ACTIVE + SCHEDULED); {@code includeHistory} returns every version, oldest first.
      */
     public List<ConsentDirectiveDto> list(UUID patientId, boolean includeHistory) {
-        UUID organizationId = requirePatientInTenant(patientId);
+        UUID organizationId = accessGuard.requireAccessibleInTenant(patientId).getOrganizationId();
         List<ConsentDirective> rows = includeHistory
                 ? directives.findByOrganizationIdAndPatientIdOrderByCreatedAtAsc(organizationId, patientId)
                 : directives.findByOrganizationIdAndPatientIdAndStatusInOrderByCreatedAtAsc(

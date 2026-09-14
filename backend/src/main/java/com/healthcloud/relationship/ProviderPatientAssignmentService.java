@@ -12,6 +12,7 @@ import com.healthcloud.identity.OrganizationMembership;
 import com.healthcloud.identity.OrganizationMembershipRepository;
 import com.healthcloud.identity.UserRole;
 import com.healthcloud.identity.UserRoleRepository;
+import com.healthcloud.patient.PatientAccessGuard;
 import com.healthcloud.patient.PatientRepository;
 import java.time.LocalDate;
 import java.util.List;
@@ -46,51 +47,30 @@ public class ProviderPatientAssignmentService {
     private final PatientRepository patients;
     private final OrganizationMembershipRepository memberships;
     private final UserRoleRepository userRoles;
+    private final PatientAccessGuard accessGuard;
     private final UserContextAccessor userContext;
 
     public ProviderPatientAssignmentService(ProviderPatientAssignmentRepository assignments,
                                             PatientRepository patients,
                                             OrganizationMembershipRepository memberships,
                                             UserRoleRepository userRoles,
+                                            PatientAccessGuard accessGuard,
                                             UserContextAccessor userContext) {
         this.assignments = assignments;
         this.patients = patients;
         this.memberships = memberships;
         this.userRoles = userRoles;
+        this.accessGuard = accessGuard;
         this.userContext = userContext;
     }
 
     /**
-     * The patient ids a provider is ACTIVELY assigned to (in force today) within a tenant — the input to the
-     * object/relationship access gate (§21 layer 6). Re-checks the effective-date window, so a PENDING or
-     * past-its-window row does not grant access.
+     * A patient's current (ACTIVE/PENDING) provider assignments, oldest first. Reads pass the same
+     * object/relationship gate as the patient itself (§21 layer 6): a provider not assigned to the patient
+     * gets a secure 404 here too, so this nested endpoint cannot be used to side-step the gate.
      */
-    public java.util.Set<UUID> activePatientIdsFor(UUID organizationId, UUID providerUserId) {
-        LocalDate today = LocalDate.now();
-        return assignments
-                .findByOrganizationIdAndProviderUserIdAndStatus(
-                        organizationId, providerUserId, ProviderPatientAssignmentStatus.ACTIVE)
-                .stream()
-                .filter(a -> inForce(a, today))
-                .map(ProviderPatientAssignment::getPatientId)
-                .collect(java.util.stream.Collectors.toSet());
-    }
-
-    /** Whether a provider has an in-force ACTIVE assignment to a patient (the per-patient gate check). */
-    public boolean isActivelyAssigned(UUID organizationId, UUID providerUserId, UUID patientId) {
-        return activePatientIdsFor(organizationId, providerUserId).contains(patientId);
-    }
-
-    /** Whether {@code today} falls within the assignment's effective window (open-ended when no end date). */
-    private static boolean inForce(ProviderPatientAssignment a, LocalDate today) {
-        boolean started = !today.isBefore(a.getEffectiveFrom());
-        boolean notEnded = a.getEffectiveTo() == null || !today.isAfter(a.getEffectiveTo());
-        return started && notEnded;
-    }
-
-    /** A patient's current (ACTIVE/PENDING) provider assignments, oldest first. */
     public List<ProviderPatientAssignmentDto> listCurrent(UUID patientId) {
-        UUID organizationId = requirePatientInTenant(patientId);
+        UUID organizationId = accessGuard.requireAccessibleInTenant(patientId).getOrganizationId();
         return assignments
                 .findByOrganizationIdAndPatientIdAndStatusInOrderByAssignedAtAsc(organizationId, patientId, CURRENT)
                 .stream()

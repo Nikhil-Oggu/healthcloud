@@ -6,7 +6,6 @@ import com.healthcloud.context.UserContext;
 import com.healthcloud.context.UserContextAccessor;
 import com.healthcloud.error.ConflictException;
 import com.healthcloud.error.NotFoundException;
-import com.healthcloud.relationship.ProviderPatientAssignmentService;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
@@ -20,8 +19,9 @@ import org.springframework.transaction.annotation.Transactional;
  * caller can only see patients in their own organization. A patient in another tenant is reported as
  * "not found" (secure 404), never as "forbidden", so existence is not leaked across tenants.
  *
- * <p>Scope note (this slice): tenant scoping only. Object-relationship checks (is this provider
- * assigned to this patient?) and consent/purpose + field masking arrive in later Phase 2 / Phase 3.
+ * <p>Reads pass through the layered authorization pipeline (§21): tenant → object/relationship gate
+ * ({@link PatientAccessGuard}: a PROVIDER reads only actively-assigned patients) → consent + field-level
+ * masking (§22.5, §23). Each layer only narrows access.
  */
 @Service
 @Transactional(readOnly = true)
@@ -30,24 +30,19 @@ public class PatientService {
     /** Roles allowed to create/modify patient profiles (reads are open to any same-tenant user). */
     private static final String[] WRITE_ROLES = {"CARE_COORDINATOR", "ORG_ADMIN"};
 
-    /** Roles with broad (coordination/admin) patient access — not gated by a provider-patient relationship. */
-    private static final String[] BROAD_READ_ROLES = {"CARE_COORDINATOR", "ORG_ADMIN"};
-
-    private static final String PROVIDER_ROLE = "PROVIDER";
-
     /** The backend-fixed purpose for reading a patient profile (§21.4) — not chosen by the client. */
     private static final ConsentPurpose READ_PURPOSE = ConsentPurpose.CARE_COORDINATION;
 
     private final PatientRepository patients;
     private final ConsentPolicyService consentPolicy;
-    private final ProviderPatientAssignmentService relationships;
+    private final PatientAccessGuard accessGuard;
     private final UserContextAccessor userContext;
 
     public PatientService(PatientRepository patients, ConsentPolicyService consentPolicy,
-                          ProviderPatientAssignmentService relationships, UserContextAccessor userContext) {
+                          PatientAccessGuard accessGuard, UserContextAccessor userContext) {
         this.patients = patients;
         this.consentPolicy = consentPolicy;
-        this.relationships = relationships;
+        this.accessGuard = accessGuard;
         this.userContext = userContext;
     }
 
@@ -57,15 +52,8 @@ public class PatientService {
      * patient is a secure 404 (§21.5), never a 403 that would confirm the patient exists.
      */
     public PatientDto getById(UUID id) {
-        UserContext caller = userContext.requireUser();
-        UUID organizationId = userContext.requireOrganizationId();
-        Patient patient = patients.findByIdAndOrganizationId(id, organizationId)
-                .orElseThrow(NotFoundException::new);
-        if (isProviderGated(caller)
-                && !relationships.isActivelyAssigned(organizationId, caller.userId(), patient.getId())) {
-            throw new NotFoundException();
-        }
-        return toFieldSafeDto(patient, organizationId, caller.userId());
+        Patient patient = accessGuard.requireAccessibleInTenant(id);
+        return toFieldSafeDto(patient, patient.getOrganizationId(), userContext.requireUser().userId());
     }
 
     /**
@@ -76,28 +64,13 @@ public class PatientService {
         UserContext caller = userContext.requireUser();
         UUID organizationId = userContext.requireOrganizationId();
         List<Patient> rows = patients.findByOrganizationIdOrderByFullNameAsc(organizationId);
-        if (isProviderGated(caller)) {
-            Set<UUID> assigned = relationships.activePatientIdsFor(organizationId, caller.userId());
+        if (accessGuard.isProviderGated(caller)) {
+            Set<UUID> assigned = accessGuard.activePatientIdsFor(organizationId, caller.userId());
             rows = rows.stream().filter(p -> assigned.contains(p.getId())).toList();
         }
         return rows.stream()
                 .map(patient -> toFieldSafeDto(patient, organizationId, caller.userId()))
                 .toList();
-    }
-
-    /**
-     * Whether the caller's patient access is gated by a provider-patient relationship: a PROVIDER who does not
-     * also hold a broad (coordinator/admin) role. Other roles keep their current access in this slice.
-     */
-    private boolean isProviderGated(UserContext caller) {
-        boolean broad = false;
-        for (String role : BROAD_READ_ROLES) {
-            if (caller.roles().contains(role)) {
-                broad = true;
-                break;
-            }
-        }
-        return !broad && caller.roles().contains(PROVIDER_ROLE);
     }
 
     /**

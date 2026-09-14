@@ -1,4 +1,4 @@
-package com.healthcloud.consent;
+package com.healthcloud.patient;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -19,19 +19,18 @@ import org.springframework.context.annotation.Import;
 import org.springframework.test.context.ActiveProfiles;
 
 /**
- * Phase 3 slice 2 — the consent + purpose decision engine over HTTP (§22.5). The decision is about the
- * CALLING actor: an org-wide grant applies to anyone, and adding a more-specific provider DENY flips that
- * same caller's decision. No applicable directive → deny by default; a bad purpose → 400; another tenant's
- * patient → secure 404.
+ * Phase 3 slice 6 — the object/relationship gate (§21 layer 6) applies to the patient-<i>nested</i> endpoints,
+ * not just the patient read. A PROVIDER who is not assigned to a patient gets a secure 404 (§21.5) on that
+ * patient's consent directives, consent decision, and provider assignments too — so a nested route cannot be
+ * used to side-step the gate. Assigning the provider restores access; coordinators/admins keep broad access.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @Import(TestcontainersConfiguration.class)
 @ActiveProfiles("local")
-class ConsentDecisionApiIntegrationTest {
+class PatientNestedEndpointGateApiIntegrationTest {
 
     private static final Pattern FIRST_ID = Pattern.compile("\"id\":\"([0-9a-fA-F-]{36})\"");
     private static final Pattern USER_ID = Pattern.compile("\"userId\":\"([0-9a-fA-F-]{36})\"");
-    private static final Pattern EFFECT = Pattern.compile("\"effect\":\"(GRANT|DENY)\"");
 
     @Value("${local.server.port}")
     int port;
@@ -42,105 +41,74 @@ class ConsentDecisionApiIntegrationTest {
         return URI.create("http://localhost:" + port + path);
     }
 
-    private String decisionPath(String patientId) {
+    private String consentList(String patientId) {
+        return "/api/v1/patients/" + patientId + "/consent-directives";
+    }
+
+    private String decision(String patientId) {
         return "/api/v1/patients/" + patientId
                 + "/consent-directives/decision?purpose=CARE_COORDINATION&dataCategory=CLINICAL_CONTEXT";
     }
 
-    private static final String ORG_GRANT = """
-            {"effect":"GRANT","purpose":"CARE_COORDINATION","dataCategory":"CLINICAL_CONTEXT",
-             "scopeType":"ORGANIZATION"}""";
+    private String assignments(String patientId) {
+        return "/api/v1/patients/" + patientId + "/provider-assignments";
+    }
 
     @Test
-    void an_organization_grant_is_visible_to_any_actor() throws Exception {
+    void an_unassigned_provider_is_a_secure_404_on_every_nested_endpoint() throws Exception {
+        loginWithCsrf("provider@northcare.example.org"); // ensure the provider exists
         Session coordinator = loginWithCsrf("coordinator@northcare.example.org");
         String patientId = newPatientId(coordinator);
-        String providerId = meId(loginWithCsrf("provider@northcare.example.org"));
-        assertEquals(201, assign(coordinator, patientId, providerId).statusCode());
-        assertEquals(201, post(coordinator, consentBase(patientId), ORG_GRANT).statusCode());
 
         Session provider = loginWithCsrf("provider@northcare.example.org");
-        HttpResponse<String> decision = get(provider.session, decisionPath(patientId));
-        assertEquals(200, decision.statusCode(), decision.body());
-        assertEquals("GRANT", effect(decision.body()));
-        assertTrue(decision.body().contains("\"decidingScope\":\"ORGANIZATION\""));
+        for (String path : List.of(consentList(patientId), decision(patientId), assignments(patientId))) {
+            HttpResponse<String> denied = get(provider.session, path);
+            assertEquals(404, denied.statusCode(),
+                    "an unassigned provider must be a secure 404 on " + path + " (got: " + denied.body() + ")");
+            assertTrue(denied.body().contains("NOT_FOUND"), "the denial is a secure 404, not a 403: " + path);
+        }
     }
 
     @Test
-    void a_more_specific_provider_deny_flips_the_same_callers_decision() throws Exception {
+    void assigning_the_provider_opens_the_nested_endpoints() throws Exception {
         String providerId = meId(loginWithCsrf("provider@northcare.example.org"));
         Session coordinator = loginWithCsrf("coordinator@northcare.example.org");
         String patientId = newPatientId(coordinator);
         assertEquals(201, assign(coordinator, patientId, providerId).statusCode());
 
-        // Org-wide grant → the provider is granted.
-        assertEquals(201, post(coordinator, consentBase(patientId), ORG_GRANT).statusCode());
         Session provider = loginWithCsrf("provider@northcare.example.org");
-        assertEquals("GRANT", effect(get(provider.session, decisionPath(patientId)).body()));
-
-        // Add a provider-specific DENY naming that provider → the SAME caller now gets DENY.
-        assertEquals(201, post(coordinator, consentBase(patientId), """
-                {"effect":"DENY","purpose":"CARE_COORDINATION","dataCategory":"CLINICAL_CONTEXT",
-                 "scopeType":"PROVIDER","scopeRefId":"%s"}""".formatted(providerId)).statusCode());
-
-        HttpResponse<String> denied = get(provider.session, decisionPath(patientId));
-        assertEquals("DENY", effect(denied.body()));
-        assertTrue(denied.body().contains("\"decidingScope\":\"PROVIDER\""));
+        for (String path : List.of(consentList(patientId), decision(patientId), assignments(patientId))) {
+            assertEquals(200, get(provider.session, path).statusCode(),
+                    "an assigned provider may read " + path);
+        }
     }
 
     @Test
-    void no_applicable_directive_is_deny_by_default() throws Exception {
+    void a_coordinator_reaches_the_nested_endpoints_without_any_assignment() throws Exception {
         Session coordinator = loginWithCsrf("coordinator@northcare.example.org");
         String patientId = newPatientId(coordinator);
 
-        HttpResponse<String> decision = get(coordinator.session, decisionPath(patientId));
-        assertEquals(200, decision.statusCode());
-        assertEquals("DENY", effect(decision.body()));
-        assertTrue(decision.body().contains("deny by default"));
-    }
-
-    @Test
-    void an_unknown_purpose_is_a_400() throws Exception {
-        Session coordinator = loginWithCsrf("coordinator@northcare.example.org");
-        String patientId = newPatientId(coordinator);
-        HttpResponse<String> bad = get(coordinator.session, "/api/v1/patients/" + patientId
-                + "/consent-directives/decision?purpose=BOGUS&dataCategory=CLINICAL_CONTEXT");
-        assertEquals(400, bad.statusCode());
-        assertTrue(bad.body().contains("VALIDATION_FAILED"));
-    }
-
-    @Test
-    void cannot_get_a_decision_for_another_tenants_patient() throws Exception {
-        Session green = loginWithCsrf("coordinator@greenvalley.example.org");
-        String greenPatientId = newPatientId(green);
-
-        Session north = loginWithCsrf("provider@northcare.example.org");
-        assertEquals(404, get(north.session, decisionPath(greenPatientId)).statusCode(),
-                "a decision about another tenant's patient must be a secure 404");
+        for (String path : List.of(consentList(patientId), decision(patientId), assignments(patientId))) {
+            assertEquals(200, get(coordinator.session, path).statusCode(),
+                    "a coordinator has broad access to " + path);
+        }
     }
 
     // --- helpers -------------------------------------------------------------
 
     private record Session(String session, String xsrf) {}
 
-    private String consentBase(String patientId) {
-        return "/api/v1/patients/" + patientId + "/consent-directives";
-    }
-
-    /** Assign a provider to a patient so it can pass the object/relationship gate and read the decision. */
-    private HttpResponse<String> assign(Session coordinator, String patientId, String providerId) throws Exception {
-        return post(coordinator, "/api/v1/patients/" + patientId + "/provider-assignments",
-                "{\"providerUserId\":\"%s\"}".formatted(providerId));
-    }
-
-    /** Create a fresh patient in the caller's tenant so each test has an isolated consent set. */
     private String newPatientId(Session s) throws Exception {
-        String mrn = "CD-" + java.util.UUID.randomUUID().toString().substring(0, 8);
+        String mrn = "NG-" + java.util.UUID.randomUUID().toString().substring(0, 8);
         HttpResponse<String> created = post(s, "/api/v1/patients", """
-                {"medicalRecordNumber":"%s","fullName":"Decision Test Patient","dateOfBirth":"1990-01-01"}"""
+                {"medicalRecordNumber":"%s","fullName":"Nested Gate Patient","dateOfBirth":"1990-01-01"}"""
                 .formatted(mrn));
         assertEquals(201, created.statusCode(), created.body());
         return firstId(created.body());
+    }
+
+    private HttpResponse<String> assign(Session coordinator, String patientId, String providerId) throws Exception {
+        return post(coordinator, assignments(patientId), "{\"providerUserId\":\"%s\"}".formatted(providerId));
     }
 
     private Session loginWithCsrf(String email) throws Exception {
@@ -187,12 +155,6 @@ class ConsentDecisionApiIntegrationTest {
     private static String firstId(String json) {
         Matcher m = FIRST_ID.matcher(json);
         assertTrue(m.find(), "expected an id in: " + json);
-        return m.group(1);
-    }
-
-    private static String effect(String json) {
-        Matcher m = EFFECT.matcher(json);
-        assertTrue(m.find(), "expected an effect in: " + json);
         return m.group(1);
     }
 
