@@ -143,7 +143,11 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   allowlist pdf/png/jpeg/gif/txt/csv → 400). **Access inherits the object/relationship gate**: every read/write
   routes through `PatientAccessGuard`, so an assigned provider or the patient can download, an unassigned provider
   or another tenant is a secure 404. Bytes never enter a DTO/log/event (§23.4); download re-authorizes then
-  streams as an attachment. `scan_status` defaults CLEAN until the malware scanner + quarantine gate land),
+  streams as an attachment. **Uploads are malware-scanned** (§19): a `DocumentScanner` (the `FakeDocumentScanner`
+  flags the EICAR test signature) sets `scan_status` on upload, and `download` withholds anything not CLEAN — a
+  QUARANTINED/PENDING document is a 409 `DOCUMENT_NOT_AVAILABLE` (not a secure 404 — the caller already sees it in
+  the listing with its status). Scanning is synchronous now; the async event-driven scanner (PENDING → worker
+  flips it) is Phase 8),
   `devdata` (DevDataSeeder, local-only).
 - **Tenant-owned entity pattern (Phase 2+):** hold `organizationId` as the tenant key; repositories expose
   only org-scoped finders (`findByIdAndOrganizationId`, `findByOrganizationId…`) — no bare `findById` in

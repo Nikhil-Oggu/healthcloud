@@ -3,6 +3,7 @@ package com.healthcloud.document;
 import com.healthcloud.context.UserContext;
 import com.healthcloud.context.UserContextAccessor;
 import com.healthcloud.error.ApiException;
+import com.healthcloud.error.DocumentNotAvailableException;
 import com.healthcloud.error.ErrorCode;
 import com.healthcloud.error.NotFoundException;
 import com.healthcloud.patient.PatientAccessGuard;
@@ -42,15 +43,18 @@ public class PatientDocumentService {
 
     private final PatientDocumentRepository documents;
     private final DocumentStorage storage;
+    private final DocumentScanner scanner;
     private final PatientAccessGuard accessGuard;
     private final UserContextAccessor userContext;
     private final long maxSizeBytes;
 
     public PatientDocumentService(PatientDocumentRepository documents, DocumentStorage storage,
-                                  PatientAccessGuard accessGuard, UserContextAccessor userContext,
+                                  DocumentScanner scanner, PatientAccessGuard accessGuard,
+                                  UserContextAccessor userContext,
                                   @Value("${healthcloud.documents.max-size-bytes}") long maxSizeBytes) {
         this.documents = documents;
         this.storage = storage;
+        this.scanner = scanner;
         this.accessGuard = accessGuard;
         this.userContext = userContext;
         this.maxSizeBytes = maxSizeBytes;
@@ -64,9 +68,13 @@ public class PatientDocumentService {
     }
 
     /**
-     * Upload a document for a patient: store the bytes, then write the metadata row. Requires a write role and
-     * access to the patient (a PATIENT only their own record, else secure 404). The file must be present, within
-     * the size limit, and of an allowed content type (else 400).
+     * Upload a document for a patient: store the bytes, scan them, then write the metadata row with the scan
+     * verdict. Requires a write role and access to the patient (a PATIENT only their own record, else secure
+     * 404). The file must be present, within the size limit, and of an allowed content type (else 400).
+     *
+     * <p>Upload always succeeds (201) and reports the resulting {@code scanStatus}: a flagged file is stored
+     * QUARANTINED (retained for audit, but the download gate withholds it) rather than rejected — the same shape
+     * the asynchronous scanner will produce at Phase 8.
      */
     @Transactional
     public DocumentDto upload(UUID patientId, MultipartFile file) {
@@ -76,25 +84,41 @@ public class PatientDocumentService {
 
         validate(file);
         byte[] content = readBytes(file);
+        String fileName = sanitizedFileName(file);
         String storageKey = storage.store(organizationId, patientId, content);
+        DocumentScanStatus scanStatus = scanner.scan(content, fileName);
 
         PatientDocument saved = documents.save(new PatientDocument(
-                organizationId, patientId, sanitizedFileName(file), resolveContentType(file),
-                content.length, storageKey, DocumentScanStatus.CLEAN, caller.userId()));
+                organizationId, patientId, fileName, resolveContentType(file),
+                content.length, storageKey, scanStatus, caller.userId()));
         return DocumentDto.from(saved);
     }
 
     /**
      * The authorized bytes of a document for download. Requires access to the patient (else secure 404); the
-     * document must belong to that patient (else 404). Bytes are loaded from storage only after the check.
+     * document must belong to that patient (else 404) and must have passed the malware scan — a QUARANTINED or
+     * not-yet-scanned document is withheld with a 409 (§19), never streamed. Bytes are loaded from storage only
+     * after all checks pass.
      */
     public DocumentContent download(UUID patientId, UUID documentId) {
         UUID organizationId = accessGuard.requireAccessibleInTenant(patientId).getOrganizationId();
         PatientDocument document = documents.findByIdAndOrganizationId(documentId, organizationId)
                 .filter(d -> d.getPatientId().equals(patientId))
                 .orElseThrow(NotFoundException::new);
+        requireClean(document);
         byte[] bytes = storage.load(document.getStorageKey());
         return new DocumentContent(document.getFileName(), document.getContentType(), bytes);
+    }
+
+    /** Withhold a document whose malware scan is not CLEAN — quarantined, or still pending (§19). */
+    private void requireClean(PatientDocument document) {
+        switch (document.getScanStatus()) {
+            case CLEAN -> { /* safe to download */ }
+            case QUARANTINED -> throw new DocumentNotAvailableException(
+                    "This document was quarantined by a malware scan and cannot be downloaded.");
+            case PENDING -> throw new DocumentNotAvailableException(
+                    "This document is still being scanned; please try again shortly.");
+        }
     }
 
     private void validate(MultipartFile file) {

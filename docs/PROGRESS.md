@@ -20,17 +20,20 @@
   13 ✅ patient self-service consent — a PATIENT records/revokes directives on their OWN record; the §22.5 engine
   is now driven from the patient's own hand ·
   14 ✅ secure documents part 1 — patient-scoped document metadata + a storage abstraction (local-FS stand-in for
-  private S3) + gated upload/download; access inherits the `PatientAccessGuard` gate)**
+  private S3) + gated upload/download; access inherits the `PatientAccessGuard` gate ·
+  15 ✅ document malware scan + quarantine — a fake scanner (EICAR) flags uploads QUARANTINED and the download
+  gate withholds anything not CLEAN)**
 - **Repo:** https://github.com/Nikhil-Oggu/healthcloud (private, branch `main`)
-- **Next up:** **Phase 3, slice 15 (pick one when planning):** **document malware scan + quarantine** (§19) —
-  a fake local scanner sets `scan_status` PENDING→CLEAN/QUARANTINED and the download gate withholds anything not
-  CLEAN (the column + lifecycle are already in place, so this is additive); or **documents UI** (slice 16) —
-  surface upload/list/download on the patient detail page; or extend field-masking to more resources. Then
-  consent-lifecycle **audit** (§22.6 → Phase 7). **Strong moment for `/security-review`** — the authorization
-  stack is now broad (tenant + role + relationship on patients, requests & documents + PATIENT-self + patient-self
-  consent writes + masking). Plan each slice before building. (Deferred: CLAIMS_REVIEWER business-need scoping — premature until
+- **Next up:** **Phase 3, slice 16 (pick one when planning):** **documents UI** — surface upload/list/download
+  (and the scan status / quarantined state) on the patient detail page, closing the §19 loop in the browser; or
+  extend field-masking to more resources. Then consent-lifecycle **audit** (§22.6 → Phase 7). **Strong moment for
+  `/security-review`** — the authorization stack is now broad (tenant + role + relationship on patients, requests
+  & documents + PATIENT-self + patient-self consent writes + masking + malware quarantine). Plan each slice before
+  building. (Deferred: CLAIMS_REVIEWER business-need scoping — premature until
   claims exist, Phase 4; provider/coordinator assignment PENDING→ACTIVE/→EXPIRED time sweeps — scheduler,
-  Phase 8; batch consent + care-team lookups for list reads — perf follow-up; PROVIDER-scoped consent to an
+  Phase 8; **asynchronous document scanning** — the scan is synchronous at upload now (deterministic); the
+  event-driven worker that writes PENDING then flips to CLEAN/QUARANTINED is Phase 8; **admin/break-glass
+  download of a quarantined document** — Phase 7; batch consent + care-team lookups for list reads — perf follow-up; PROVIDER-scoped consent to an
   *un*assigned provider — the picker/candidates list assigned/eligible only; a patient-facing consent picker for
   PROVIDER scope currently lists their assigned providers. Phase-2 niceties: SLA/due-dates, request edit/priority
   UI.)
@@ -42,6 +45,35 @@
   then `curl -b j.txt localhost:8080/api/v1/me`. Reset DB with `./scripts/db-reset.sh`.
 
 ## Log (newest first)
+
+### 2026-09-14 — Phase 3, slice 15 ✅ (document malware scan + quarantine — flagged files can't be downloaded)
+- **Why:** slice 14 stored documents but left `scan_status` defaulting to CLEAN. This adds the other half of §19:
+  every upload is scanned, a flagged file is quarantined, and a quarantined (or not-yet-scanned) file cannot be
+  downloaded. Purely additive — the column/enum/lifecycle were already in place, so **no migration**.
+- **Synchronous scan now, async later (decided):** the real §19 flow is asynchronous (upload → event → scanner →
+  status), but event infra is Phase 8. To keep the slice deterministic and verifiable, the scan runs synchronously
+  at upload behind a swappable `DocumentScanner` component; PENDING stays in the model and the download gate
+  defends it, so Phase 8 (write PENDING → worker flips it) is a drop-in with no API-shape change. (An after-commit
+  event listener was rejected on purpose — it would make tests timing-flaky.)
+- **New `DocumentScanner` interface + `FakeDocumentScanner`:** flags any file containing the **EICAR** test
+  signature (the standard, harmless AV test string — a realistic, zero-risk, deterministic trigger), else CLEAN.
+  The signature is assembled from fragments at runtime so the contiguous string never appears as a literal in the
+  source/class (otherwise a dev's own antivirus could quarantine the build). Reason is logged, never file contents.
+- **Service:** `upload` now scans the stored bytes and persists the row with the verdict — upload always succeeds
+  (201) and reports `scanStatus`; a flagged file is retained QUARANTINED (audit trail; the gate withholds it),
+  not rejected. `download` refuses anything not CLEAN via a new `DocumentNotAvailableException` (new
+  `ErrorCode.DOCUMENT_NOT_AVAILABLE`, HTTP **409**) — QUARANTINED and PENDING get distinct messages. Not a secure
+  404: an authorized caller already sees the document (with its status) in the listing.
+- **Verified — automated:** `./mvnw -B clean verify` → **156 pass** (+6: `FakeDocumentScannerTest` ×4 — clean /
+  EICAR / EICAR embedded mid-file / empty; `DocumentMalwareScanApiIntegrationTest` ×2 — a clean upload is CLEAN +
+  downloadable; an EICAR upload is 201 QUARANTINED, listed with that status, and download → 409
+  DOCUMENT_NOT_AVAILABLE). The slice-14 round-trip test still passes (its file is clean).
+- **Verified — live (curl):** coordinator uploaded a clean text file → CLEAN, download **200**; uploaded an EICAR
+  file → **QUARANTINED**, download → **409 DOCUMENT_NOT_AVAILABLE** with the "quarantined by a malware scan"
+  message. (Restarted the local backend onto slice-15 code after the `clean`.)
+- **No migration, no frontend change** (the list DTO already carries `scanStatus`; the UI surfaces it in slice 16).
+- **Next:** slice 16 — documents UI (upload/list/download + show the quarantined state). Strong moment for
+  `/security-review`.
 
 ### 2026-09-14 — Phase 3, slice 14 ✅ (secure documents, part 1 — metadata + storage abstraction + gated upload/download)
 - **Why:** secure documents (§19) is the last big Phase-3 pillar before the MVP. The design is "private S3 for

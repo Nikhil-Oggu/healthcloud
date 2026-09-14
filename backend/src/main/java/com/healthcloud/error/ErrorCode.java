@@ -14,6 +14,7 @@ public enum ErrorCode {
     VALIDATION_FAILED(HttpStatus.BAD_REQUEST, "The request was invalid."),
     CONFLICT(HttpStatus.CONFLICT, "The request conflicts with the current state of the resource."),
     INVALID_STATE_TRANSITION(HttpStatus.CONFLICT, "That action is not allowed from the current status."),
+    DOCUMENT_NOT_AVAILABLE(HttpStatus.CONFLICT, "This document is not available for download."),
     INTERNAL_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "An unexpected error occurred.");
 
     private final HttpStatus status;
