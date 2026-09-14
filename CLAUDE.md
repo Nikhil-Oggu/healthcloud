@@ -223,6 +223,10 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
 - **MUI 9 `Stack`:** passing `alignItems` (etc.) as a direct prop can fail typecheck when children are a
   mixed/array set — put alignment in `sx={{ alignItems: 'center' }}` instead.
 - `tsconfig` uses `verbatimModuleSyntax` → import types with `import type { ... }`.
+- **Tests that render a component using `Link`/`useParams`/router hooks must wrap it in a `MemoryRouter`**
+  (use `initialEntries` + a `<Routes><Route path="…">` when the component reads a URL param) — otherwise React
+  Router throws "Cannot destructure property 'basename' of … null". Adding a router `Link` to an existing page
+  breaks that page's older tests until they're wrapped too.
 - Dev server binds IPv6 `localhost` and proxies `/api` + `/actuator` to `:8080`; the backend must be running
   or `/me` calls fail.
 - **Forms (Phase 2 slice 3+):** React Hook Form 7 + Zod 4 via `@hookform/resolvers/zod` (resolvers **v5**
