@@ -134,3 +134,73 @@ export interface AssignRequest {
   assigneeUserId: string
   expectedVersion: number
 }
+
+// --- Consent (§22) --------------------------------------------------------
+
+export type ConsentEffect = 'GRANT' | 'DENY'
+
+export type ConsentPurpose =
+  | 'CARE_COORDINATION'
+  | 'CLAIM_PROCESSING'
+  | 'DOCUMENT_REVIEW'
+  | 'APPOINTMENT_SUPPORT'
+  | 'BENEFIT_SUPPORT'
+
+export type ConsentDataCategory =
+  | 'DEMOGRAPHICS_CONTACT'
+  | 'CARE_COORDINATION'
+  | 'CLINICAL_CONTEXT'
+  | 'CLAIMS_BENEFITS'
+  | 'DOCUMENTS'
+
+export type ConsentScopeType = 'PROVIDER' | 'CARE_TEAM' | 'ORGANIZATION'
+
+export type ConsentStatus = 'SCHEDULED' | 'ACTIVE' | 'REVOKED' | 'EXPIRED' | 'SUPERSEDED'
+
+/** A consent directive (mirrors ConsentDirectiveDto). `expectedVersion` is the optimistic-lock value. */
+export interface ConsentDirective {
+  id: string
+  patientId: string
+  directiveGroupId: string
+  effect: ConsentEffect
+  purpose: ConsentPurpose
+  dataCategory: ConsentDataCategory
+  scopeType: ConsentScopeType
+  scopeRefId: string | null
+  effectiveFrom: string // ISO date
+  effectiveTo: string | null
+  status: ConsentStatus
+  version: number
+  expectedVersion: number
+  createdAt: string
+  endedAt: string | null
+}
+
+/**
+ * Payload to record a consent directive. `scopeRefId` is required only for PROVIDER scope (the provider's
+ * user id) and must be absent otherwise; `effectiveFrom`/`To` are optional (default today / open-ended).
+ */
+export interface RecordConsentRequest {
+  effect: ConsentEffect
+  purpose: ConsentPurpose
+  dataCategory: ConsentDataCategory
+  scopeType: ConsentScopeType
+  scopeRefId?: string
+  effectiveFrom?: string
+  effectiveTo?: string
+}
+
+/** A provider-patient assignment (mirrors ProviderPatientAssignmentDto) — used to pick a scoped provider. */
+export interface ProviderAssignment {
+  id: string
+  patientId: string
+  providerUserId: string
+  providerName: string
+  assignedByUserId: string
+  status: 'PENDING' | 'ACTIVE' | 'EXPIRED' | 'REVOKED'
+  effectiveFrom: string
+  effectiveTo: string | null
+  expectedVersion: number
+  assignedAt: string
+  endedAt: string | null
+}

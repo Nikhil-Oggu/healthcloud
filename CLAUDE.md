@@ -233,11 +233,13 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   backend rule (e.g. patient create shown only to CARE_COORDINATOR/ORG_ADMIN), but the backend still enforces it.
   The requests UI mirrors the §14.6 transition table in `src/requests/transitions.ts` purely to choose which
   action buttons to show — the backend re-validates every move, so drift there is a UX bug, never a hole.
-- **Feature pages so far:** `src/patients/` (list + create; the DOB column shows a muted "Restricted" when the
-  backend masks it — the API sends `dateOfBirth: null` + a `maskedFields` list, §23; the list a provider sees
-  is also relationship-gated on the backend, so a provider simply gets fewer rows — no client logic needed) and
-  `src/requests/` (list + create + detail with status timeline, transition buttons, comments, assignment). Both
-  follow the feature-folder + hooks + RHF/Zod pattern.
+- **Feature pages so far:** `src/patients/` (list + create + **detail** `patients/:id`; the DOB column/field
+  shows a muted "Restricted" when the backend masks it — the API sends `dateOfBirth: null` + a `maskedFields`
+  list, §23; the list a provider sees is also relationship-gated on the backend, so a provider simply gets fewer
+  rows — no client logic needed. The detail page has the **consent-directive UI** — record/revoke directives
+  via `src/consent/useConsent.ts`, gated to coordinator/admin; recording invalidates the patient + list queries
+  so a masked field flips live) and `src/requests/` (list + create + detail with status timeline, transition
+  buttons, comments, assignment). Both follow the feature-folder + hooks + RHF/Zod pattern.
 - **Consent/field masking in the UI (Phase 3+):** the backend already withholds masked values, so the SPA only
   *displays* the state — render a "Restricted"/placeholder for a `null` consent-controlled field (named in
   `maskedFields`); never assume a field is present. This is display-only, not a security control.

@@ -3,9 +3,12 @@ import type {
   ApiError,
   AssignableUser,
   AssignRequest,
+  ConsentDirective,
   CurrentUser,
   Patient,
   PatientCreateRequest,
+  ProviderAssignment,
+  RecordConsentRequest,
   RequestAssignment,
   RequestComment,
   RequestStatusHistory,
@@ -102,6 +105,8 @@ export const api = {
 
   listPatients: () => request<Patient[]>('/api/v1/patients'),
 
+  getPatient: (id: string) => request<Patient>(`/api/v1/patients/${id}`),
+
   createPatient: (body: PatientCreateRequest) =>
     request<Patient>('/api/v1/patients', {
       method: 'POST',
@@ -153,4 +158,27 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     }),
+
+  listConsentDirectives: (patientId: string) =>
+    request<ConsentDirective[]>(`/api/v1/patients/${patientId}/consent-directives`),
+
+  recordConsent: (patientId: string, body: RecordConsentRequest) =>
+    request<ConsentDirective>(`/api/v1/patients/${patientId}/consent-directives`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }),
+
+  revokeConsent: (patientId: string, directiveId: string, expectedVersion: number) =>
+    request<ConsentDirective>(
+      `/api/v1/patients/${patientId}/consent-directives/${directiveId}/revoke`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ expectedVersion }),
+      },
+    ),
+
+  listProviderAssignments: (patientId: string) =>
+    request<ProviderAssignment[]>(`/api/v1/patients/${patientId}/provider-assignments`),
 }

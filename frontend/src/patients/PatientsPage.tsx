@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
+import { Link as RouterLink } from 'react-router-dom'
 import {
   Alert,
   Box,
@@ -9,6 +10,7 @@ import {
   Card,
   CardContent,
   Chip,
+  Link,
   Paper,
   Stack,
   Table,
@@ -84,7 +86,11 @@ export function PatientsPage() {
             ) : (
               patients.data.map((p) => (
                 <TableRow key={p.id}>
-                  <TableCell>{p.fullName}</TableCell>
+                  <TableCell>
+                    <Link component={RouterLink} to={`/patients/${p.id}`}>
+                      {p.fullName}
+                    </Link>
+                  </TableCell>
                   <TableCell>{p.medicalRecordNumber}</TableCell>
                   <TableCell>
                     {p.dateOfBirth ?? (

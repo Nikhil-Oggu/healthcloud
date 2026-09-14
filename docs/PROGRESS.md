@@ -9,14 +9,15 @@
   4 ✅ provider↔patient record §14.3 · 5 ✅ object/relationship gate on patient reads §21 layer 6 ·
   6 ✅ gate applied to the patient-nested endpoints — single `PatientAccessGuard` choke point ·
   7 ✅ care_coordinator_assignment record §14.3 — the other half of the care team ·
-  8 ✅ CARE_TEAM consent scope wired — the §22.5 engine is now complete across all three tiers)**
+  8 ✅ CARE_TEAM consent scope wired — the §22.5 engine is now complete across all three tiers ·
+  9 ✅ consent management UI — patient detail page + record/revoke directives, the flagship is now visible)**
 - **Repo:** https://github.com/Nikhil-Oggu/healthcloud (private, branch `main`)
-- **Next up:** **Phase 3, slice 9 (pick one when planning):** **secure S3 documents** (§19); the
+- **Next up:** **Phase 3, slice 10 (pick one when planning):** **secure S3 documents** (§19); the
   **function-permission matrix** (§21.2) / business-need (§21 layer 8) incl. finer PATIENT/CLAIMS_REVIEWER
   patient-read rules (incl. requests *about* a patient — `GET /requests?patientId=`, a separate resource still
-  ungated); extend field-masking to more resources; a consent/relationship **management UI** (all backend so
-  far). Then consent-lifecycle **audit** (§22.6 → Phase 7). **Run `/security-review` in Phase 3.** Plan each
-  slice before building. (Deferred:
+  ungated); **assignment management UI** (provider + coordinator assign/revoke — the record APIs exist, no UI
+  yet); extend field-masking to more resources. Then consent-lifecycle **audit** (§22.6 → Phase 7). **Run
+  `/security-review` in Phase 3.** Plan each slice before building. (Deferred:
   PROVIDER/CLAIMS_REVIEWER/PATIENT finer read rules; provider/coordinator assignment PENDING→ACTIVE/→EXPIRED
   time sweeps — scheduler, Phase 8; patient self-service consent — needs a patient-user↔patient link; batch
   consent + care-team lookups for list reads — perf follow-up; consent/relationship management UI. Phase-2
@@ -29,6 +30,36 @@
   then `curl -b j.txt localhost:8080/api/v1/me`. Reset DB with `./scripts/db-reset.sh`.
 
 ## Log (newest first)
+
+### 2026-09-14 — Phase 3, slice 9 ✅ (consent management UI — the flagship is finally visible in the browser)
+- **Why:** slices 1–8 built the whole consent/relationship/authorization system entirely on the backend; the
+  last frontend work was slice 3 (showing "Restricted"). This slice surfaces the existing consent APIs so you
+  can record a directive and watch a masked field flip live — the single most compelling thing to demo.
+  **Frontend-only** — no new endpoints, no migration.
+- **New patient detail page** (`src/patients/PatientDetailPage.tsx`, route `patients/:id`): a summary card
+  (name · MRN · DOB or a muted "Restricted" · status) + a **Consent directives** card — a table of the current
+  directives (effect/purpose/category/scope/status/effective dates) each with a **Revoke** button, and a
+  **Record directive** form (RHF + Zod mirroring the backend: effect/purpose/dataCategory/scopeType selects,
+  a provider picker shown only for PROVIDER scope sourced from the patient's provider-assignments, optional
+  effective dates). Record + revoke are gated to CARE_COORDINATOR/ORG_ADMIN (role-aware UI; backend still
+  enforces). Server errors (e.g. 409 on a stale revoke) surface via `ApiClientError` (message + Reference ID).
+- **Plumbing:** `api/client.ts` gained `getPatient`, `listConsentDirectives`, `recordConsent`, `revokeConsent`,
+  `listProviderAssignments`; `api/types.ts` gained the consent enums + `ConsentDirective`/`RecordConsentRequest`/
+  `ProviderAssignment`; new `src/consent/useConsent.ts` hooks (record/revoke invalidate the directive list **and**
+  the patient + patients-list queries, so a masked field updates immediately). Patient-list rows now link to the
+  detail page; `App.tsx` has the `patients/:id` route.
+- **Verified — automated:** frontend `npm run typecheck` clean, `npm test` → **24 pass** (+4
+  `PatientDetailPage.test.tsx`: renders summary + a directive row; coordinator records a directive; masked DOB
+  shows "Restricted"; a non-write role sees no form and no Revoke). Had to wrap the existing
+  `PatientsPage.test` render in a `MemoryRouter` (the new name-link needs router context). `npm run build` OK
+  (pre-existing chunk-size advisory only). Backend untouched.
+- **Verified — live in browser** (coordinator@northcare): opened Sam Sample → DOB **"Restricted"** → recorded a
+  GRANT / CARE_COORDINATION / DEMOGRAPHICS_CONTACT / ORGANIZATION directive → DOB **flipped to `1985-03-14`** and
+  the directive row appeared ACTIVE → clicked **Revoke** → DOB back to **"Restricted"** and the list emptied.
+  Full stack, end to end, visibly.
+- **Deferred → slice 10+:** assignment management UI (provider + coordinator assign/revoke); a decision "explain"
+  view; PROVIDER-scoped directives to *un*assigned providers (the picker lists assigned providers only); secure
+  S3 documents.
 
 ### 2026-09-14 — Phase 3, slice 8 ✅ (CARE_TEAM consent scope wired — the §22.5 engine is complete across all three tiers)
 - **What this closes:** the "known limitation" `ConsentPolicy` has carried since slice 2 — CARE_TEAM directives

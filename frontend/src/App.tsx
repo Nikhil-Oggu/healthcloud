@@ -4,6 +4,7 @@ import { ProtectedRoute } from './auth/ProtectedRoute'
 import { LoginPage } from './auth/LoginPage'
 import { HomePage } from './pages/HomePage'
 import { PatientsPage } from './patients/PatientsPage'
+import { PatientDetailPage } from './patients/PatientDetailPage'
 import { RequestsPage } from './requests/RequestsPage'
 import { RequestDetailPage } from './requests/RequestDetailPage'
 import { DeniedPage } from './pages/DeniedPage'
@@ -21,6 +22,7 @@ const router = createBrowserRouter([
     children: [
       { index: true, element: <HomePage /> },
       { path: 'patients', element: <PatientsPage /> },
+      { path: 'patients/:id', element: <PatientDetailPage /> },
       { path: 'requests', element: <RequestsPage /> },
       { path: 'requests/:id', element: <RequestDetailPage /> },
       { path: 'denied', element: <DeniedPage /> },
