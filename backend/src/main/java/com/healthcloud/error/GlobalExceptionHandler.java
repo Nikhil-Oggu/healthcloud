@@ -13,6 +13,7 @@ import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
 
 /**
  * Turns every exception that reaches the DispatcherServlet into the single {@link ApiError} shape.
@@ -61,6 +62,12 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiError> handleTypeMismatch(MethodArgumentTypeMismatchException ex) {
         List<Map<String, String>> fields = List.of(Map.of("field", ex.getName(), "message", "is invalid"));
         return build(ErrorCode.VALIDATION_FAILED, ErrorCode.VALIDATION_FAILED.defaultMessage(), fields);
+    }
+
+    /** An upload exceeded the multipart transport limit → a clean 400 (the service also caps size itself). */
+    @ExceptionHandler(MaxUploadSizeExceededException.class)
+    public ResponseEntity<ApiError> handleUploadTooLarge(MaxUploadSizeExceededException ex) {
+        return build(ErrorCode.VALIDATION_FAILED, "The uploaded file is too large.", null);
     }
 
     /**

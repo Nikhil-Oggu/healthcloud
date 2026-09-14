@@ -133,6 +133,17 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   (`AssignmentCandidateDto{userId, fullName}`). `DevDataSeeder` assigns each provider to 2 of 3 patients and
   the coordinator to 2 of 3, and links the `patient@` login to patient Sam Sample (index 0) so a PATIENT user
   has their own profile for self-service),
+  `document` (Phase 3 — secure patient documents §19: `GET/POST /api/v1/patients/{id}/documents`,
+  `GET .../documents/{docId}/content`. Metadata lives in `patient_document` (tenant key, `patient_id`,
+  `file_name`/`content_type`/`size_bytes`, opaque `storage_key`, `scan_status` PENDING/CLEAN/QUARANTINED,
+  uploader); the BYTES live behind the **`DocumentStorage`** abstraction — a `LocalFileSystemDocumentStorage`
+  stand-in now (dir `healthcloud.documents.dir`, git-ignored `var/`), private S3 at Phase 10 — so nothing else
+  knows where bytes live. Upload is multipart, gated to PATIENT (own record) / CARE_COORDINATOR / ORG_ADMIN
+  (providers/reviewers → 403), size- and content-type-validated (≤ `healthcloud.documents.max-size-bytes`,
+  allowlist pdf/png/jpeg/gif/txt/csv → 400). **Access inherits the object/relationship gate**: every read/write
+  routes through `PatientAccessGuard`, so an assigned provider or the patient can download, an unassigned provider
+  or another tenant is a secure 404. Bytes never enter a DTO/log/event (§23.4); download re-authorizes then
+  streams as an attachment. `scan_status` defaults CLEAN until the malware scanner + quarantine gate land),
   `devdata` (DevDataSeeder, local-only).
 - **Tenant-owned entity pattern (Phase 2+):** hold `organizationId` as the tenant key; repositories expose
   only org-scoped finders (`findByIdAndOrganizationId`, `findByOrganizationId…`) — no bare `findById` in

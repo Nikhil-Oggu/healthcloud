@@ -18,13 +18,17 @@
   12 ✅ patient self-service access — patient-user↔patient link (`patient.app_user_id`); a PATIENT sees only their
   own record + requests + consent ·
   13 ✅ patient self-service consent — a PATIENT records/revokes directives on their OWN record; the §22.5 engine
-  is now driven from the patient's own hand)**
+  is now driven from the patient's own hand ·
+  14 ✅ secure documents part 1 — patient-scoped document metadata + a storage abstraction (local-FS stand-in for
+  private S3) + gated upload/download; access inherits the `PatientAccessGuard` gate)**
 - **Repo:** https://github.com/Nikhil-Oggu/healthcloud (private, branch `main`)
-- **Next up:** **Phase 3, slice 14 (pick one when planning):** **secure S3 documents** (§19) — the last big
-  Phase-3 pillar before MVP; or extend field-masking to more resources. Then consent-lifecycle **audit**
-  (§22.6 → Phase 7). **Consider running `/security-review`** — the authorization stack is now broad and mostly
-  complete (tenant + role + relationship on patients & requests + PATIENT-self + patient-self consent writes +
-  masking). Plan each slice before building. (Deferred: CLAIMS_REVIEWER business-need scoping — premature until
+- **Next up:** **Phase 3, slice 15 (pick one when planning):** **document malware scan + quarantine** (§19) —
+  a fake local scanner sets `scan_status` PENDING→CLEAN/QUARANTINED and the download gate withholds anything not
+  CLEAN (the column + lifecycle are already in place, so this is additive); or **documents UI** (slice 16) —
+  surface upload/list/download on the patient detail page; or extend field-masking to more resources. Then
+  consent-lifecycle **audit** (§22.6 → Phase 7). **Strong moment for `/security-review`** — the authorization
+  stack is now broad (tenant + role + relationship on patients, requests & documents + PATIENT-self + patient-self
+  consent writes + masking). Plan each slice before building. (Deferred: CLAIMS_REVIEWER business-need scoping — premature until
   claims exist, Phase 4; provider/coordinator assignment PENDING→ACTIVE/→EXPIRED time sweeps — scheduler,
   Phase 8; batch consent + care-team lookups for list reads — perf follow-up; PROVIDER-scoped consent to an
   *un*assigned provider — the picker/candidates list assigned/eligible only; a patient-facing consent picker for
@@ -38,6 +42,45 @@
   then `curl -b j.txt localhost:8080/api/v1/me`. Reset DB with `./scripts/db-reset.sh`.
 
 ## Log (newest first)
+
+### 2026-09-14 — Phase 3, slice 14 ✅ (secure documents, part 1 — metadata + storage abstraction + gated upload/download)
+- **Why:** secure documents (§19) is the last big Phase-3 pillar before the MVP. The design is "private S3 for
+  the BYTES + PostgreSQL for the METADATA". Split into slices: **14 (this one)** builds the document object,
+  a storage abstraction with a local-filesystem stand-in, and patient-gated upload/download; **15** adds the
+  fake malware scanner + quarantine download gate; **16** the documents UI. Backend-only this slice.
+- **Migration `V13__patient_document.sql`:** `patient_document` — tenant key `organization_id`, `patient_id`,
+  `file_name`, `content_type`, `size_bytes`, `storage_key` (opaque key into the blob store), `scan_status`
+  (PENDING/CLEAN/QUARANTINED — CHECK-constrained), `uploaded_by_user_id`, `uploaded_at`, `lock_version`
+  (`@Version`). **Composite FK** `(patient_id, organization_id) → patient` (§32.10); index `(org, patient)`;
+  **unique** `storage_key`. Bytes are NOT in the table.
+- **New `com.healthcloud.document` package:** `PatientDocument` + `DocumentScanStatus`, tenant-safe
+  `PatientDocumentRepository`, `DocumentDto` (metadata only — bytes never enter a DTO/log/event, §23.4).
+  **`DocumentStorage` interface** (`store/load/delete`, owns the key layout) with `LocalFileSystemDocumentStorage`
+  (writes under `${healthcloud.documents.dir}`, layout `org/patient/uuid`, path-traversal guarded) — the seam
+  private S3 plugs into at Phase 10 with no service/controller change. `PatientDocumentService` +
+  `PatientDocumentController` (nested under the patient).
+- **Endpoints:** `POST /api/v1/patients/{id}/documents` (multipart upload; write roles PATIENT/CARE_COORDINATOR/
+  ORG_ADMIN, patient only their own record), `GET .../documents` (list metadata), `GET .../documents/{docId}/content`
+  (re-authorized byte stream, `Content-Disposition: attachment`). **Every path routes through
+  `PatientAccessGuard`**, so document access inherits the §21 layer-6 gate: an assigned provider (or the patient)
+  can download, an unassigned provider is a secure 404, cross-tenant is a secure 404. Providers/reviewers can't
+  upload (not a write role → 403). Validation: non-empty, ≤ 10 MiB (app cap; `healthcloud.documents.max-size-bytes`),
+  content-type allowlist (pdf/png/jpeg/gif/txt/csv) → clean 400. Multipart transport limits raised in
+  `application.yml`; `MaxUploadSizeExceededException` mapped to 400 as a backstop. `scan_status` defaults CLEAN
+  this slice (scanner is slice 15). `var/` git-ignored (never commit uploaded bytes).
+- **Verified — automated:** `./mvnw -B clean verify` → **150 pass** (+8: `PatientDocumentApiIntegrationTest` ×6 —
+  staff upload/list/download round-trips the exact bytes; a PATIENT manages their own record's docs but another
+  patient's is a 404; an unassigned provider → 404 on list+download; a reviewer upload → 403; cross-tenant → 404;
+  a disallowed content type → 400. `PatientDocumentRepositoryTest` ×2 — tenant-scoped lookup/listing; unique
+  storage key. `PatientNestedEndpointGate…` extended to include `documents` in all three loops). Storage points
+  at `target/test-documents` in the test so `clean` leaves nothing behind.
+- **Verified — live (curl, existing dev DB; Flyway applied V13 on restart):** coordinator uploaded a text file to
+  Sam Sample → 201 CLEAN, listed, downloaded and byte-diffed identical; provider Dana (assigned to Sam, not Mock)
+  → **404** list+download on Mock's doc, **200** list on Sam, **403** upload on Sam (not a write role); a
+  `application/zip` upload → **400**; a Green Valley coordinator reading NC Sam's docs → **404**. (Restarted the
+  local backend onto slice-14 code first.)
+- **Next:** slice 15 — fake malware scanner + quarantine download gate (additive; the column/lifecycle are in
+  place); or slice 16 — documents UI. Strong moment for `/security-review`.
 
 ### 2026-09-14 — Phase 3, slice 13 ✅ (patient self-service consent — the patient controls their own sharing)
 - **Why:** consent writes were staff-only (CARE_COORDINATOR/ORG_ADMIN). With the slice-12 patient-user↔patient

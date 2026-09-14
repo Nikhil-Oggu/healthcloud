@@ -1,6 +1,13 @@
 spring:
   application:
     name: healthcloud
+  servlet:
+    multipart:
+      # Transport limits for document uploads (§19). Generous vs the app's own logical cap
+      # (healthcloud.documents.max-size-bytes) so the service returns a friendly 400 rather than
+      # the container rejecting the stream first; MaxUploadSizeExceededException is a 400 backstop.
+      max-file-size: 15MB
+      max-request-size: 20MB
   datasource:
     url: jdbc:postgresql://localhost:5432/healthcloud
     username: ${HEALTHCLOUD_DB_USER:healthcloud}
@@ -21,6 +28,14 @@ spring:
 
 server:
   port: 8080
+
+healthcloud:
+  documents:
+    # Where the local-filesystem DocumentStorage stand-in writes bytes (private S3 replaces this in the
+    # cloud phase). Git-ignored (var/); override with HEALTHCLOUD_DOCUMENTS_DIR. Tests point this at target/.
+    dir: ${HEALTHCLOUD_DOCUMENTS_DIR:./var/documents}
+    # The app's own logical upload cap (§19): 10 MiB. Enforced in the service for a clean 400.
+    max-size-bytes: 10485760
 
 logging:
   pattern:

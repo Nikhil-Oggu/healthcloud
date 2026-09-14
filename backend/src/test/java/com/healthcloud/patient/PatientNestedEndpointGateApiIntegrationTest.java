@@ -59,6 +59,10 @@ class PatientNestedEndpointGateApiIntegrationTest {
         return "/api/v1/patients/" + patientId + "/coordinator-assignments";
     }
 
+    private String documents(String patientId) {
+        return "/api/v1/patients/" + patientId + "/documents";
+    }
+
     @Test
     void an_unassigned_provider_is_a_secure_404_on_every_nested_endpoint() throws Exception {
         loginWithCsrf("provider@northcare.example.org"); // ensure the provider exists
@@ -66,7 +70,7 @@ class PatientNestedEndpointGateApiIntegrationTest {
         String patientId = newPatientId(coordinator);
 
         Session provider = loginWithCsrf("provider@northcare.example.org");
-        for (String path : List.of(consentList(patientId), decision(patientId), assignments(patientId), coordinatorAssignments(patientId))) {
+        for (String path : List.of(consentList(patientId), decision(patientId), assignments(patientId), coordinatorAssignments(patientId), documents(patientId))) {
             HttpResponse<String> denied = get(provider.session, path);
             assertEquals(404, denied.statusCode(),
                     "an unassigned provider must be a secure 404 on " + path + " (got: " + denied.body() + ")");
@@ -82,7 +86,7 @@ class PatientNestedEndpointGateApiIntegrationTest {
         assertEquals(201, assign(coordinator, patientId, providerId).statusCode());
 
         Session provider = loginWithCsrf("provider@northcare.example.org");
-        for (String path : List.of(consentList(patientId), decision(patientId), assignments(patientId), coordinatorAssignments(patientId))) {
+        for (String path : List.of(consentList(patientId), decision(patientId), assignments(patientId), coordinatorAssignments(patientId), documents(patientId))) {
             assertEquals(200, get(provider.session, path).statusCode(),
                     "an assigned provider may read " + path);
         }
@@ -93,7 +97,7 @@ class PatientNestedEndpointGateApiIntegrationTest {
         Session coordinator = loginWithCsrf("coordinator@northcare.example.org");
         String patientId = newPatientId(coordinator);
 
-        for (String path : List.of(consentList(patientId), decision(patientId), assignments(patientId), coordinatorAssignments(patientId))) {
+        for (String path : List.of(consentList(patientId), decision(patientId), assignments(patientId), coordinatorAssignments(patientId), documents(patientId))) {
             assertEquals(200, get(coordinator.session, path).statusCode(),
                     "a coordinator has broad access to " + path);
         }

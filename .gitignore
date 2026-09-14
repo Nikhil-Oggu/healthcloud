@@ -6,6 +6,9 @@ Thumbs.db
 !.vscode/extensions.json
 *.swp
 
+# ---- Local document store (§19 stand-in for private S3; never commit uploaded bytes) ----
+var/
+
 # ---- Java / Maven (backend) ----
 target/
 *.class
