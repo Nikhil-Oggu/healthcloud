@@ -34,6 +34,12 @@ public class CareCoordinatorAssignmentController {
         return service.listCurrent(patientId);
     }
 
+    /** Same-tenant coordinators who can be newly assigned to the patient (coordinator/admin only). */
+    @GetMapping("/candidates")
+    public List<AssignmentCandidateDto> candidates(@PathVariable UUID patientId) {
+        return service.listCandidates(patientId);
+    }
+
     /** Assign a same-tenant coordinator to the patient (coordinator/admin only). */
     @PostMapping
     public ResponseEntity<CareCoordinatorAssignmentDto> assign(

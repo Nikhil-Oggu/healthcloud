@@ -16,7 +16,9 @@ import com.healthcloud.patient.PatientAccessGuard;
 import com.healthcloud.patient.PatientRepository;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -77,6 +79,31 @@ public class CareCoordinatorAssignmentService {
                 .findByOrganizationIdAndPatientIdAndStatusInOrderByAssignedAtAsc(organizationId, patientId, CURRENT)
                 .stream()
                 .map(a -> CareCoordinatorAssignmentDto.from(a, nameOf(organizationId, a.getCoordinatorUserId())))
+                .toList();
+    }
+
+    /**
+     * Same-tenant CARE_COORDINATORs who can be assigned to this patient — active members holding the
+     * CARE_COORDINATOR role, minus anyone already currently (ACTIVE/PENDING) assigned. Coordinator/admin only
+     * (mirrors the write gate); the patient must be in the caller's tenant (else secure 404). Minimum-necessary
+     * fields, sorted by name — just enough to drive the assignment picker.
+     */
+    public List<AssignmentCandidateDto> listCandidates(UUID patientId) {
+        userContext.requireAnyRole(ASSIGN_ROLES);
+        UUID organizationId = requirePatientInTenant(patientId);
+
+        Set<UUID> alreadyAssigned = assignments
+                .findByOrganizationIdAndPatientIdAndStatusInOrderByAssignedAtAsc(organizationId, patientId, CURRENT)
+                .stream()
+                .map(CareCoordinatorAssignment::getCoordinatorUserId)
+                .collect(Collectors.toSet());
+
+        return memberships.findByOrganization_Id(organizationId).stream()
+                .filter(m -> m.getStatus() == MembershipStatus.ACTIVE)
+                .filter(this::isCoordinator)
+                .filter(m -> !alreadyAssigned.contains(m.getAppUser().getId()))
+                .map(m -> new AssignmentCandidateDto(m.getAppUser().getId(), m.getAppUser().getFullName()))
+                .sorted((a, b) -> a.fullName().compareToIgnoreCase(b.fullName()))
                 .toList();
     }
 
@@ -153,14 +180,18 @@ public class CareCoordinatorAssignmentService {
                 .filter(m -> m.getStatus() == MembershipStatus.ACTIVE)
                 .orElseThrow(() -> new ApiException(ErrorCode.VALIDATION_FAILED,
                         "The selected user cannot be assigned to this patient."));
-        boolean isCoordinator = userRoles.findByMembership_Id(membership.getId()).stream()
-                .map(UserRole::getRole)
-                .anyMatch(r -> COORDINATOR_ROLE.equals(r.getCode()));
-        if (!isCoordinator) {
+        if (!isCoordinator(membership)) {
             throw new ApiException(ErrorCode.VALIDATION_FAILED,
                     "The selected user cannot be assigned to this patient.");
         }
         return membership;
+    }
+
+    /** Whether the membership's user holds the CARE_COORDINATOR role. */
+    private boolean isCoordinator(OrganizationMembership membership) {
+        return userRoles.findByMembership_Id(membership.getId()).stream()
+                .map(UserRole::getRole)
+                .anyMatch(r -> COORDINATOR_ROLE.equals(r.getCode()));
     }
 
     /** Resolve a same-tenant user's display name (best-effort; empty string if the membership is gone). */

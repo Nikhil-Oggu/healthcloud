@@ -123,6 +123,36 @@ class CareCoordinatorAssignmentApiIntegrationTest {
     }
 
     @Test
+    void candidates_lists_eligible_coordinators_and_excludes_the_already_assigned_and_non_coordinators()
+            throws Exception {
+        String providerId = meId(loginWithCsrf("provider@northcare.example.org"));
+        Session coordinator = loginWithCsrf("coordinator@northcare.example.org");
+        String coordinatorId = meId(coordinator);
+        String patientId = newPatientId(coordinator);
+
+        HttpResponse<String> before = get(coordinator.session, base(patientId) + "/candidates");
+        assertEquals(200, before.statusCode(), before.body());
+        assertTrue(before.body().contains(coordinatorId), "an unassigned coordinator is a candidate");
+        assertFalse(before.body().contains(providerId), "a non-coordinator is never a candidate");
+
+        assertEquals(201, post(coordinator, base(patientId),
+                "{\"coordinatorUserId\":\"%s\"}".formatted(coordinatorId)).statusCode());
+        assertFalse(get(coordinator.session, base(patientId) + "/candidates").body().contains(coordinatorId),
+                "an already-assigned coordinator is no longer a candidate");
+    }
+
+    @Test
+    void only_coordinators_and_admins_may_list_candidates() throws Exception {
+        Session coordinator = loginWithCsrf("coordinator@northcare.example.org");
+        String patientId = newPatientId(coordinator);
+
+        Session provider = loginWithCsrf("provider@northcare.example.org");
+        HttpResponse<String> denied = get(provider.session, base(patientId) + "/candidates");
+        assertEquals(403, denied.statusCode());
+        assertTrue(denied.body().contains("ACCESS_DENIED"));
+    }
+
+    @Test
     void a_stale_version_on_revoke_is_a_conflict() throws Exception {
         Session coordinator = loginWithCsrf("coordinator@northcare.example.org");
         String coordinatorId = meId(coordinator);

@@ -26,7 +26,14 @@ import { ApiClientError } from '../api/client'
 import { useCurrentUser } from '../auth/useAuth'
 import { LoadingScreen } from '../components/LoadingScreen'
 import { ErrorScreen } from '../components/ErrorScreen'
-import type { ConsentDirective, ConsentStatus, RecordConsentRequest } from '../api/types'
+import type {
+  AssignMemberRequest,
+  AssignmentCandidate,
+  AssignmentStatus,
+  ConsentDirective,
+  ConsentStatus,
+  RecordConsentRequest,
+} from '../api/types'
 import {
   useConsentDirectives,
   usePatient,
@@ -34,6 +41,15 @@ import {
   useRecordConsent,
   useRevokeConsent,
 } from '../consent/useConsent'
+import {
+  useAssignCoordinator,
+  useAssignProvider,
+  useCoordinatorAssignments,
+  useCoordinatorCandidates,
+  useProviderCandidates,
+  useRevokeCoordinatorAssignment,
+  useRevokeProviderAssignment,
+} from '../relationship/useAssignments'
 
 // Roles allowed to record/revoke consent — mirrors the backend gate (the server still enforces it).
 const WRITE_ROLES = ['CARE_COORDINATOR', 'ORG_ADMIN']
@@ -125,6 +141,8 @@ export function PatientDetailPage() {
         </CardContent>
       </Card>
 
+      <CareTeamCard patientId={id} canWrite={canWrite} />
+
       <Box>
         <Typography variant="h6" gutterBottom>
           Consent directives
@@ -181,6 +199,219 @@ function Field({ label, value }: { label: string; value: React.ReactNode }) {
         {value}
       </Typography>
     </Box>
+  )
+}
+
+// A care-team member, normalized across the provider and coordinator assignment tables.
+interface TeamMember {
+  assignmentId: string
+  name: string
+  status: AssignmentStatus
+  expectedVersion: number
+}
+
+// Minimal structural shape of the assign/revoke mutations this component drives (avoids leaking the
+// full TanStack Query generic signature into the props).
+interface Mutation<V> {
+  mutateAsync: (variables: V) => Promise<unknown>
+  isPending: boolean
+}
+
+const memberStatusColor = (s: AssignmentStatus): 'success' | 'warning' | 'error' | 'default' =>
+  s === 'ACTIVE' ? 'success' : s === 'PENDING' ? 'warning' : 'error'
+
+/**
+ * The patient's care team — providers and coordinators currently (ACTIVE/PENDING) assigned. These are the
+ * relationships the object/relationship gate (§21 layer 6) and the CARE_TEAM consent scope (§22.5) consume,
+ * so changing them here can flip a masked field. Any same-tenant user may view; only coordinators/admins
+ * see the assign/revoke controls (role-aware UI — the backend still enforces it).
+ */
+function CareTeamCard({ patientId, canWrite }: { patientId: string; canWrite: boolean }) {
+  const providers = useProviderAssignments(patientId)
+  const coordinators = useCoordinatorAssignments(patientId)
+  const providerCandidates = useProviderCandidates(patientId, canWrite)
+  const coordinatorCandidates = useCoordinatorCandidates(patientId, canWrite)
+  const assignProvider = useAssignProvider(patientId)
+  const revokeProvider = useRevokeProviderAssignment(patientId)
+  const assignCoordinator = useAssignCoordinator(patientId)
+  const revokeCoordinator = useRevokeCoordinatorAssignment(patientId)
+
+  const providerMembers: TeamMember[] = (providers.data ?? []).map((a) => ({
+    assignmentId: a.id,
+    name: a.providerName,
+    status: a.status,
+    expectedVersion: a.expectedVersion,
+  }))
+  const coordinatorMembers: TeamMember[] = (coordinators.data ?? []).map((a) => ({
+    assignmentId: a.id,
+    name: a.coordinatorName,
+    status: a.status,
+    expectedVersion: a.expectedVersion,
+  }))
+
+  return (
+    <Box>
+      <Typography variant="h6" gutterBottom>
+        Care team
+      </Typography>
+      <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} sx={{ alignItems: 'stretch' }}>
+        <AssignmentGroup
+          label="Providers"
+          noun="provider"
+          members={providerMembers}
+          candidates={providerCandidates.data ?? []}
+          canWrite={canWrite}
+          assign={assignProvider}
+          revoke={revokeProvider}
+        />
+        <AssignmentGroup
+          label="Coordinators"
+          noun="coordinator"
+          members={coordinatorMembers}
+          candidates={coordinatorCandidates.data ?? []}
+          canWrite={canWrite}
+          assign={assignCoordinator}
+          revoke={revokeCoordinator}
+        />
+      </Stack>
+    </Box>
+  )
+}
+
+function AssignmentGroup({
+  label,
+  noun,
+  members,
+  candidates,
+  canWrite,
+  assign,
+  revoke,
+}: {
+  label: string
+  noun: string
+  members: TeamMember[]
+  candidates: AssignmentCandidate[]
+  canWrite: boolean
+  assign: Mutation<AssignMemberRequest>
+  revoke: Mutation<{ assignmentId: string; expectedVersion: number }>
+}) {
+  const [userId, setUserId] = useState('')
+  const [effectiveFrom, setEffectiveFrom] = useState('')
+  const [effectiveTo, setEffectiveTo] = useState('')
+  const [error, setError] = useState<string | null>(null)
+
+  async function onAssign() {
+    if (!userId) {
+      setError(`Choose a ${noun} to assign.`)
+      return
+    }
+    setError(null)
+    try {
+      await assign.mutateAsync({
+        userId,
+        effectiveFrom: effectiveFrom || undefined,
+        effectiveTo: effectiveTo || undefined,
+      })
+      setUserId('')
+      setEffectiveFrom('')
+      setEffectiveTo('')
+    } catch (err) {
+      setError(err instanceof ApiClientError ? err.message : `Could not assign the ${noun}.`)
+    }
+  }
+
+  async function onRevoke(m: TeamMember) {
+    setError(null)
+    try {
+      await revoke.mutateAsync({ assignmentId: m.assignmentId, expectedVersion: m.expectedVersion })
+    } catch (err) {
+      setError(err instanceof ApiClientError ? err.message : 'Could not revoke.')
+    }
+  }
+
+  return (
+    <Card variant="outlined" sx={{ flex: 1 }}>
+      <CardContent>
+        <Typography variant="subtitle1" gutterBottom>
+          {label}
+        </Typography>
+
+        {error && (
+          <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>
+            {error}
+          </Alert>
+        )}
+
+        {members.length === 0 ? (
+          <Typography variant="body2" color="text.secondary">
+            None assigned.
+          </Typography>
+        ) : (
+          <Stack spacing={1}>
+            {members.map((m) => (
+              <Stack key={m.assignmentId} direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+                <Typography variant="body2" sx={{ flex: 1 }}>
+                  {m.name}
+                </Typography>
+                <Chip label={m.status} size="small" color={memberStatusColor(m.status)} />
+                {canWrite && (
+                  <Button size="small" color="error" onClick={() => onRevoke(m)} disabled={revoke.isPending}>
+                    Revoke
+                  </Button>
+                )}
+              </Stack>
+            ))}
+          </Stack>
+        )}
+
+        {canWrite && (
+          <Box sx={{ mt: 2 }}>
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ alignItems: 'flex-start' }}>
+              <TextField
+                select
+                label={`Add ${noun}`}
+                size="small"
+                fullWidth
+                slotProps={{ select: { native: true }, inputLabel: { shrink: true } }}
+                value={userId}
+                onChange={(e) => setUserId(e.target.value)}
+              >
+                <option value="">Select…</option>
+                {candidates.map((c) => (
+                  <option key={c.userId} value={c.userId}>
+                    {c.fullName}
+                  </option>
+                ))}
+              </TextField>
+              <TextField
+                label="From"
+                type="date"
+                size="small"
+                slotProps={{ inputLabel: { shrink: true } }}
+                value={effectiveFrom}
+                onChange={(e) => setEffectiveFrom(e.target.value)}
+              />
+              <TextField
+                label="To"
+                type="date"
+                size="small"
+                slotProps={{ inputLabel: { shrink: true } }}
+                value={effectiveTo}
+                onChange={(e) => setEffectiveTo(e.target.value)}
+              />
+              <Button variant="contained" onClick={onAssign} disabled={assign.isPending || !userId}>
+                {assign.isPending ? 'Assigning…' : 'Assign'}
+              </Button>
+            </Stack>
+            {candidates.length === 0 && (
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
+                No one else available to assign.
+              </Typography>
+            )}
+          </Box>
+        )}
+      </CardContent>
+    </Card>
   )
 }
 

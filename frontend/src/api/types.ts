@@ -190,6 +190,9 @@ export interface RecordConsentRequest {
   effectiveTo?: string
 }
 
+/** The lifecycle states shared by both care-team assignment tables. */
+export type AssignmentStatus = 'PENDING' | 'ACTIVE' | 'EXPIRED' | 'REVOKED'
+
 /** A provider-patient assignment (mirrors ProviderPatientAssignmentDto) — used to pick a scoped provider. */
 export interface ProviderAssignment {
   id: string
@@ -197,10 +200,41 @@ export interface ProviderAssignment {
   providerUserId: string
   providerName: string
   assignedByUserId: string
-  status: 'PENDING' | 'ACTIVE' | 'EXPIRED' | 'REVOKED'
+  status: AssignmentStatus
   effectiveFrom: string
   effectiveTo: string | null
   expectedVersion: number
   assignedAt: string
   endedAt: string | null
+}
+
+/** A care-coordinator↔patient assignment (mirrors CareCoordinatorAssignmentDto). */
+export interface CoordinatorAssignment {
+  id: string
+  patientId: string
+  coordinatorUserId: string
+  coordinatorName: string
+  assignedByUserId: string
+  status: AssignmentStatus
+  effectiveFrom: string
+  effectiveTo: string | null
+  expectedVersion: number
+  assignedAt: string
+  endedAt: string | null
+}
+
+/** A user who can be newly assigned to a patient's care team (mirrors AssignmentCandidateDto). */
+export interface AssignmentCandidate {
+  userId: string
+  fullName: string
+}
+
+/**
+ * Payload to assign a member to a patient's care team. `userId` is the provider/coordinator to add;
+ * `effectiveFrom`/`To` are optional (default today / open-ended). Tenant + assigner are set on the server.
+ */
+export interface AssignMemberRequest {
+  userId: string
+  effectiveFrom?: string
+  effectiveTo?: string
 }

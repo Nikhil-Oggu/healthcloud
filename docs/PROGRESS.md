@@ -10,18 +10,20 @@
   6 ✅ gate applied to the patient-nested endpoints — single `PatientAccessGuard` choke point ·
   7 ✅ care_coordinator_assignment record §14.3 — the other half of the care team ·
   8 ✅ CARE_TEAM consent scope wired — the §22.5 engine is now complete across all three tiers ·
-  9 ✅ consent management UI — patient detail page + record/revoke directives, the flagship is now visible)**
+  9 ✅ consent management UI — patient detail page + record/revoke directives, the flagship is now visible ·
+  10 ✅ care-team assignment management UI — assign/revoke providers + coordinators on the patient detail page,
+  backed by new candidate-picker endpoints)**
 - **Repo:** https://github.com/Nikhil-Oggu/healthcloud (private, branch `main`)
-- **Next up:** **Phase 3, slice 10 (pick one when planning):** **secure S3 documents** (§19); the
+- **Next up:** **Phase 3, slice 11 (pick one when planning):** **secure S3 documents** (§19); the
   **function-permission matrix** (§21.2) / business-need (§21 layer 8) incl. finer PATIENT/CLAIMS_REVIEWER
   patient-read rules (incl. requests *about* a patient — `GET /requests?patientId=`, a separate resource still
-  ungated); **assignment management UI** (provider + coordinator assign/revoke — the record APIs exist, no UI
-  yet); extend field-masking to more resources. Then consent-lifecycle **audit** (§22.6 → Phase 7). **Run
+  ungated); extend field-masking to more resources. Then consent-lifecycle **audit** (§22.6 → Phase 7). **Run
   `/security-review` in Phase 3.** Plan each slice before building. (Deferred:
   PROVIDER/CLAIMS_REVIEWER/PATIENT finer read rules; provider/coordinator assignment PENDING→ACTIVE/→EXPIRED
   time sweeps — scheduler, Phase 8; patient self-service consent — needs a patient-user↔patient link; batch
-  consent + care-team lookups for list reads — perf follow-up; consent/relationship management UI. Phase-2
-  niceties: SLA/due-dates, request edit/priority UI.)
+  consent + care-team lookups for list reads — perf follow-up; PROVIDER-scoped consent to an *un*assigned
+  provider — the picker/candidates list assigned/eligible only. Phase-2 niceties: SLA/due-dates, request
+  edit/priority UI.)
 - **Run the frontend:** with Postgres + backend up, `cd frontend && npm run dev` → open
   http://localhost:5173 → sign in as a seeded demo user.
 - **Run the demo:** `docker compose up -d postgres` then
@@ -30,6 +32,39 @@
   then `curl -b j.txt localhost:8080/api/v1/me`. Reset DB with `./scripts/db-reset.sh`.
 
 ## Log (newest first)
+
+### 2026-09-14 — Phase 3, slice 10 ✅ (care-team assignment management UI — assign/revoke the people that drive consent)
+- **Why:** slices 4 & 7 built the provider- and coordinator-assignment record APIs, and slice 8 made the care
+  team drive CARE_TEAM/PROVIDER consent — but there was no way to *see or change* the care team in the browser.
+  This surfaces it on the patient detail page, right beside the slice-9 consent UI, closing the loop: manage the
+  care team **and** the consent that depends on it in one place.
+- **Backend (small, cohesive):** the assign APIs take a user id, so the UI needs a list of eligible people to
+  pick from. Added `GET /api/v1/patients/{id}/provider-assignments/candidates` and
+  `.../coordinator-assignments/candidates` → `AssignmentCandidateDto{userId, fullName}`: same-tenant users
+  holding the required role (PROVIDER / CARE_COORDINATOR), **minus anyone already currently assigned**, sorted by
+  name, minimum-necessary. Coordinator/admin-gated (mirrors the write gate) and routed through the same
+  `PatientAccessGuard` (another tenant's patient → secure 404). Reuses the exact membership+role pattern the
+  request module already uses; factored a small `isProvider`/`isCoordinator` helper out of the existing
+  assignee-validation.
+- **Frontend:** `api/types.ts` + `api/client.ts` gained the coordinator-assignment types, the assign/revoke
+  calls for both tables, and the two candidate-list calls; new `src/relationship/useAssignments.ts` hooks (every
+  care-team mutation invalidates both assignment lists, both candidate lists, and the patient + patients-list
+  queries — so a masked field driven by a PROVIDER/CARE_TEAM directive flips live). Added a **Care team card**
+  to `PatientDetailPage` — Providers and Coordinators sections, each a list of current members with a **Revoke**
+  button and an **Assign** form (candidate picker + optional effective dates). All write controls gated to
+  CARE_COORDINATOR/ORG_ADMIN (role-aware UI; backend still enforces).
+- **Verified — automated:** backend `./mvnw -B clean verify` → **127 pass** (+5: candidate list returns
+  eligible users, excludes the already-assigned and wrong-role, is coordinator/admin-gated, cross-tenant →
+  secure 404 — across both assignment tests). Frontend `npm run typecheck` clean, `npm test` → **28 pass** (+4
+  `PatientDetailPage.test.tsx`: renders care-team members; coordinator assigns from the candidate list;
+  coordinator revokes; a non-write role sees no assign/revoke controls). `npm run build` OK.
+- **Verified — live in browser** (coordinator@northcare, patient Mock Muller NC-0003): Care team card showed
+  Dana Provider + Cory Coordinator (ACTIVE). Clicked **Revoke** on Dana → Providers went to "None assigned" and
+  Dana reappeared in the "Add provider" picker (candidate list repopulated live). Selected Dana → **Assign** →
+  Dana back as ACTIVE and the picker returned to "No one else available." Also confirmed the candidate/assign
+  flow directly by curl. (Only one seeded provider per org, so the "no one else available" state is expected.)
+- **Deferred → slice 11+:** secure S3 documents (§19); the function-permission matrix / `GET /requests?patientId=`
+  gate; PROVIDER-scoped consent to an *un*assigned provider (candidates list eligible/assigned only).
 
 ### 2026-09-14 — Phase 3, slice 9 ✅ (consent management UI — the flagship is finally visible in the browser)
 - **Why:** slices 1–8 built the whole consent/relationship/authorization system entirely on the backend; the

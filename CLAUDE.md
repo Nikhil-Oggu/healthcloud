@@ -116,8 +116,12 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   the sibling table — `GET/POST /api/v1/patients/{id}/coordinator-assignments`, `POST …/{id}/revoke`; same
   effective-dated/versioned/one-current-per-pair shape, assignee must be a same-tenant CARE_COORDINATOR): the
   two tables together are the **care team** a CARE_TEAM-scoped consent directive applies to, surfaced by
-  **`CareTeamService.isOnCareTeam`** and consumed by the consent engine (§22.5). `DevDataSeeder` assigns each
-  provider to 2 of 3 patients and the coordinator to 2 of 3),
+  **`CareTeamService.isOnCareTeam`** and consumed by the consent engine (§22.5). Each table also exposes a
+  candidate-picker read for the assignment UI — `GET .../provider-assignments/candidates` and
+  `.../coordinator-assignments/candidates` (coordinator/admin-gated, patient-tenant-scoped → secure 404):
+  same-tenant users holding the required role, minus anyone already currently assigned, minimum-necessary
+  (`AssignmentCandidateDto{userId, fullName}`). `DevDataSeeder` assigns each provider to 2 of 3 patients and
+  the coordinator to 2 of 3),
   `devdata` (DevDataSeeder, local-only).
 - **Tenant-owned entity pattern (Phase 2+):** hold `organizationId` as the tenant key; repositories expose
   only org-scoped finders (`findByIdAndOrganizationId`, `findByOrganizationId…`) — no bare `findById` in
@@ -242,8 +246,11 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   list, §23; the list a provider sees is also relationship-gated on the backend, so a provider simply gets fewer
   rows — no client logic needed. The detail page has the **consent-directive UI** — record/revoke directives
   via `src/consent/useConsent.ts`, gated to coordinator/admin; recording invalidates the patient + list queries
-  so a masked field flips live) and `src/requests/` (list + create + detail with status timeline, transition
-  buttons, comments, assignment). Both follow the feature-folder + hooks + RHF/Zod pattern.
+  so a masked field flips live — and a **Care team card** — assign/revoke providers and coordinators via
+  `src/relationship/useAssignments.ts` (candidate picker + optional effective dates), gated to coordinator/admin;
+  a care-team change invalidates the assignment lists, the candidate lists, and the patient query, so a masked
+  field driven by a PROVIDER/CARE_TEAM directive can flip live) and `src/requests/` (list + create + detail with
+  status timeline, transition buttons, comments, assignment). Both follow the feature-folder + hooks + RHF/Zod pattern.
 - **Consent/field masking in the UI (Phase 3+):** the backend already withholds masked values, so the SPA only
   *displays* the state — render a "Restricted"/placeholder for a `null` consent-controlled field (named in
   `maskedFields`); never assume a field is present. This is display-only, not a security control.

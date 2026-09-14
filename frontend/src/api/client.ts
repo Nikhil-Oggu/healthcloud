@@ -2,8 +2,11 @@ import type {
   AddCommentRequest,
   ApiError,
   AssignableUser,
+  AssignMemberRequest,
+  AssignmentCandidate,
   AssignRequest,
   ConsentDirective,
+  CoordinatorAssignment,
   CurrentUser,
   Patient,
   PatientCreateRequest,
@@ -179,6 +182,59 @@ export const api = {
       },
     ),
 
+  // --- Care-team assignments (§14.3) --------------------------------------
+
   listProviderAssignments: (patientId: string) =>
     request<ProviderAssignment[]>(`/api/v1/patients/${patientId}/provider-assignments`),
+
+  listProviderCandidates: (patientId: string) =>
+    request<AssignmentCandidate[]>(`/api/v1/patients/${patientId}/provider-assignments/candidates`),
+
+  assignProvider: (patientId: string, body: AssignMemberRequest) =>
+    request<ProviderAssignment>(`/api/v1/patients/${patientId}/provider-assignments`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        providerUserId: body.userId,
+        effectiveFrom: body.effectiveFrom,
+        effectiveTo: body.effectiveTo,
+      }),
+    }),
+
+  revokeProviderAssignment: (patientId: string, assignmentId: string, expectedVersion: number) =>
+    request<ProviderAssignment>(
+      `/api/v1/patients/${patientId}/provider-assignments/${assignmentId}/revoke`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ expectedVersion }),
+      },
+    ),
+
+  listCoordinatorAssignments: (patientId: string) =>
+    request<CoordinatorAssignment[]>(`/api/v1/patients/${patientId}/coordinator-assignments`),
+
+  listCoordinatorCandidates: (patientId: string) =>
+    request<AssignmentCandidate[]>(`/api/v1/patients/${patientId}/coordinator-assignments/candidates`),
+
+  assignCoordinator: (patientId: string, body: AssignMemberRequest) =>
+    request<CoordinatorAssignment>(`/api/v1/patients/${patientId}/coordinator-assignments`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        coordinatorUserId: body.userId,
+        effectiveFrom: body.effectiveFrom,
+        effectiveTo: body.effectiveTo,
+      }),
+    }),
+
+  revokeCoordinatorAssignment: (patientId: string, assignmentId: string, expectedVersion: number) =>
+    request<CoordinatorAssignment>(
+      `/api/v1/patients/${patientId}/coordinator-assignments/${assignmentId}/revoke`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ expectedVersion }),
+      },
+    ),
 }

@@ -137,6 +137,47 @@ class ProviderPatientAssignmentApiIntegrationTest {
     }
 
     @Test
+    void candidates_lists_eligible_providers_and_excludes_the_already_assigned_and_non_providers() throws Exception {
+        String providerId = meId(loginWithCsrf("provider@northcare.example.org"));
+        String reviewerId = meId(loginWithCsrf("reviewer@northcare.example.org"));
+        Session coordinator = loginWithCsrf("coordinator@northcare.example.org");
+        String patientId = newPatientId(coordinator);
+
+        // Before assignment: the provider is a candidate; a non-provider (reviewer) never is.
+        HttpResponse<String> before = get(coordinator.session, base(patientId) + "/candidates");
+        assertEquals(200, before.statusCode(), before.body());
+        assertTrue(before.body().contains(providerId), "an unassigned provider is a candidate");
+        assertFalse(before.body().contains(reviewerId), "a non-provider is never a candidate");
+
+        // After assignment: the same provider drops out of the candidate list.
+        assertEquals(201, post(coordinator, base(patientId),
+                "{\"providerUserId\":\"%s\"}".formatted(providerId)).statusCode());
+        assertFalse(get(coordinator.session, base(patientId) + "/candidates").body().contains(providerId),
+                "an already-assigned provider is no longer a candidate");
+    }
+
+    @Test
+    void only_coordinators_and_admins_may_list_candidates() throws Exception {
+        Session coordinator = loginWithCsrf("coordinator@northcare.example.org");
+        String patientId = newPatientId(coordinator);
+
+        Session provider = loginWithCsrf("provider@northcare.example.org");
+        HttpResponse<String> denied = get(provider.session, base(patientId) + "/candidates");
+        assertEquals(403, denied.statusCode());
+        assertTrue(denied.body().contains("ACCESS_DENIED"));
+    }
+
+    @Test
+    void candidates_against_another_tenants_patient_is_a_secure_404() throws Exception {
+        Session green = loginWithCsrf("coordinator@greenvalley.example.org");
+        String greenPatientId = newPatientId(green);
+
+        Session north = loginWithCsrf("coordinator@northcare.example.org");
+        HttpResponse<String> cross = get(north.session, base(greenPatientId) + "/candidates");
+        assertEquals(404, cross.statusCode(), "another tenant's patient must be a secure 404");
+    }
+
+    @Test
     void cannot_assign_against_another_tenants_patient() throws Exception {
         Session green = loginWithCsrf("coordinator@greenvalley.example.org");
         String greenPatientId = newPatientId(green);
