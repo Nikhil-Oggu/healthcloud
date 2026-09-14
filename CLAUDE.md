@@ -83,7 +83,9 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   `identity` (AppUser, Role, OrganizationMembership, UserRole), `auth` (SecurityConfig, DevLoginController,
   CurrentUserController/Service, CsrfCookieFilter), `context` (UserContext + UserContextAccessor/Filter),
   `error` (ApiError, ErrorCode, GlobalExceptionHandler, CorrelationId), `patient` (Patient CRUD:
-  `GET/POST /api/v1/patients`, `GET/PATCH /api/v1/patients/{id}`, tenant-scoped → secure 404 cross-tenant),
+  `GET/POST /api/v1/patients`, `GET/PATCH /api/v1/patients/{id}`, tenant-scoped → secure 404 cross-tenant;
+  reads are relationship-gated (providers see only assigned patients) and consent-field-masked — see the
+  Authorization-layering + Field-masking conventions below),
   `request` (ServiceRequest + RequestStatusHistory + `RequestTransitions` state machine: `GET/POST
   /api/v1/requests`, `GET /api/v1/requests/{id}`, `PATCH /api/v1/requests/{id}/status`,
   `GET /api/v1/requests/{id}/history`; controlled §14.6 transitions, optimistic-locked, history per move;
@@ -219,9 +221,10 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   The requests UI mirrors the §14.6 transition table in `src/requests/transitions.ts` purely to choose which
   action buttons to show — the backend re-validates every move, so drift there is a UX bug, never a hole.
 - **Feature pages so far:** `src/patients/` (list + create; the DOB column shows a muted "Restricted" when the
-  backend masks it — the API sends `dateOfBirth: null` + a `maskedFields` list, §23) and `src/requests/` (list +
-  create + detail with status timeline, transition buttons, comments, assignment). Both follow the
-  feature-folder + hooks + RHF/Zod pattern.
+  backend masks it — the API sends `dateOfBirth: null` + a `maskedFields` list, §23; the list a provider sees
+  is also relationship-gated on the backend, so a provider simply gets fewer rows — no client logic needed) and
+  `src/requests/` (list + create + detail with status timeline, transition buttons, comments, assignment). Both
+  follow the feature-folder + hooks + RHF/Zod pattern.
 - **Consent/field masking in the UI (Phase 3+):** the backend already withholds masked values, so the SPA only
   *displays* the state — render a "Restricted"/placeholder for a `null` consent-controlled field (named in
   `maskedFields`); never assume a field is present. This is display-only, not a security control.
