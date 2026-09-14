@@ -8,9 +8,11 @@ import com.healthcloud.error.CorrelationId;
 import com.healthcloud.error.ErrorCode;
 import com.healthcloud.error.InvalidStateTransitionException;
 import com.healthcloud.error.NotFoundException;
+import com.healthcloud.patient.PatientAccessGuard;
 import com.healthcloud.patient.PatientRepository;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -37,17 +39,20 @@ public class ServiceRequestService {
     private final RequestStatusHistoryRepository history;
     private final RequestCommentRepository comments;
     private final PatientRepository patients;
+    private final PatientAccessGuard accessGuard;
     private final UserContextAccessor userContext;
 
     public ServiceRequestService(ServiceRequestRepository requests,
                                  RequestStatusHistoryRepository history,
                                  RequestCommentRepository comments,
                                  PatientRepository patients,
+                                 PatientAccessGuard accessGuard,
                                  UserContextAccessor userContext) {
         this.requests = requests;
         this.history = history;
         this.comments = comments;
         this.patients = patients;
+        this.accessGuard = accessGuard;
         this.userContext = userContext;
     }
 
@@ -88,21 +93,53 @@ public class ServiceRequestService {
         return ServiceRequestDto.from(saved);
     }
 
-    /** One request in the caller's tenant, or 404 (also for another tenant's id). */
+    /** One request in the caller's tenant, gated by its patient (§21 layer 6), or a secure 404. */
     public ServiceRequestDto getById(UUID id) {
-        UUID organizationId = userContext.requireOrganizationId();
-        return requests.findByIdAndOrganizationId(id, organizationId)
-                .map(ServiceRequestDto::from)
-                .orElseThrow(NotFoundException::new);
+        return ServiceRequestDto.from(requireAccessibleRequest(id));
     }
 
-    /** Requests in the caller's tenant, optionally filtered to one patient. */
+    /**
+     * Requests in the caller's tenant, optionally filtered to one patient. A request is gated by its patient
+     * (§21 layer 6), so a provider sees only requests for patients they are actively assigned to:
+     * <ul>
+     *   <li>filtered to a patient the caller cannot reach → secure 404 (consistent with {@code GET /patients/{id}});
+     *   <li>unfiltered, a provider-gated caller sees only their active patients' requests; broad roles see all.
+     * </ul>
+     */
     public List<ServiceRequestDto> list(Optional<UUID> patientId) {
+        UserContext caller = userContext.requireUser();
         UUID organizationId = userContext.requireOrganizationId();
-        List<ServiceRequest> found = patientId
-                .map(pid -> requests.findByOrganizationIdAndPatientIdOrderByCreatedAtDesc(organizationId, pid))
-                .orElseGet(() -> requests.findByOrganizationIdOrderByCreatedAtDesc(organizationId));
+
+        if (patientId.isPresent()) {
+            // Reuse the patient gate: an inaccessible patient (another tenant, or unassigned provider) → 404.
+            accessGuard.requireAccessibleInTenant(patientId.get());
+            return requests
+                    .findByOrganizationIdAndPatientIdOrderByCreatedAtDesc(organizationId, patientId.get())
+                    .stream().map(ServiceRequestDto::from).toList();
+        }
+
+        List<ServiceRequest> found;
+        if (accessGuard.isProviderGated(caller)) {
+            Set<UUID> visible = accessGuard.activePatientIdsFor(organizationId, caller.userId());
+            found = visible.isEmpty()
+                    ? List.of()
+                    : requests.findByOrganizationIdAndPatientIdInOrderByCreatedAtDesc(organizationId, visible);
+        } else {
+            found = requests.findByOrganizationIdOrderByCreatedAtDesc(organizationId);
+        }
         return found.stream().map(ServiceRequestDto::from).toList();
+    }
+
+    /**
+     * Load a request in the caller's tenant and confirm the caller may reach its patient (§21 layer 6),
+     * else a secure 404. The single choke point for every request read/write that names one request.
+     */
+    private ServiceRequest requireAccessibleRequest(UUID id) {
+        UUID organizationId = userContext.requireOrganizationId();
+        ServiceRequest request = requests.findByIdAndOrganizationId(id, organizationId)
+                .orElseThrow(NotFoundException::new);
+        accessGuard.requireAccessibleInTenant(request.getPatientId());
+        return request;
     }
 
     /**
@@ -115,8 +152,9 @@ public class ServiceRequestService {
         UserContext caller = userContext.requireUser();
         UUID organizationId = userContext.requireOrganizationId();
 
-        ServiceRequest request = requests.findByIdAndOrganizationId(id, organizationId)
-                .orElseThrow(NotFoundException::new);
+        // Tenant + object/relationship gate: an unassigned provider gets a secure 404, so the request's
+        // state is never revealed before the transition checks run.
+        ServiceRequest request = requireAccessibleRequest(id);
 
         ServiceRequestStatus from = request.getStatus();
         ServiceRequestStatus to = change.targetStatus();
@@ -155,11 +193,10 @@ public class ServiceRequestService {
         return ServiceRequestDto.from(saved);
     }
 
-    /** The request's status timeline (append-only history), scoped to the caller's tenant. */
+    /** The request's status timeline (append-only history), tenant + relationship gated (secure 404). */
     public List<RequestStatusHistoryDto> getHistory(UUID id) {
         UUID organizationId = userContext.requireOrganizationId();
-        // 404 (not empty list) if the request isn't in the caller's tenant — don't leak existence.
-        requests.findByIdAndOrganizationId(id, organizationId).orElseThrow(NotFoundException::new);
+        requireAccessibleRequest(id); // 404 if not in tenant or the caller can't reach its patient
         return history.findByOrganizationIdAndServiceRequestIdOrderByCreatedAtAsc(organizationId, id).stream()
                 .map(RequestStatusHistoryDto::from)
                 .toList();
@@ -175,19 +212,19 @@ public class ServiceRequestService {
         UserContext caller = userContext.requireUser();
         UUID organizationId = userContext.requireOrganizationId();
 
-        // The request must exist in the caller's tenant; another tenant's id → 404 (no existence leak).
-        requests.findByIdAndOrganizationId(requestId, organizationId).orElseThrow(NotFoundException::new);
+        // Tenant + object/relationship gate: another tenant's id, or a request whose patient the caller
+        // cannot reach (e.g. an unassigned provider), is a secure 404 (no existence leak).
+        requireAccessibleRequest(requestId);
 
         RequestComment saved = comments.save(
                 new RequestComment(organizationId, requestId, caller.userId(), request.body()));
         return RequestCommentDto.from(saved);
     }
 
-    /** The request's comments (oldest first), scoped to the caller's tenant. */
+    /** The request's comments (oldest first), tenant + relationship gated (secure 404). */
     public List<RequestCommentDto> getComments(UUID requestId) {
         UUID organizationId = userContext.requireOrganizationId();
-        // 404 (not empty list) if the request isn't in the caller's tenant — don't leak existence.
-        requests.findByIdAndOrganizationId(requestId, organizationId).orElseThrow(NotFoundException::new);
+        requireAccessibleRequest(requestId); // 404 if not in tenant or the caller can't reach its patient
         return comments.findByOrganizationIdAndServiceRequestIdOrderByCreatedAtAsc(organizationId, requestId)
                 .stream()
                 .map(RequestCommentDto::from)

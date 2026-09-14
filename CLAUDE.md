@@ -92,7 +92,13 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   request comments — `POST/GET /api/v1/requests/{id}/comments`, participant-role gated, tenant-scoped;
   and assignment — `GET /api/v1/requests/{id}/assignment`, `GET .../assignable-users`, `PUT .../assignment`,
   coordinator/admin-gated, `RequestAssignmentService`. **Assignment is the only path to ASSIGNED** — it
-  advances TRIAGED→ASSIGNED atomically; a bare status PATCH to ASSIGNED is rejected),
+  advances TRIAGED→ASSIGNED atomically; a bare status PATCH to ASSIGNED is rejected. **A request is
+  object/relationship-gated by its patient** (§21 layer 6): every request read (list, `?patientId=`, get,
+  history, comments, assignment) and the participant writes (status change, comment) route the request's
+  `patientId` through the shared `PatientAccessGuard`, so a PROVIDER reaches only requests about patients they
+  are actively assigned to — an unreachable one is a secure 404; the unfiltered list is scoped to their active
+  patients; coordinators/admins stay broad. Finer PATIENT-own / CLAIMS_REVIEWER-business-need rules are the
+  deferred permission-matrix work),
   `consent` (Phase 3 — ConsentDirective lifecycle §22: `GET/POST /api/v1/patients/{patientId}/consent-directives`,
   `POST .../consent-directives/{id}/revoke`; immutable/versioned per the supersede pattern — recording a change
   supersedes the current directive for a natural key and inserts version+1, revocation flips it to REVOKED;
@@ -159,9 +165,12 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   roles from `UserContext`, never the client. **The relationship layer has ONE implementation —
   `PatientAccessGuard.requireAccessibleInTenant(patientId)`** (in `com.healthcloud.patient`) — and **every**
   patient-scoped read routes through it: the patient read itself *and* everything nested under a patient
-  (consent directives, the consent decision, provider assignments). A new endpoint that exposes a patient or
-  patient-nested data MUST call the guard, so the gate can never be side-stepped by a nested route. The guard
-  depends only on repositories (not on the services it protects), so any service can use it with no bean cycle.
+  (consent directives, the consent decision, provider/coordinator assignments) *and* resources **about** a
+  patient that live under their own top-level route — a **service request** is gated by its patient, so request
+  reads/writes call `requireAccessibleInTenant(request.getPatientId())` too (list reads scope to the caller's
+  active patients via `activePatientIdsFor`). A new endpoint that exposes a patient or patient-linked data MUST
+  call the guard, so the gate can never be side-stepped by a nested or sibling route. The guard depends only on
+  repositories (not on the services it protects), so any service can use it with no bean cycle.
 - **Field-level masking (§23; Phase 3+):** the backend is the only trusted masker — build **field-safe DTOs**,
   never rely on the frontend to hide a value it received (§23.3). Map each resource's fields to a
   §23.1 `DataClassification` (+ a `ConsentDataCategory` when consent-controlled) in a small policy enum (e.g.

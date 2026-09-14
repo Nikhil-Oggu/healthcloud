@@ -155,13 +155,28 @@ class ServiceRequestStateMachineApiIntegrationTest {
 
     private record Session(String session, String xsrf) {}
 
-    /** Create a DRAFT for the session's first patient; returns the request id. */
+    /**
+     * Create a DRAFT for the seeded patient Sam Sample; returns the request id. Uses this specific patient
+     * (not "the first in the list") so the provider — who is seeded-assigned to Sam in NorthCare — passes the
+     * object/relationship gate (§21 layer 6) and reaches the role checks these tests are actually asserting.
+     * Matched by name so it works in either tenant (NorthCare NC-0001 / Green Valley GV-0001).
+     */
     private String createDraft(Session s) throws Exception {
-        String patientId = firstId(get(s.session, "/api/v1/patients").body());
+        String patientId = seededPatientId(s, "Sam Sample");
         HttpResponse<String> created = post(s, "/api/v1/requests", """
                 {"patientId":"%s","type":"CLAIM_SUPPORT","title":"Lifecycle"}""".formatted(patientId));
         assertEquals(201, created.statusCode(), "create should succeed: " + created.body());
         return firstId(created.body());
+    }
+
+    /** Resolve a seeded patient's id by full name within the caller's tenant. */
+    private String seededPatientId(Session s, String fullName) throws Exception {
+        String body = get(s.session, "/api/v1/patients").body();
+        Matcher m = Pattern.compile(
+                "\\{\"id\":\"([0-9a-fA-F-]{36})\"[^}]*\"fullName\":\"" + Pattern.quote(fullName) + "\"")
+                .matcher(body);
+        assertTrue(m.find(), "expected a patient named " + fullName + " in: " + body);
+        return m.group(1);
     }
 
     /** Assign the request to its first eligible assignee (advances TRIAGED → ASSIGNED); returns the new version. */

@@ -12,18 +12,21 @@
   8 ✅ CARE_TEAM consent scope wired — the §22.5 engine is now complete across all three tiers ·
   9 ✅ consent management UI — patient detail page + record/revoke directives, the flagship is now visible ·
   10 ✅ care-team assignment management UI — assign/revoke providers + coordinators on the patient detail page,
-  backed by new candidate-picker endpoints)**
+  backed by new candidate-picker endpoints ·
+  11 ✅ object/relationship gate extended to service requests — a request is gated by its patient, so a provider
+  reaches only requests about assigned patients)**
 - **Repo:** https://github.com/Nikhil-Oggu/healthcloud (private, branch `main`)
-- **Next up:** **Phase 3, slice 11 (pick one when planning):** **secure S3 documents** (§19); the
-  **function-permission matrix** (§21.2) / business-need (§21 layer 8) incl. finer PATIENT/CLAIMS_REVIEWER
-  patient-read rules (incl. requests *about* a patient — `GET /requests?patientId=`, a separate resource still
-  ungated); extend field-masking to more resources. Then consent-lifecycle **audit** (§22.6 → Phase 7). **Run
-  `/security-review` in Phase 3.** Plan each slice before building. (Deferred:
-  PROVIDER/CLAIMS_REVIEWER/PATIENT finer read rules; provider/coordinator assignment PENDING→ACTIVE/→EXPIRED
-  time sweeps — scheduler, Phase 8; patient self-service consent — needs a patient-user↔patient link; batch
-  consent + care-team lookups for list reads — perf follow-up; PROVIDER-scoped consent to an *un*assigned
-  provider — the picker/candidates list assigned/eligible only. Phase-2 niceties: SLA/due-dates, request
-  edit/priority UI.)
+- **Next up:** **Phase 3, slice 12 (pick one when planning):** **secure S3 documents** (§19); the
+  **function-permission matrix** (§21.2) / business-need (§21 layer 8) — finer PATIENT (own requests/records)
+  and CLAIMS_REVIEWER (business-need) rules now that the PROVIDER relationship gate covers requests too; extend
+  field-masking to more resources. Then consent-lifecycle **audit** (§22.6 → Phase 7). **Consider running
+  `/security-review`** now that the authorization layers are broad (tenant + role + relationship on patients &
+  requests + consent + masking). Plan each slice before building. (Deferred:
+  PATIENT-own / CLAIMS_REVIEWER-business-need finer read rules; provider/coordinator assignment
+  PENDING→ACTIVE/→EXPIRED time sweeps — scheduler, Phase 8; patient self-service consent — needs a
+  patient-user↔patient link; batch consent + care-team lookups for list reads — perf follow-up; PROVIDER-scoped
+  consent to an *un*assigned provider — the picker/candidates list assigned/eligible only. Phase-2 niceties:
+  SLA/due-dates, request edit/priority UI.)
 - **Run the frontend:** with Postgres + backend up, `cd frontend && npm run dev` → open
   http://localhost:5173 → sign in as a seeded demo user.
 - **Run the demo:** `docker compose up -d postgres` then
@@ -32,6 +35,37 @@
   then `curl -b j.txt localhost:8080/api/v1/me`. Reset DB with `./scripts/db-reset.sh`.
 
 ## Log (newest first)
+
+### 2026-09-14 — Phase 3, slice 11 ✅ (object/relationship gate extended to service requests)
+- **Why:** the §21 layer-6 gate protected the patient object (a provider reads only assigned patients → secure
+  404), but requests *about* a patient were only tenant-scoped — so a PROVIDER could read or act on a request
+  for a patient they aren't assigned to, side-stepping the gate via the `/requests` route. A request is "about"
+  a patient, so it should inherit the patient's gate. Backend-only, no schema change.
+- **The fix (reuse `PatientAccessGuard` — no new gate logic):** `ServiceRequestService` and
+  `RequestAssignmentService` now inject the guard. A private `requireAccessibleRequest(id)` loads the request in
+  tenant then calls `accessGuard.requireAccessibleInTenant(request.getPatientId())`; every single-request read
+  (`getById`, `getHistory`, `getComments`, `getCurrentAssignment`) and the participant writes (`changeStatus`,
+  `addComment`) route through it → secure 404 for an unreachable patient. `list()`: with `?patientId=` it calls
+  the guard first (inaccessible patient → 404, consistent with `GET /patients/{id}`); unfiltered, a
+  provider-gated caller is scoped to `activePatientIdsFor(...)` (new repo finder
+  `findByOrganizationIdAndPatientIdInOrderByCreatedAtDesc`); broad roles (coordinator/admin) unchanged.
+  `assign`/`assignable-users` are coordinator/admin-only, so the gate is a no-op there.
+- **Scope boundary (still deferred):** finer PATIENT (own requests) and CLAIMS_REVIEWER (business-need) rules
+  need the patient-user link / permission matrix. This slice extends exactly the existing PROVIDER relationship
+  gate to requests, mirroring patient reads.
+- **Verified — automated:** `./mvnw -B clean verify` → **132 pass** (+5 new `RequestRelationshipGateApiIntegrationTest`:
+  assigned provider reaches the request everywhere; unassigned provider → 404 on get/history/comments/assignment
+  and `?patientId=`, and is excluded from the unfiltered list; coordinator broad; provider can't comment/transition
+  an unassigned patient's request). Fixed 2 pre-existing state-machine tests that used "the first patient in the
+  list" and now needed a patient the provider is assigned to — pointed `createDraft` at the seeded Sam Sample
+  (by name, so it works in either tenant). Frontend untouched (no API shape change — a provider just gets fewer
+  rows, same as the patients list).
+- **Verified — live (curl):** created a fresh patient + request as coordinator (provider Dana not assigned) →
+  provider got **404** on get/history/comments/assignment and `?patientId=`, coordinator got **200**, and the
+  provider still got **200** for a patient they are assigned to (Sam). Had to restart the local backend first —
+  it was still running the slice-10 build.
+- **Next:** slice 12 fork — secure S3 documents (§19); the permission-matrix / finer PATIENT+CLAIMS_REVIEWER
+  rules; or extend field-masking. Good moment for `/security-review`.
 
 ### 2026-09-14 — Phase 3, slice 10 ✅ (care-team assignment management UI — assign/revoke the people that drive consent)
 - **Why:** slices 4 & 7 built the provider- and coordinator-assignment record APIs, and slice 8 made the care

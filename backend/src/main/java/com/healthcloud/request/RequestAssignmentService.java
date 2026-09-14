@@ -13,6 +13,7 @@ import com.healthcloud.identity.OrganizationMembership;
 import com.healthcloud.identity.OrganizationMembershipRepository;
 import com.healthcloud.identity.UserRole;
 import com.healthcloud.identity.UserRoleRepository;
+import com.healthcloud.patient.PatientAccessGuard;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -42,6 +43,7 @@ public class RequestAssignmentService {
     private final RequestStatusHistoryRepository history;
     private final OrganizationMembershipRepository memberships;
     private final UserRoleRepository userRoles;
+    private final PatientAccessGuard accessGuard;
     private final UserContextAccessor userContext;
 
     public RequestAssignmentService(ServiceRequestRepository requests,
@@ -49,19 +51,27 @@ public class RequestAssignmentService {
                                     RequestStatusHistoryRepository history,
                                     OrganizationMembershipRepository memberships,
                                     UserRoleRepository userRoles,
+                                    PatientAccessGuard accessGuard,
                                     UserContextAccessor userContext) {
         this.requests = requests;
         this.assignments = assignments;
         this.history = history;
         this.memberships = memberships;
         this.userRoles = userRoles;
+        this.accessGuard = accessGuard;
         this.userContext = userContext;
     }
 
-    /** The current active assignment for a request in the caller's tenant, or {@code null} if unassigned. */
+    /**
+     * The current active assignment for a request in the caller's tenant, or {@code null} if unassigned.
+     * Tenant + object/relationship gated by the request's patient (§21 layer 6): an unassigned provider
+     * gets a secure 404, so this read cannot be used to learn about a request they cannot otherwise reach.
+     */
     public RequestAssignmentDto getCurrentAssignment(UUID requestId) {
         UUID organizationId = userContext.requireOrganizationId();
-        requests.findByIdAndOrganizationId(requestId, organizationId).orElseThrow(NotFoundException::new);
+        ServiceRequest request = requests.findByIdAndOrganizationId(requestId, organizationId)
+                .orElseThrow(NotFoundException::new);
+        accessGuard.requireAccessibleInTenant(request.getPatientId());
         return assignments
                 .findByOrganizationIdAndServiceRequestIdAndStatus(
                         organizationId, requestId, RequestAssignmentStatus.ACTIVE)

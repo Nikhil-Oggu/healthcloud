@@ -1,5 +1,6 @@
 package com.healthcloud.request;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -13,4 +14,8 @@ public interface ServiceRequestRepository extends JpaRepository<ServiceRequest, 
     List<ServiceRequest> findByOrganizationIdOrderByCreatedAtDesc(UUID organizationId);
 
     List<ServiceRequest> findByOrganizationIdAndPatientIdOrderByCreatedAtDesc(UUID organizationId, UUID patientId);
+
+    /** Requests for any of the given patients — the provider relationship gate's scoped list read (§21 layer 6). */
+    List<ServiceRequest> findByOrganizationIdAndPatientIdInOrderByCreatedAtDesc(
+            UUID organizationId, Collection<UUID> patientIds);
 }
