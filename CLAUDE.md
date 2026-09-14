@@ -131,7 +131,8 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   `.../coordinator-assignments/candidates` (coordinator/admin-gated, patient-tenant-scoped → secure 404):
   same-tenant users holding the required role, minus anyone already currently assigned, minimum-necessary
   (`AssignmentCandidateDto{userId, fullName}`). `DevDataSeeder` assigns each provider to 2 of 3 patients and
-  the coordinator to 2 of 3),
+  the coordinator to 2 of 3, and links the `patient@` login to patient Sam Sample (index 0) so a PATIENT user
+  has their own profile for self-service),
   `devdata` (DevDataSeeder, local-only).
 - **Tenant-owned entity pattern (Phase 2+):** hold `organizationId` as the tenant key; repositories expose
   only org-scoped finders (`findByIdAndOrganizationId`, `findByOrganizationId…`) — no bare `findById` in
