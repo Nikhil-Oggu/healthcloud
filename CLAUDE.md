@@ -104,8 +104,10 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   `relationship` (Phase 3 — provider↔patient care relationship §14.3: `GET/POST
   /api/v1/patients/{patientId}/provider-assignments`, `POST .../{id}/revoke`; effective-dated, auditable,
   states PENDING/ACTIVE/EXPIRED/REVOKED, at most one current per (patient, provider); coordinator/admin-gated,
-  the assignee must be a same-tenant PROVIDER. **Records the relationship only — the "provider reads only
-  assigned patients" GATE (§21 layer 6) is a later slice**),
+  the assignee must be a same-tenant PROVIDER. **Enforces the object/relationship gate** (§21 layer 6): a
+  PROVIDER reads only actively-assigned patients (`PatientService` uses
+  `ProviderPatientAssignmentService.activePatientIdsFor/isActivelyAssigned`); unassigned → secure 404,
+  coordinators/admins broad. `DevDataSeeder` assigns each provider to 2 of 3 patients),
   `devdata` (DevDataSeeder, local-only).
 - **Tenant-owned entity pattern (Phase 2+):** hold `organizationId` as the tenant key; repositories expose
   only org-scoped finders (`findByIdAndOrganizationId`, `findByOrganizationId…`) — no bare `findById` in
@@ -134,6 +136,13 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   through an endpoint that does the extra work (e.g. `ASSIGNED` is reached only by `PUT .../assignment`, which
   records the assignee *and* advances the status in one tx), and a plain `PATCH /status` to that status is
   refused. Prefer this over letting a status be set with no accompanying record.
+- **Authorization layering (§21.1; Phase 3+):** protected reads pass through independent backend layers, in
+  order — tenant → function/role permission → **object/relationship** (e.g. a PROVIDER may read only patients
+  they are actively assigned to; `provider_patient_assignment`) → **consent + purpose** (§22.5) → **field-level
+  masking** (§23). Each is a separate check that can only *narrow* access; a broad role (coordinator/admin) may
+  skip the relationship layer but still faces consent/field policy. An object/relationship denial is a **secure
+  404** (§21.5), never a 403 that would confirm the row exists. Gate role-agnostically off the caller's actual
+  roles from `UserContext`, never the client.
 - **Field-level masking (§23; Phase 3+):** the backend is the only trusted masker — build **field-safe DTOs**,
   never rely on the frontend to hide a value it received (§23.3). Map each resource's fields to a
   §23.1 `DataClassification` (+ a `ConsentDataCategory` when consent-controlled) in a small policy enum (e.g.

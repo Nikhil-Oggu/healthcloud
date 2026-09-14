@@ -105,6 +105,10 @@ class PatientFieldMaskingApiIntegrationTest {
         Session coordinator = loginWithCsrf("coordinator@northcare.example.org");
         String id = firstId(createPatient(coordinator, "MK-" + suffix()).body());
 
+        // The provider must be assigned to the patient to read them at all (§21 layer-6 gate).
+        assertEquals(201, post(coordinator, "/api/v1/patients/" + id + "/provider-assignments",
+                "{\"providerUserId\":\"%s\"}".formatted(providerId)).statusCode());
+
         // Org-wide grant → both the coordinator and the provider can see the DOB.
         assertEquals(201, post(coordinator, consentBase(id), DEMOGRAPHICS_GRANT).statusCode());
         Session provider = loginWithCsrf("provider@northcare.example.org");

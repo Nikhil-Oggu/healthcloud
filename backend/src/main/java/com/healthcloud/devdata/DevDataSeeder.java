@@ -17,7 +17,11 @@ import com.healthcloud.organization.Organization;
 import com.healthcloud.organization.OrganizationRepository;
 import com.healthcloud.patient.Patient;
 import com.healthcloud.patient.PatientRepository;
+import com.healthcloud.relationship.ProviderPatientAssignment;
+import com.healthcloud.relationship.ProviderPatientAssignmentRepository;
+import com.healthcloud.relationship.ProviderPatientAssignmentStatus;
 import java.time.LocalDate;
+import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.ApplicationArguments;
@@ -48,6 +52,7 @@ public class DevDataSeeder implements ApplicationRunner {
     private final FacilityRepository facilityRepository;
     private final FacilityMembershipRepository facilityMembershipRepository;
     private final PatientRepository patientRepository;
+    private final ProviderPatientAssignmentRepository providerPatientAssignmentRepository;
 
     public DevDataSeeder(OrganizationRepository organizationRepository,
                          AppUserRepository appUserRepository,
@@ -56,7 +61,8 @@ public class DevDataSeeder implements ApplicationRunner {
                          UserRoleRepository userRoleRepository,
                          FacilityRepository facilityRepository,
                          FacilityMembershipRepository facilityMembershipRepository,
-                         PatientRepository patientRepository) {
+                         PatientRepository patientRepository,
+                         ProviderPatientAssignmentRepository providerPatientAssignmentRepository) {
         this.organizationRepository = organizationRepository;
         this.appUserRepository = appUserRepository;
         this.roleRepository = roleRepository;
@@ -65,6 +71,7 @@ public class DevDataSeeder implements ApplicationRunner {
         this.facilityRepository = facilityRepository;
         this.facilityMembershipRepository = facilityMembershipRepository;
         this.patientRepository = patientRepository;
+        this.providerPatientAssignmentRepository = providerPatientAssignmentRepository;
     }
 
     @Override
@@ -86,23 +93,38 @@ public class DevDataSeeder implements ApplicationRunner {
                 new Facility(org, facilityName, "CLINIC", "123 Synthetic St"));
 
         createMember(org, facility, "patient",     "Pat Patient",       "PATIENT",          emailDomain, false);
-        createMember(org, facility, "provider",    "Dana Provider",     "PROVIDER",         emailDomain, true);
-        createMember(org, facility, "coordinator", "Cory Coordinator",  "CARE_COORDINATOR", emailDomain, true);
+        AppUser provider =
+                createMember(org, facility, "provider",    "Dana Provider",     "PROVIDER",         emailDomain, true);
+        AppUser coordinator =
+                createMember(org, facility, "coordinator", "Cory Coordinator",  "CARE_COORDINATOR", emailDomain, true);
         createMember(org, facility, "reviewer",    "Riley Reviewer",    "CLAIMS_REVIEWER",  emailDomain, false);
         createMember(org, facility, "admin",       "Alex Admin",        "ORG_ADMIN",        emailDomain, false);
 
-        seedPatients(org, mrnPrefix);
+        List<Patient> patients = seedPatients(org, mrnPrefix);
+
+        // Baseline care relationships (§14.3): assign the provider to the first two patients (the third is
+        // left unassigned) so the object/relationship gate is demonstrable — the provider sees 2 of 3.
+        assignProvider(org, patients.get(0), provider, coordinator);
+        assignProvider(org, patients.get(1), provider, coordinator);
     }
 
     /** A few clearly-synthetic patient profiles per tenant (Phase 2). MRNs are unique within the org. */
-    private void seedPatients(Organization org, String mrnPrefix) {
-        patientRepository.save(new Patient(org.getId(), mrnPrefix + "-0001", "Sam Sample",   LocalDate.of(1985, 3, 14)));
-        patientRepository.save(new Patient(org.getId(), mrnPrefix + "-0002", "Fern Fixture", LocalDate.of(1992, 11, 2)));
-        patientRepository.save(new Patient(org.getId(), mrnPrefix + "-0003", "Mock Muller",  LocalDate.of(1978, 7, 30)));
+    private List<Patient> seedPatients(Organization org, String mrnPrefix) {
+        return List.of(
+                patientRepository.save(new Patient(org.getId(), mrnPrefix + "-0001", "Sam Sample",   LocalDate.of(1985, 3, 14))),
+                patientRepository.save(new Patient(org.getId(), mrnPrefix + "-0002", "Fern Fixture", LocalDate.of(1992, 11, 2))),
+                patientRepository.save(new Patient(org.getId(), mrnPrefix + "-0003", "Mock Muller",  LocalDate.of(1978, 7, 30))));
     }
 
-    private void createMember(Organization org, Facility facility, String localPart, String fullName,
-                              String roleCode, String emailDomain, boolean linkToFacility) {
+    /** Record an ACTIVE provider-patient assignment (assigned today, open-ended) by the coordinator. */
+    private void assignProvider(Organization org, Patient patient, AppUser provider, AppUser assignedBy) {
+        providerPatientAssignmentRepository.save(new ProviderPatientAssignment(
+                org.getId(), patient.getId(), provider.getId(), assignedBy.getId(),
+                ProviderPatientAssignmentStatus.ACTIVE, LocalDate.now(), null));
+    }
+
+    private AppUser createMember(Organization org, Facility facility, String localPart, String fullName,
+                                 String roleCode, String emailDomain, boolean linkToFacility) {
         AppUser user = new AppUser(localPart + "@" + emailDomain, fullName);
         user.setStatus(AppUserStatus.ACTIVE);
         user = appUserRepository.save(user);
@@ -116,5 +138,6 @@ public class DevDataSeeder implements ApplicationRunner {
         if (linkToFacility) {
             facilityMembershipRepository.save(new FacilityMembership(facility, membership));
         }
+        return user;
     }
 }

@@ -60,6 +60,34 @@ public class ProviderPatientAssignmentService {
         this.userContext = userContext;
     }
 
+    /**
+     * The patient ids a provider is ACTIVELY assigned to (in force today) within a tenant — the input to the
+     * object/relationship access gate (§21 layer 6). Re-checks the effective-date window, so a PENDING or
+     * past-its-window row does not grant access.
+     */
+    public java.util.Set<UUID> activePatientIdsFor(UUID organizationId, UUID providerUserId) {
+        LocalDate today = LocalDate.now();
+        return assignments
+                .findByOrganizationIdAndProviderUserIdAndStatus(
+                        organizationId, providerUserId, ProviderPatientAssignmentStatus.ACTIVE)
+                .stream()
+                .filter(a -> inForce(a, today))
+                .map(ProviderPatientAssignment::getPatientId)
+                .collect(java.util.stream.Collectors.toSet());
+    }
+
+    /** Whether a provider has an in-force ACTIVE assignment to a patient (the per-patient gate check). */
+    public boolean isActivelyAssigned(UUID organizationId, UUID providerUserId, UUID patientId) {
+        return activePatientIdsFor(organizationId, providerUserId).contains(patientId);
+    }
+
+    /** Whether {@code today} falls within the assignment's effective window (open-ended when no end date). */
+    private static boolean inForce(ProviderPatientAssignment a, LocalDate today) {
+        boolean started = !today.isBefore(a.getEffectiveFrom());
+        boolean notEnded = a.getEffectiveTo() == null || !today.isAfter(a.getEffectiveTo());
+        return started && notEnded;
+    }
+
     /** A patient's current (ACTIVE/PENDING) provider assignments, oldest first. */
     public List<ProviderPatientAssignmentDto> listCurrent(UUID patientId) {
         UUID organizationId = requirePatientInTenant(patientId);

@@ -47,7 +47,7 @@ class PatientApiIntegrationTest {
 
     @Test
     void each_tenant_lists_only_its_own_patients() throws Exception {
-        String northList = getBody(login("provider@northcare.example.org"), "/api/v1/patients", 200);
+        String northList = getBody(login("coordinator@northcare.example.org"), "/api/v1/patients", 200);
         assertTrue(northList.contains("NC-0001"), "NorthCare should see its own patients");
         assertFalse(northList.contains("GV-"), "NorthCare must NOT see Green Valley patients");
 
@@ -58,7 +58,7 @@ class PatientApiIntegrationTest {
 
     @Test
     void fetching_another_tenants_patient_by_id_returns_secure_404() throws Exception {
-        String northSession = login("provider@northcare.example.org");
+        String northSession = login("coordinator@northcare.example.org");
         String greenSession = login("admin@greenvalley.example.org");
 
         // A patient id that genuinely exists — but in the OTHER tenant.

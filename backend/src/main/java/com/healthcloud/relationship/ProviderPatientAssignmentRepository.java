@@ -18,4 +18,8 @@ public interface ProviderPatientAssignmentRepository extends JpaRepository<Provi
     /** A patient's assignments within the tenant in the given statuses, oldest first. */
     List<ProviderPatientAssignment> findByOrganizationIdAndPatientIdAndStatusInOrderByAssignedAtAsc(
             UUID organizationId, UUID patientId, Collection<ProviderPatientAssignmentStatus> statuses);
+
+    /** A provider's assignments within the tenant in a given status — used by the access gate. */
+    List<ProviderPatientAssignment> findByOrganizationIdAndProviderUserIdAndStatus(
+            UUID organizationId, UUID providerUserId, ProviderPatientAssignmentStatus status);
 }

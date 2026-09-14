@@ -5,21 +5,19 @@
 
 ## Current position
 - **Phase:** 0 ✅ · Environment ✅ · Phase 1 COMPLETE ✅ · Phase 2 COMPLETE ✅ (slices 1–8) ·
-  **Phase 3 IN PROGRESS 🚧 (slice 1 ✅ consent lifecycle · slice 2 ✅ decision engine §22.5 · slice 3 ✅
-  field masking §23 · slice 4 ✅ provider↔patient assignment record §14.3)**
+  **Phase 3 IN PROGRESS 🚧 (slice 1 ✅ consent lifecycle · 2 ✅ decision engine §22.5 · 3 ✅ field masking §23 ·
+  4 ✅ provider↔patient record §14.3 · 5 ✅ object/relationship gate on patient reads §21 layer 6)**
 - **Repo:** https://github.com/Nikhil-Oggu/healthcloud (private, branch `main`)
-- **Next up:** **Phase 3, slice 5 — enforce the object/relationship gate** (§12.1, §21 layer 6): a PROVIDER
-  reads only patients they have an ACTIVE assignment to (unassigned → secure 404); coordinators/admins keep
-  broad coordination access. This rewrites patient-read authorization, so it also **updates the existing
-  patient-read tests** (which currently log in as a provider and expect all patients) and **seeds baseline
-  provider↔patient assignments** so the demo isn't empty. Then: wire the relationship into consent
-  PROVIDER/CARE_TEAM scope + `care_coordinator_assignment`; later (c) **secure S3 documents** (§19), the
-  **function-permission matrix** (§21.2)/business-need, and consent-lifecycle **audit** (§22.6 → Phase 7).
-  **Run `/security-review` in Phase 3.** Plan each slice before building. (Deferred: CARE_TEAM consent scope
-  not evaluable until care-team data exists; provider-patient PENDING→ACTIVE/→EXPIRED time sweeps — a
-  scheduler, Phase 8; patient self-service consent — needs a patient-user↔patient link; batch consent lookups
-  for list reads — perf follow-up; consent/relationship management UI. Phase-2 niceties: SLA/due-dates,
-  request edit/priority UI.)
+- **Next up:** **Phase 3, slice 6 (pick one when planning)** — candidates: wire the relationship into consent
+  **PROVIDER/CARE_TEAM scope** + `care_coordinator_assignment`; extend the relationship gate to the nested
+  endpoints (consent-directives / provider-assignments / service requests *about* a patient); (c) **secure S3
+  documents** (§19); the **function-permission matrix** (§21.2) / business-need (§21 layer 8) incl. finer
+  PATIENT/CLAIMS_REVIEWER patient-read rules; extend field-masking (b) to more resources. Then consent-lifecycle
+  **audit** (§22.6 → Phase 7). **Run `/security-review` in Phase 3.** Plan each slice before building. (Deferred:
+  CARE_TEAM consent scope not evaluable until care-team data exists; PROVIDER/CLAIMS_REVIEWER/PATIENT finer
+  read rules; provider-patient PENDING→ACTIVE/→EXPIRED time sweeps — scheduler, Phase 8; patient self-service
+  consent — needs a patient-user↔patient link; batch consent lookups for list reads — perf follow-up;
+  consent/relationship management UI. Phase-2 niceties: SLA/due-dates, request edit/priority UI.)
 - **Run the frontend:** with Postgres + backend up, `cd frontend && npm run dev` → open
   http://localhost:5173 → sign in as a seeded demo user.
 - **Run the demo:** `docker compose up -d postgres` then
@@ -28,6 +26,35 @@
   then `curl -b j.txt localhost:8080/api/v1/me`. Reset DB with `./scripts/db-reset.sh`.
 
 ## Log (newest first)
+
+### 2026-09-14 — Phase 3, slice 5 ✅ (object/relationship gate — "a provider sees only assigned patients"; §60)
+- **The relationship (slice 4) now enforces access.** `PatientService` reads apply the §21 layer-6 gate: a
+  **PROVIDER** (without a broad role) may read only patients they are **actively assigned** to — `getById`
+  of an unassigned patient is a **secure 404** (§21.5, not a 403 that would confirm existence), and the list
+  is filtered to assigned patients. **CARE_COORDINATOR/ORG_ADMIN keep broad tenant access**; a user with both
+  a broad role and PROVIDER gets broad access. (PATIENT/CLAIMS_REVIEWER unchanged this slice — finer rules
+  belong with the permission matrix / claims phase.)
+- **`ProviderPatientAssignmentService`** gained `activePatientIdsFor(org, provider)` / `isActivelyAssigned(...)`
+  (status ACTIVE **and** in force today — PENDING/expired don't grant access) + a provider-status repo finder.
+  `PatientService` injects it (no bean cycle). The gate sits **above** consent/field-masking: an assigned
+  provider still gets DOB masked by consent — two independent layers.
+- **`DevDataSeeder`:** each org's provider (Dana Provider) is now assigned to **2 of its 3 patients** (Sam
+  Sample + Fern Fixture; Mock Muller left unassigned) so the gate is demonstrable and the provider view isn't
+  empty. Idempotent; `createMember`/`seedPatients` refactored to return the created rows.
+- **Existing tests updated (blast radius):** `PatientApiIntegrationTest`'s two tenant-isolation tests now sign
+  in as a **broad role** (coordinator/admin) so they keep testing tenant isolation, not the new gate;
+  `PatientFieldMaskingApiIntegrationTest`'s provider-DOB test now **assigns the provider first** (required to
+  read at all).
+- **Verified — automated:** `./mvnw -B verify` → **105 tests pass** (+4 `PatientRelationshipGateApiIntegrationTest`:
+  provider sees only assigned patients (list + getById), unassigned → secure 404; coordinator sees all;
+  revoking removes provider access; the seeded provider has its 2 baseline assignments). Frontend unchanged
+  (the gate is backend; the list just shows fewer rows).
+- **Verified — live (curl + browser, fresh `db-reset` seed):** provider@northcare's patient list = NC-0001 +
+  NC-0002 only (not NC-0003); direct read of NC-0003 → 404; coordinator sees all three. In the browser the
+  provider's Patients page showed exactly the two assigned patients (DOBs still "Restricted" — consent layer).
+- **Deferred → later:** gating the nested endpoints (consent/assignment/requests about a patient); consent
+  PROVIDER/CARE_TEAM scope wiring; `care_coordinator_assignment`; finer PATIENT/CLAIMS_REVIEWER rules;
+  time-based status sweeps; a relationship-management UI.
 
 ### 2026-09-14 — Phase 3, slice 4 ✅ (provider↔patient assignment — the care relationship record; §14.3)
 - **`V10__provider_patient_assignment.sql`:** tenant key `organization_id`, `patient_id`, `provider_user_id`
