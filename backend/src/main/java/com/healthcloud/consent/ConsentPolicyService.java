@@ -2,6 +2,7 @@ package com.healthcloud.consent;
 
 import com.healthcloud.context.UserContextAccessor;
 import com.healthcloud.patient.PatientAccessGuard;
+import com.healthcloud.relationship.CareTeamService;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
@@ -25,12 +26,14 @@ public class ConsentPolicyService {
 
     private final ConsentDirectiveRepository directives;
     private final PatientAccessGuard accessGuard;
+    private final CareTeamService careTeam;
     private final UserContextAccessor userContext;
 
     public ConsentPolicyService(ConsentDirectiveRepository directives, PatientAccessGuard accessGuard,
-                                UserContextAccessor userContext) {
+                                CareTeamService careTeam, UserContextAccessor userContext) {
         this.directives = directives;
         this.accessGuard = accessGuard;
+        this.careTeam = careTeam;
         this.userContext = userContext;
     }
 
@@ -55,6 +58,7 @@ public class ConsentPolicyService {
                                           ConsentPurpose purpose, ConsentDataCategory dataCategory) {
         List<ConsentDirective> active = directives.findByOrganizationIdAndPatientIdAndStatusInOrderByCreatedAtAsc(
                 organizationId, patientId, List.of(ConsentStatus.ACTIVE));
-        return ConsentPolicy.decide(actorUserId, purpose, dataCategory, active, LocalDate.now());
+        boolean actorOnCareTeam = careTeam.isOnCareTeam(organizationId, actorUserId, patientId);
+        return ConsentPolicy.decide(actorUserId, purpose, dataCategory, active, LocalDate.now(), actorOnCareTeam);
     }
 }

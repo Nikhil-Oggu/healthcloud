@@ -100,10 +100,12 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   decision engine** (§22.5): `ConsentPolicy` (a pure policy class), `ConsentPolicyService`, and
   `GET .../consent-directives/decision?purpose=&dataCategory=` — decides GRANT/DENY for the *calling actor*
   by most-specific-tier (PROVIDER>CARE_TEAM>ORGANIZATION), DENY-wins, deny-by-default, with the effective-date
-  window re-checked at decision time; **CARE_TEAM scope isn't evaluable until care-team relationship data
-  exists**. `ConsentPolicyService.decideForActor(org, actor, patient, purpose, category)` is the low-level
-  hook field masking calls. The consent **reads** (`list` + `/decision`) pass the shared `PatientAccessGuard`
-  first, so an unassigned provider gets a secure 404 here too),
+  window re-checked at decision time. **CARE_TEAM scope is evaluated via `CareTeamService.isOnCareTeam`** (active
+  provider- or coordinator-assignment to the patient); the pure `ConsentPolicy.decide` takes `actorOnCareTeam`
+  as a parameter so it stays DB-free. `ConsentPolicyService.decideForActor(org, actor, patient, purpose,
+  category)` is the low-level hook field masking calls (it computes care-team membership too). The consent
+  **reads** (`list` + `/decision`) pass the shared `PatientAccessGuard` first, so an unassigned provider gets a
+  secure 404 here too),
   `relationship` (Phase 3 — provider↔patient care relationship §14.3: `GET/POST
   /api/v1/patients/{patientId}/provider-assignments`, `POST .../{id}/revoke`; effective-dated, auditable,
   states PENDING/ACTIVE/EXPIRED/REVOKED, at most one current per (patient, provider); coordinator/admin-gated,
@@ -113,8 +115,9 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   through; unassigned → secure 404, coordinators/admins broad. Also **`care_coordinator_assignment`** (§14.3,
   the sibling table — `GET/POST /api/v1/patients/{id}/coordinator-assignments`, `POST …/{id}/revoke`; same
   effective-dated/versioned/one-current-per-pair shape, assignee must be a same-tenant CARE_COORDINATOR): the
-  two tables together are the **care team** a CARE_TEAM-scoped consent directive applies to (the consent wiring
-  is a later slice). `DevDataSeeder` assigns each provider to 2 of 3 patients and the coordinator to 2 of 3),
+  two tables together are the **care team** a CARE_TEAM-scoped consent directive applies to, surfaced by
+  **`CareTeamService.isOnCareTeam`** and consumed by the consent engine (§22.5). `DevDataSeeder` assigns each
+  provider to 2 of 3 patients and the coordinator to 2 of 3),
   `devdata` (DevDataSeeder, local-only).
 - **Tenant-owned entity pattern (Phase 2+):** hold `organizationId` as the tenant key; repositories expose
   only org-scoped finders (`findByIdAndOrganizationId`, `findByOrganizationId…`) — no bare `findById` in

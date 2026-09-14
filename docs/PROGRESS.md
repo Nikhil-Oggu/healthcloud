@@ -8,19 +8,19 @@
   **Phase 3 IN PROGRESS 🚧 (slice 1 ✅ consent lifecycle · 2 ✅ decision engine §22.5 · 3 ✅ field masking §23 ·
   4 ✅ provider↔patient record §14.3 · 5 ✅ object/relationship gate on patient reads §21 layer 6 ·
   6 ✅ gate applied to the patient-nested endpoints — single `PatientAccessGuard` choke point ·
-  7 ✅ care_coordinator_assignment record §14.3 — the other half of the care team)**
+  7 ✅ care_coordinator_assignment record §14.3 — the other half of the care team ·
+  8 ✅ CARE_TEAM consent scope wired — the §22.5 engine is now complete across all three tiers)**
 - **Repo:** https://github.com/Nikhil-Oggu/healthcloud (private, branch `main`)
-- **Next up:** **Phase 3, slice 8 — wire CARE_TEAM consent scope** (compute "actor on care team" = active
-  provider- **or** coordinator-assignment, pass it into the pure `ConsentPolicy`, make CARE_TEAM directives
-  applicable; live demo through the care-team tier). **Then other slice-7-family forks (pick when planning):**
-  **secure S3 documents** (§19); the **function-permission matrix** (§21.2) / business-need (§21 layer 8) incl.
-  finer PATIENT/CLAIMS_REVIEWER patient-read rules (incl. requests *about* a patient — `GET /requests?patientId=`,
-  a separate resource still ungated); extend field-masking to more resources. Then consent-lifecycle
-  **audit** (§22.6 → Phase 7). **Run `/security-review` in Phase 3.** Plan each slice before building. (Deferred:
-  CARE_TEAM consent scope not evaluable until care-team data exists; PROVIDER/CLAIMS_REVIEWER/PATIENT finer
-  read rules; provider-patient PENDING→ACTIVE/→EXPIRED time sweeps — scheduler, Phase 8; patient self-service
-  consent — needs a patient-user↔patient link; batch consent lookups for list reads — perf follow-up;
-  consent/relationship management UI. Phase-2 niceties: SLA/due-dates, request edit/priority UI.)
+- **Next up:** **Phase 3, slice 9 (pick one when planning):** **secure S3 documents** (§19); the
+  **function-permission matrix** (§21.2) / business-need (§21 layer 8) incl. finer PATIENT/CLAIMS_REVIEWER
+  patient-read rules (incl. requests *about* a patient — `GET /requests?patientId=`, a separate resource still
+  ungated); extend field-masking to more resources; a consent/relationship **management UI** (all backend so
+  far). Then consent-lifecycle **audit** (§22.6 → Phase 7). **Run `/security-review` in Phase 3.** Plan each
+  slice before building. (Deferred:
+  PROVIDER/CLAIMS_REVIEWER/PATIENT finer read rules; provider/coordinator assignment PENDING→ACTIVE/→EXPIRED
+  time sweeps — scheduler, Phase 8; patient self-service consent — needs a patient-user↔patient link; batch
+  consent + care-team lookups for list reads — perf follow-up; consent/relationship management UI. Phase-2
+  niceties: SLA/due-dates, request edit/priority UI.)
 - **Run the frontend:** with Postgres + backend up, `cd frontend && npm run dev` → open
   http://localhost:5173 → sign in as a seeded demo user.
 - **Run the demo:** `docker compose up -d postgres` then
@@ -29,6 +29,37 @@
   then `curl -b j.txt localhost:8080/api/v1/me`. Reset DB with `./scripts/db-reset.sh`.
 
 ## Log (newest first)
+
+### 2026-09-14 — Phase 3, slice 8 ✅ (CARE_TEAM consent scope wired — the §22.5 engine is complete across all three tiers)
+- **What this closes:** the "known limitation" `ConsentPolicy` has carried since slice 2 — CARE_TEAM directives
+  were filtered out (`scopeApplies` returned `false`) for lack of care-team data. Slice 7 added that data
+  (`care_coordinator_assignment` + the existing `provider_patient_assignment`); this slice makes CARE_TEAM
+  evaluable, so the **PROVIDER > CARE_TEAM > ORGANIZATION** specificity ladder now works end-to-end.
+- **`ConsentPolicy` stays pure.** Added one parameter to `decide(...)`: `boolean actorOnCareTeam`; `scopeApplies`
+  is now `CARE_TEAM -> actorOnCareTeam` (ORGANIZATION/PROVIDER unchanged). The policy still has zero DB/Spring
+  deps — the caller supplies the fact, exactly like `today`.
+- **New `CareTeamService`** (relationship pkg) — the one authority for "is this user on the patient's care
+  team?": an in-force **ACTIVE provider assignment OR ACTIVE coordinator assignment** to that patient. Reuses
+  `PatientAccessGuard.isActivelyAssigned` for the provider half and the coordinator-assignment repo for the
+  coordinator half; depends only on the guard + a repo → no bean cycle.
+- **`ConsentPolicyService`** computes `actorOnCareTeam` via `CareTeamService` and passes it into the policy in
+  **both** paths — `decide` (the `/decision` endpoint) and `decideForActor` (the field-masking hook) — so
+  masking honors CARE_TEAM consistently. Removed the now-stale "not evaluable" caveats from `ConsentPolicy`,
+  `ConsentPolicyService`, and CLAUDE.md.
+- **Verified — automated:** `./mvnw -B verify` → **122 tests pass**. `ConsentPolicyTest` 11→14 (+3: CARE_TEAM
+  applies only to a member; CARE_TEAM DENY overrides ORG GRANT; PROVIDER GRANT overrides CARE_TEAM DENY; plus
+  DENY-wins within CARE_TEAM — and every existing `decide` call updated for the new arg). +2
+  `ConsentCareTeamDecisionApiIntegrationTest` (end-to-end, "same role, different result" by membership): a
+  coordinator with broad access gets **DENY** on a CARE_TEAM grant while unassigned, then **GRANT via CARE_TEAM**
+  once assigned; an assigned provider gets GRANT via CARE_TEAM.
+- **Verified — live (curl):** recorded a CARE_TEAM grant on a fresh patient → coordinator decision **DENY None**
+  (not on the team, despite broad access) → assigned the coordinator → decision **GRANT CARE_TEAM**.
+- **No migration, no frontend change.** **Gotcha (recurring):** the machine keeps creating `" 2"` duplicate
+  copies of compiled files under `target/` (e.g. `TestcontainersConfiguration 2.class`), which breaks Surefire
+  / the jar repackage with a "wrong name" or "single main class" error. Fix: `./mvnw -B clean verify` (target/
+  is git-ignored, so it never affects the commit). Prefer `clean verify` when a stray appears.
+- **Deferred → later:** perf (batch care-team + consent lookups on list reads); the finer PATIENT/CLAIMS_REVIEWER
+  rules; secure S3 documents; a consent/relationship management UI.
 
 ### 2026-09-14 — Phase 3, slice 7 ✅ (care_coordinator_assignment — the other half of the care team; §14.3, §22)
 - **Why:** a CARE_TEAM-scoped consent directive (§22) applies to the patient's whole care team = the providers

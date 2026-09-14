@@ -20,10 +20,10 @@ import java.util.UUID;
  * <p>Re-checking the date window here (not just {@code status == ACTIVE}) makes this the honest source of
  * "in force right now", covering the SCHEDULED→ACTIVE / ACTIVE→EXPIRED time sweeps deferred to a scheduler.
  *
- * <p><b>Known limitation (this slice):</b> CARE_TEAM scope cannot yet be evaluated — there is no care-team
- * relationship data — so CARE_TEAM directives are treated as not-applicable to any actor. They become
- * meaningful once the relationship tables exist. PROVIDER scope applies iff the actor <i>is</i> the named
- * provider; ORGANIZATION scope applies to every same-tenant actor.
+ * <p>Scope applicability: ORGANIZATION applies to every same-tenant actor; PROVIDER applies iff the actor
+ * <i>is</i> the named provider; CARE_TEAM applies iff the actor is on the patient's care team — a fact the
+ * caller supplies as {@code actorOnCareTeam} (computed from the provider/coordinator assignment tables),
+ * keeping this policy free of any database dependency.
  */
 public final class ConsentPolicy {
 
@@ -37,15 +37,18 @@ public final class ConsentPolicy {
     /**
      * Decide the effective consent for {@code actorUserId} accessing {@code dataCategory} for
      * {@code purpose}, given a patient's {@code directives} evaluated as of {@code today}.
+     * {@code actorOnCareTeam} says whether the actor is a member of the patient's care team (used only to
+     * decide whether CARE_TEAM-scoped directives apply).
      */
     public static ConsentDecision decide(UUID actorUserId, ConsentPurpose purpose,
                                          ConsentDataCategory dataCategory,
-                                         List<ConsentDirective> directives, LocalDate today) {
+                                         List<ConsentDirective> directives, LocalDate today,
+                                         boolean actorOnCareTeam) {
         List<ConsentDirective> applicable = directives.stream()
                 .filter(d -> d.getStatus() == ConsentStatus.ACTIVE)
                 .filter(d -> d.getPurpose() == purpose && d.getDataCategory() == dataCategory)
                 .filter(d -> inForce(d, today))
-                .filter(d -> scopeApplies(d, actorUserId))
+                .filter(d -> scopeApplies(d, actorUserId, actorOnCareTeam))
                 .toList();
 
         for (ConsentScopeType tier : SPECIFICITY_ORDER) {
@@ -72,12 +75,12 @@ public final class ConsentPolicy {
         return started && notEnded;
     }
 
-    /** Whether a directive's scope applies to this actor (CARE_TEAM deferred — see the class javadoc). */
-    private static boolean scopeApplies(ConsentDirective d, UUID actorUserId) {
+    /** Whether a directive's scope applies to this actor (see the class javadoc). */
+    private static boolean scopeApplies(ConsentDirective d, UUID actorUserId, boolean actorOnCareTeam) {
         return switch (d.getScopeType()) {
             case ORGANIZATION -> true;
             case PROVIDER -> actorUserId.equals(d.getScopeRefId());
-            case CARE_TEAM -> false;
+            case CARE_TEAM -> actorOnCareTeam;
         };
     }
 }
