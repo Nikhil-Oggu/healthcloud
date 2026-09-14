@@ -40,11 +40,18 @@ class RequestCommentApiIntegrationTest {
         return URI.create("http://localhost:" + port + path);
     }
 
-    /** Create a DRAFT request in NorthCare and return its id, using a coordinator session. */
+    /**
+     * Create a DRAFT request for the seeded patient Sam Sample and return its id, using a coordinator session.
+     * Uses Sam specifically (matched by name, so it works in either tenant) because the patient login is linked
+     * to Sam — the patient-participant comment test needs the request to be about the patient who is commenting.
+     */
     private String createRequest(Session s) throws Exception {
-        String patientId = firstId(get(s.session, "/api/v1/patients").body());
+        String body = get(s.session, "/api/v1/patients").body();
+        Matcher pm = Pattern.compile(
+                "\\{\"id\":\"([0-9a-fA-F-]{36})\"[^}]*\"fullName\":\"Sam Sample\"").matcher(body);
+        assertTrue(pm.find(), "expected the seeded Sam Sample in: " + body);
         HttpResponse<String> created = post(s, "/api/v1/requests", """
-                {"patientId":"%s","type":"CLAIM_SUPPORT","title":"Help with a claim"}""".formatted(patientId));
+                {"patientId":"%s","type":"CLAIM_SUPPORT","title":"Help with a claim"}""".formatted(pm.group(1)));
         assertEquals(201, created.statusCode());
         return firstId(created.body());
     }

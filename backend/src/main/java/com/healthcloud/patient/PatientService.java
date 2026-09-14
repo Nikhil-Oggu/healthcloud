@@ -8,6 +8,7 @@ import com.healthcloud.error.ConflictException;
 import com.healthcloud.error.NotFoundException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
@@ -57,16 +58,18 @@ public class PatientService {
     }
 
     /**
-     * Patients in the caller's tenant, each field-masked by consent. A provider (without a broad role) sees
-     * only the patients they are actively assigned to; coordinators/admins see the whole tenant.
+     * Patients in the caller's tenant, each field-masked by consent. Gated callers are narrowed by the shared
+     * guard: a provider sees only actively-assigned patients, a PATIENT only their own linked profile;
+     * coordinators/admins (and, for now, claims reviewers) see the whole tenant.
      */
     public List<PatientDto> listForCurrentTenant() {
         UserContext caller = userContext.requireUser();
         UUID organizationId = userContext.requireOrganizationId();
         List<Patient> rows = patients.findByOrganizationIdOrderByFullNameAsc(organizationId);
-        if (accessGuard.isProviderGated(caller)) {
-            Set<UUID> assigned = accessGuard.activePatientIdsFor(organizationId, caller.userId());
-            rows = rows.stream().filter(p -> assigned.contains(p.getId())).toList();
+        Optional<Set<UUID>> accessibleIds = accessGuard.accessiblePatientIdsIfGated(caller, organizationId);
+        if (accessibleIds.isPresent()) {
+            Set<UUID> ids = accessibleIds.get();
+            rows = rows.stream().filter(p -> ids.contains(p.getId())).toList();
         }
         return rows.stream()
                 .map(patient -> toFieldSafeDto(patient, organizationId, caller.userId()))

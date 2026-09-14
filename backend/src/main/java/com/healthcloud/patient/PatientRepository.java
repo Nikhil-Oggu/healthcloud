@@ -18,6 +18,9 @@ public interface PatientRepository extends JpaRepository<Patient, UUID> {
     /** All patients within one tenant, ordered for stable listing. */
     List<Patient> findByOrganizationIdOrderByFullNameAsc(UUID organizationId);
 
+    /** The patient profile linked to a login within the tenant (patient self-service, §21). */
+    Optional<Patient> findByOrganizationIdAndAppUserId(UUID organizationId, UUID appUserId);
+
     /** Whether an MRN is already taken within the tenant (MRN is unique per organization, not globally). */
     boolean existsByOrganizationIdAndMedicalRecordNumber(UUID organizationId, String medicalRecordNumber);
 }

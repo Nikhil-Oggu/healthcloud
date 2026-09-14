@@ -12,6 +12,8 @@ import com.healthcloud.organization.FacilityMembershipRepository;
 import com.healthcloud.organization.FacilityRepository;
 import com.healthcloud.organization.Organization;
 import com.healthcloud.organization.OrganizationRepository;
+import com.healthcloud.patient.Patient;
+import com.healthcloud.patient.PatientRepository;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -36,6 +38,7 @@ class DevDataSeederTest {
     @Autowired FacilityRepository facilities;
     @Autowired FacilityMembershipRepository facilityMemberships;
     @Autowired AppUserRepository users;
+    @Autowired PatientRepository patients;
 
     @Test
     void seeds_both_demo_organizations() {
@@ -65,6 +68,16 @@ class DevDataSeederTest {
         Organization green = organizations.findByName("Green Valley Clinic").orElseThrow();
         assertEquals(1, facilities.findByOrganization_Id(north.getId()).size());
         assertEquals(1, facilities.findByOrganization_Id(green.getId()).size());
+    }
+
+    @Test
+    void the_patient_login_is_linked_to_its_own_patient_profile() {
+        Organization north = organizations.findByName("NorthCare Health").orElseThrow();
+        AppUser patientUser = users.findByEmailIgnoreCase("patient@northcare.example.org").orElseThrow();
+
+        Patient self = patients.findByOrganizationIdAndAppUserId(north.getId(), patientUser.getId()).orElseThrow();
+        assertEquals("Sam Sample", self.getFullName(),
+                "the seeded patient login is linked to their own patient profile (Sam Sample)");
     }
 
     @Test

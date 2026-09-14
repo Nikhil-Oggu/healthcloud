@@ -119,8 +119,9 @@ public class ServiceRequestService {
         }
 
         List<ServiceRequest> found;
-        if (accessGuard.isProviderGated(caller)) {
-            Set<UUID> visible = accessGuard.activePatientIdsFor(organizationId, caller.userId());
+        Optional<Set<UUID>> accessibleIds = accessGuard.accessiblePatientIdsIfGated(caller, organizationId);
+        if (accessibleIds.isPresent()) {
+            Set<UUID> visible = accessibleIds.get();
             found = visible.isEmpty()
                     ? List.of()
                     : requests.findByOrganizationIdAndPatientIdInOrderByCreatedAtDesc(organizationId, visible);

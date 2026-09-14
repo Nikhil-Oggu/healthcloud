@@ -14,17 +14,18 @@
   10 ✅ care-team assignment management UI — assign/revoke providers + coordinators on the patient detail page,
   backed by new candidate-picker endpoints ·
   11 ✅ object/relationship gate extended to service requests — a request is gated by its patient, so a provider
-  reaches only requests about assigned patients)**
+  reaches only requests about assigned patients ·
+  12 ✅ patient self-service access — patient-user↔patient link (`patient.app_user_id`); a PATIENT sees only their
+  own record + requests + consent)**
 - **Repo:** https://github.com/Nikhil-Oggu/healthcloud (private, branch `main`)
-- **Next up:** **Phase 3, slice 12 (pick one when planning):** **secure S3 documents** (§19); the
-  **function-permission matrix** (§21.2) / business-need (§21 layer 8) — finer PATIENT (own requests/records)
-  and CLAIMS_REVIEWER (business-need) rules now that the PROVIDER relationship gate covers requests too; extend
-  field-masking to more resources. Then consent-lifecycle **audit** (§22.6 → Phase 7). **Consider running
-  `/security-review`** now that the authorization layers are broad (tenant + role + relationship on patients &
-  requests + consent + masking). Plan each slice before building. (Deferred:
-  PATIENT-own / CLAIMS_REVIEWER-business-need finer read rules; provider/coordinator assignment
-  PENDING→ACTIVE/→EXPIRED time sweeps — scheduler, Phase 8; patient self-service consent — needs a
-  patient-user↔patient link; batch consent + care-team lookups for list reads — perf follow-up; PROVIDER-scoped
+- **Next up:** **Phase 3, slice 13 (pick one when planning):** **secure S3 documents** (§19) — the last big
+  Phase-3 pillar before MVP; extend field-masking to more resources; or **patient self-service consent** (a
+  PATIENT recording/revoking their own directives — now unblocked by the slice-12 patient-user↔patient link).
+  Then consent-lifecycle **audit** (§22.6 → Phase 7). **Consider running `/security-review`** now that the
+  authorization layers are broad and mostly complete (tenant + role + relationship on patients & requests +
+  PATIENT-self + consent + masking). Plan each slice before building. (Deferred: CLAIMS_REVIEWER business-need
+  scoping — premature until claims exist, Phase 4; provider/coordinator assignment PENDING→ACTIVE/→EXPIRED time
+  sweeps — scheduler, Phase 8; batch consent + care-team lookups for list reads — perf follow-up; PROVIDER-scoped
   consent to an *un*assigned provider — the picker/candidates list assigned/eligible only. Phase-2 niceties:
   SLA/due-dates, request edit/priority UI.)
 - **Run the frontend:** with Postgres + backend up, `cd frontend && npm run dev` → open
@@ -35,6 +36,37 @@
   then `curl -b j.txt localhost:8080/api/v1/me`. Reset DB with `./scripts/db-reset.sh`.
 
 ## Log (newest first)
+
+### 2026-09-14 — Phase 3, slice 12 ✅ (patient self-service access — the patient-user↔patient link)
+- **Why:** a PATIENT-role user was treated as *broad* — they could list/read every patient in the tenant (and,
+  after slice 11, every request), because nothing narrowed them. And no login was tied to a patient profile, so
+  "a patient sees only their own data" wasn't even possible. This closes that over-exposure and builds the
+  patient-user↔patient link the docs had flagged as a prerequisite.
+- **Migration `V12__patient_user_link.sql`:** nullable `patient.app_user_id` (FK to `app_user`) + a partial
+  unique index `WHERE app_user_id IS NOT NULL` (a login maps to at most one profile). Entity gained
+  `appUserId` + `setAppUserId`.
+- **`PatientAccessGuard` (the single choke point) extended:** a new **patient-self** rule — a PATIENT who is
+  neither broad nor a provider may reach only the patient row whose `app_user_id` is their user id (else secure
+  404). Generalized list-scoping into `accessiblePatientIdsIfGated(caller, org)` → the id set a gated caller may
+  see (provider → assigned; PATIENT → their one linked profile) or `Optional.empty()` for broad roles; both
+  `PatientService.list` and `ServiceRequestService.list` now filter through it. Requests and consent inherit the
+  patient-self gate automatically (single reads already route through `requireAccessibleInTenant`).
+- **Seeder:** the `patient@` login is now patient **Sam Sample**'s own portal account (display name renamed to
+  match) and linked to that profile (index 0). A tidy convergent demo — Sam is also the patient the provider and
+  coordinator are assigned to. No change to the 3-patient set / counts other tests rely on.
+- **Scope boundary:** CLAIMS_REVIEWER stays broad — meaningful business-need scoping needs claims (Phase 4), so
+  it's premature here. This slice adds only the PATIENT-self rule.
+- **Verified — automated:** `./mvnw -B clean verify` → **139 pass** (+7: `PatientSelfAccessApiIntegrationTest`
+  ×4 — patient lists/reads only their own patient, own vs other 404, own-only requests, own vs other consent;
+  `PatientRepositoryTest` ×2 — link lookup + partial-unique "one profile per login"; `DevDataSeederTest` ×1 —
+  patient login is linked). Fixed two request tests that used "the first patient" so the patient participant now
+  acts on the patient they're linked to (Sam). Frontend untouched (no API shape change — a patient just sees
+  fewer rows).
+- **Verified — live (curl, fresh DB reseed for V12):** patient@northcare's `/patients` returned **only Sam
+  Sample** (coordinator saw all three); own record/consent → **200**, another patient (Fern) → **404**; another
+  patient's requests → **404**.
+- **Next:** slice 13 fork — secure S3 documents (§19); patient self-service consent (now unblocked); or extend
+  field-masking. Good moment for `/security-review`.
 
 ### 2026-09-14 — Phase 3, slice 11 ✅ (object/relationship gate extended to service requests)
 - **Why:** the §21 layer-6 gate protected the patient object (a provider reads only assigned patients → secure

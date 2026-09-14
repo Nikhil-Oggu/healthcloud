@@ -98,7 +98,10 @@ public class DevDataSeeder implements ApplicationRunner {
         Facility facility = facilityRepository.save(
                 new Facility(org, facilityName, "CLINIC", "123 Synthetic St"));
 
-        createMember(org, facility, "patient",     "Pat Patient",       "PATIENT",          emailDomain, false);
+        // The patient login is patient Sam Sample's own portal account (linked below), so its display name
+        // matches the profile it represents — a coherent patient self-service demo (§12.1, §21).
+        AppUser patientUser =
+                createMember(org, facility, "patient",     "Sam Sample",        "PATIENT",          emailDomain, false);
         AppUser provider =
                 createMember(org, facility, "provider",    "Dana Provider",     "PROVIDER",         emailDomain, true);
         AppUser coordinator =
@@ -108,6 +111,12 @@ public class DevDataSeeder implements ApplicationRunner {
                 createMember(org, facility, "admin",       "Alex Admin",        "ORG_ADMIN",        emailDomain, false);
 
         List<Patient> patients = seedPatients(org, mrnPrefix);
+
+        // Link the patient login to their own profile (Sam Sample, index 0) so a PATIENT user sees only their
+        // own record + requests + consent (the object/relationship gate applied to patient self-service, §21).
+        Patient self = patients.get(0);
+        self.setAppUserId(patientUser.getId());
+        patientRepository.save(self);
 
         // Baseline care relationships (§14.3): assign the provider to the first two patients (the third is
         // left unassigned) so the object/relationship gate is demonstrable — the provider sees 2 of 3.

@@ -7,6 +7,7 @@ import com.healthcloud.relationship.ProviderPatientAssignment;
 import com.healthcloud.relationship.ProviderPatientAssignmentRepository;
 import com.healthcloud.relationship.ProviderPatientAssignmentStatus;
 import java.time.LocalDate;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -35,6 +36,8 @@ public class PatientAccessGuard {
 
     private static final String PROVIDER_ROLE = "PROVIDER";
 
+    private static final String PATIENT_ROLE = "PATIENT";
+
     private final PatientRepository patients;
     private final ProviderPatientAssignmentRepository assignments;
     private final UserContextAccessor userContext;
@@ -60,20 +63,60 @@ public class PatientAccessGuard {
                 && !isActivelyAssigned(organizationId, caller.userId(), patientId)) {
             throw new NotFoundException();
         }
+        if (isPatientSelfGated(caller) && !caller.userId().equals(patient.getAppUserId())) {
+            throw new NotFoundException();
+        }
         return patient;
     }
 
     /**
+     * The patient ids a <b>gated</b> caller may reach, or {@link Optional#empty()} when the caller has broad
+     * tenant access (coordinator/admin, and — until the permission matrix lands — claims reviewer). The single
+     * source of truth for scoping list reads: a PROVIDER → their actively-assigned patients; a PATIENT → the one
+     * profile linked to them (possibly none). Both {@code PatientService.list} and {@code ServiceRequestService.list}
+     * route through here so a gated caller sees only their own patients' rows.
+     */
+    public Optional<Set<UUID>> accessiblePatientIdsIfGated(UserContext caller, UUID organizationId) {
+        if (isProviderGated(caller)) {
+            return Optional.of(activePatientIdsFor(organizationId, caller.userId()));
+        }
+        if (isPatientSelfGated(caller)) {
+            return Optional.of(selfPatientIds(organizationId, caller.userId()));
+        }
+        return Optional.empty();
+    }
+
+    /**
      * Whether the caller's patient access is gated by a provider-patient relationship: a PROVIDER who does not
-     * also hold a broad (coordinator/admin) role. Other roles are not relationship-gated in this slice.
+     * also hold a broad (coordinator/admin) role.
      */
     public boolean isProviderGated(UserContext caller) {
+        return !isBroad(caller) && caller.roles().contains(PROVIDER_ROLE);
+    }
+
+    /**
+     * Whether the caller is gated to their own patient profile: a PATIENT who is neither a broad role nor a
+     * provider. Such a caller may reach only the patient row whose {@code app_user_id} is their user id.
+     */
+    public boolean isPatientSelfGated(UserContext caller) {
+        return !isBroad(caller) && !caller.roles().contains(PROVIDER_ROLE)
+                && caller.roles().contains(PATIENT_ROLE);
+    }
+
+    private boolean isBroad(UserContext caller) {
         for (String role : BROAD_READ_ROLES) {
             if (caller.roles().contains(role)) {
-                return false;
+                return true;
             }
         }
-        return caller.roles().contains(PROVIDER_ROLE);
+        return false;
+    }
+
+    /** The (at most one) patient profile linked to this login within the tenant. */
+    private Set<UUID> selfPatientIds(UUID organizationId, UUID userId) {
+        return patients.findByOrganizationIdAndAppUserId(organizationId, userId)
+                .map(p -> Set.of(p.getId()))
+                .orElseGet(Set::of);
     }
 
     /**

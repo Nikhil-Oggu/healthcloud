@@ -84,7 +84,8 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   CurrentUserController/Service, CsrfCookieFilter), `context` (UserContext + UserContextAccessor/Filter),
   `error` (ApiError, ErrorCode, GlobalExceptionHandler, CorrelationId), `patient` (Patient CRUD:
   `GET/POST /api/v1/patients`, `GET/PATCH /api/v1/patients/{id}`, tenant-scoped → secure 404 cross-tenant;
-  reads are relationship-gated (providers see only assigned patients, via the shared `PatientAccessGuard`) and
+  reads are relationship-gated (providers see only assigned patients; a PATIENT sees only their own profile —
+  linked via the nullable `patient.app_user_id`; all via the shared `PatientAccessGuard`) and
   consent-field-masked — see the Authorization-layering + Field-masking conventions below),
   `request` (ServiceRequest + RequestStatusHistory + `RequestTransitions` state machine: `GET/POST
   /api/v1/requests`, `GET /api/v1/requests/{id}`, `PATCH /api/v1/requests/{id}/status`,
@@ -157,20 +158,24 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   records the assignee *and* advances the status in one tx), and a plain `PATCH /status` to that status is
   refused. Prefer this over letting a status be set with no accompanying record.
 - **Authorization layering (§21.1; Phase 3+):** protected reads pass through independent backend layers, in
-  order — tenant → function/role permission → **object/relationship** (e.g. a PROVIDER may read only patients
-  they are actively assigned to; `provider_patient_assignment`) → **consent + purpose** (§22.5) → **field-level
-  masking** (§23). Each is a separate check that can only *narrow* access; a broad role (coordinator/admin) may
-  skip the relationship layer but still faces consent/field policy. An object/relationship denial is a **secure
+  order — tenant → function/role permission → **object/relationship** (a PROVIDER may read only patients they
+  are actively assigned to via `provider_patient_assignment`; a **PATIENT** may read only their own profile —
+  the patient row whose `app_user_id` is their login — and, inherited through the guard, only their own requests
+  and consent) → **consent + purpose** (§22.5) → **field-level masking** (§23). Each is a separate check that
+  can only *narrow* access; a broad role (coordinator/admin — and, until the permission matrix lands, claims
+  reviewer) skips the relationship layer but still faces consent/field policy. An object/relationship denial is a **secure
   404** (§21.5), never a 403 that would confirm the row exists. Gate role-agnostically off the caller's actual
   roles from `UserContext`, never the client. **The relationship layer has ONE implementation —
   `PatientAccessGuard.requireAccessibleInTenant(patientId)`** (in `com.healthcloud.patient`) — and **every**
   patient-scoped read routes through it: the patient read itself *and* everything nested under a patient
   (consent directives, the consent decision, provider/coordinator assignments) *and* resources **about** a
   patient that live under their own top-level route — a **service request** is gated by its patient, so request
-  reads/writes call `requireAccessibleInTenant(request.getPatientId())` too (list reads scope to the caller's
-  active patients via `activePatientIdsFor`). A new endpoint that exposes a patient or patient-linked data MUST
-  call the guard, so the gate can never be side-stepped by a nested or sibling route. The guard depends only on
-  repositories (not on the services it protects), so any service can use it with no bean cycle.
+  reads/writes call `requireAccessibleInTenant(request.getPatientId())` too. **List reads share one scoping
+  source:** `accessGuard.accessiblePatientIdsIfGated(caller, org)` returns the patient-id set a gated caller may
+  see (provider → assigned; PATIENT → their one linked profile) or `Optional.empty()` for broad roles — both
+  `PatientService.list` and `ServiceRequestService.list` filter through it. A new endpoint that exposes a patient
+  or patient-linked data MUST call the guard, so the gate can never be side-stepped by a nested or sibling route.
+  The guard depends only on repositories (not on the services it protects), so any service can use it with no bean cycle.
 - **Field-level masking (§23; Phase 3+):** the backend is the only trusted masker — build **field-safe DTOs**,
   never rely on the frontend to hide a value it received (§23.3). Map each resource's fields to a
   §23.1 `DataClassification` (+ a `ConsentDataCategory` when consent-controlled) in a small policy enum (e.g.

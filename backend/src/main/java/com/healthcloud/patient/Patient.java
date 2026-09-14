@@ -42,6 +42,13 @@ public class Patient {
     @Column(name = "date_of_birth", nullable = false)
     private LocalDate dateOfBirth;
 
+    /**
+     * The login (app_user) that IS this patient, or null when the profile has no portal user. When set, a
+     * PATIENT-role user may reach only the profile linked to them (§21 layer 6, enforced in PatientAccessGuard).
+     */
+    @Column(name = "app_user_id", columnDefinition = "uuid")
+    private UUID appUserId;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
     private PatientStatus status = PatientStatus.ACTIVE;
@@ -100,6 +107,15 @@ public class Patient {
 
     public LocalDate getDateOfBirth() {
         return dateOfBirth;
+    }
+
+    public UUID getAppUserId() {
+        return appUserId;
+    }
+
+    /** Link (or unlink) the login that IS this patient. Used by the seeder / patient-onboarding. */
+    public void setAppUserId(UUID appUserId) {
+        this.appUserId = appUserId;
     }
 
     public PatientStatus getStatus() {
