@@ -101,6 +101,11 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   window re-checked at decision time; **CARE_TEAM scope isn't evaluable until care-team relationship data
   exists**. `ConsentPolicyService.decideForActor(org, actor, patient, purpose, category)` is the low-level
   hook field masking calls),
+  `relationship` (Phase 3 — provider↔patient care relationship §14.3: `GET/POST
+  /api/v1/patients/{patientId}/provider-assignments`, `POST .../{id}/revoke`; effective-dated, auditable,
+  states PENDING/ACTIVE/EXPIRED/REVOKED, at most one current per (patient, provider); coordinator/admin-gated,
+  the assignee must be a same-tenant PROVIDER. **Records the relationship only — the "provider reads only
+  assigned patients" GATE (§21 layer 6) is a later slice**),
   `devdata` (DevDataSeeder, local-only).
 - **Tenant-owned entity pattern (Phase 2+):** hold `organizationId` as the tenant key; repositories expose
   only org-scoped finders (`findByIdAndOrganizationId`, `findByOrganizationId…`) — no bare `findById` in

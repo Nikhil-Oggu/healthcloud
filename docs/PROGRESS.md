@@ -6,18 +6,20 @@
 ## Current position
 - **Phase:** 0 ✅ · Environment ✅ · Phase 1 COMPLETE ✅ · Phase 2 COMPLETE ✅ (slices 1–8) ·
   **Phase 3 IN PROGRESS 🚧 (slice 1 ✅ consent lifecycle · slice 2 ✅ decision engine §22.5 · slice 3 ✅
-  field-level masking on patient read §23)**
+  field masking §23 · slice 4 ✅ provider↔patient assignment record §14.3)**
 - **Repo:** https://github.com/Nikhil-Oggu/healthcloud (private, branch `main`)
-- **Next up:** **Phase 3, slice 4 (pick one when planning)** — candidates: (a) the **relationship layer**
-  (`provider_patient_assignment` / care-team) so PROVIDER/CARE_TEAM consent scopes are fully live and object
-  reads can require an assignment (§21 layer 6); (b) extend masking to **service requests** / more patient
-  fields; (c) **secure S3 documents** with download authorization + fake malware scan (§19); (d) the
-  **function-permission matrix** (§21.2) / business-need (§21 layer 8). Then consent-lifecycle **audit**
-  (§22.6 → Phase 7). **Run `/security-review` in Phase 3.** Plan each slice before building. (Deferred:
-  CARE_TEAM consent scope not evaluable until care-team data exists — engine treats it as not-applicable;
-  patient self-service consent — needs a patient-user↔patient link; SCHEDULED→ACTIVE/→EXPIRED time sweeps —
-  a scheduler, Phase 8; batch consent lookups for list reads — perf follow-up; a consent-management UI.
-  Phase-2 niceties: SLA/due-dates, request edit/priority UI.)
+- **Next up:** **Phase 3, slice 5 — enforce the object/relationship gate** (§12.1, §21 layer 6): a PROVIDER
+  reads only patients they have an ACTIVE assignment to (unassigned → secure 404); coordinators/admins keep
+  broad coordination access. This rewrites patient-read authorization, so it also **updates the existing
+  patient-read tests** (which currently log in as a provider and expect all patients) and **seeds baseline
+  provider↔patient assignments** so the demo isn't empty. Then: wire the relationship into consent
+  PROVIDER/CARE_TEAM scope + `care_coordinator_assignment`; later (c) **secure S3 documents** (§19), the
+  **function-permission matrix** (§21.2)/business-need, and consent-lifecycle **audit** (§22.6 → Phase 7).
+  **Run `/security-review` in Phase 3.** Plan each slice before building. (Deferred: CARE_TEAM consent scope
+  not evaluable until care-team data exists; provider-patient PENDING→ACTIVE/→EXPIRED time sweeps — a
+  scheduler, Phase 8; patient self-service consent — needs a patient-user↔patient link; batch consent lookups
+  for list reads — perf follow-up; consent/relationship management UI. Phase-2 niceties: SLA/due-dates,
+  request edit/priority UI.)
 - **Run the frontend:** with Postgres + backend up, `cd frontend && npm run dev` → open
   http://localhost:5173 → sign in as a seeded demo user.
 - **Run the demo:** `docker compose up -d postgres` then
@@ -26,6 +28,35 @@
   then `curl -b j.txt localhost:8080/api/v1/me`. Reset DB with `./scripts/db-reset.sh`.
 
 ## Log (newest first)
+
+### 2026-09-14 — Phase 3, slice 4 ✅ (provider↔patient assignment — the care relationship record; §14.3)
+- **`V10__provider_patient_assignment.sql`:** tenant key `organization_id`, `patient_id`, `provider_user_id`
+  (→ `app_user`), `assigned_by_user_id`, `status` (PENDING/ACTIVE/EXPIRED/REVOKED §14.3), `effective_from`/`to`,
+  `assigned_at`, `ended_at`, `@Version`. **Composite FK** `(patient_id, organization_id) → patient` (§32.10);
+  **partial unique index** `WHERE status IN ('ACTIVE','PENDING')` on `(patient_id, provider_user_id)` → at most
+  one *current* assignment per pair (the "already assigned" guard + race backstop; many providers per patient
+  allowed). Indexes on `(org, patient)` and (partial) `(org, provider)` for the next slice's "my patients".
+- **New `com.healthcloud.relationship` package:** `ProviderPatientAssignment` (effective-dated; `revoke()`,
+  `isCurrent()`), `ProviderPatientAssignmentStatus`, tenant-safe repository, DTO, `AssignProviderRequest` /
+  `RevokeProviderAssignmentRequest`, `ProviderPatientAssignmentService`, controller. Endpoints nested under
+  the patient: `GET /api/v1/patients/{id}/provider-assignments` (current ACTIVE/PENDING), `POST …` (assign),
+  `POST …/{assignmentId}/revoke`.
+- **Rules:** assign gated to CARE_COORDINATOR/ORG_ADMIN (else 403); the target must be an active same-tenant
+  **PROVIDER** (else 400, no existence leak — reuses the request-assignment participant-validation pattern);
+  a duplicate current assignment for a pair → 409 CONFLICT; cross-tenant patient → secure 404; revoke is
+  optimistic-locked (stale → 409, non-current → 409 INVALID_STATE_TRANSITION). Assign/revoke are recorded,
+  never deleted (§14.3 auditable); a revoked pair can be re-assigned (new row).
+- **Records only this slice** — the object/relationship access GATE that consumes these ("a provider reads
+  only assigned patients", §12.1/§21 layer 6) is slice 5, so existing patient reads are unchanged and no
+  existing test moved.
+- **Verified — automated:** `./mvnw -B verify` → **101 tests pass** (+7 `ProviderPatientAssignmentApiIntegrationTest`:
+  assign→ACTIVE+listed; revoke→REVOKED+delisted; duplicate→409; non-assigner→403; non-provider target→400;
+  stale version→409; cross-tenant patient→404. +2 `ProviderPatientAssignmentRepositoryTest`: two currents for
+  a pair violate the partial unique index; revoking frees the pair).
+- **Verified — live (curl, real server):** assigned Dana Provider → ACTIVE; duplicate → 409; list shows one
+  ACTIVE; revoke → REVOKED (`ended_at` stamped); list empties. Flyway applied V10 on a fresh start.
+- **Deferred → slice 5+:** the read gate + baseline seed + existing-test updates; consent PROVIDER/CARE_TEAM
+  wiring; `care_coordinator_assignment`; PENDING→ACTIVE/→EXPIRED sweeps (scheduler); UI.
 
 ### 2026-09-13 — Phase 3, slice 3 ✅ (field-level masking on the patient read — §23; the flagship, end-to-end)
 - **The consent decision (slice 2) now shapes a real read.** `dateOfBirth` is consent-controlled
