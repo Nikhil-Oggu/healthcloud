@@ -19,10 +19,11 @@ import org.springframework.context.annotation.Import;
 import org.springframework.test.context.ActiveProfiles;
 
 /**
- * Phase 3 slice 6 — the object/relationship gate (§21 layer 6) applies to the patient-<i>nested</i> endpoints,
- * not just the patient read. A PROVIDER who is not assigned to a patient gets a secure 404 (§21.5) on that
- * patient's consent directives, consent decision, and provider assignments too — so a nested route cannot be
- * used to side-step the gate. Assigning the provider restores access; coordinators/admins keep broad access.
+ * Phase 3 slice 6 (extended in slice 7) — the object/relationship gate (§21 layer 6) applies to the
+ * patient-<i>nested</i> endpoints, not just the patient read. A PROVIDER who is not assigned to a patient gets
+ * a secure 404 (§21.5) on that patient's consent directives, consent decision, provider assignments, and
+ * coordinator assignments too — so a nested route cannot be used to side-step the gate. Assigning the provider
+ * restores access; coordinators/admins keep broad access.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @Import(TestcontainersConfiguration.class)
@@ -54,6 +55,10 @@ class PatientNestedEndpointGateApiIntegrationTest {
         return "/api/v1/patients/" + patientId + "/provider-assignments";
     }
 
+    private String coordinatorAssignments(String patientId) {
+        return "/api/v1/patients/" + patientId + "/coordinator-assignments";
+    }
+
     @Test
     void an_unassigned_provider_is_a_secure_404_on_every_nested_endpoint() throws Exception {
         loginWithCsrf("provider@northcare.example.org"); // ensure the provider exists
@@ -61,7 +66,7 @@ class PatientNestedEndpointGateApiIntegrationTest {
         String patientId = newPatientId(coordinator);
 
         Session provider = loginWithCsrf("provider@northcare.example.org");
-        for (String path : List.of(consentList(patientId), decision(patientId), assignments(patientId))) {
+        for (String path : List.of(consentList(patientId), decision(patientId), assignments(patientId), coordinatorAssignments(patientId))) {
             HttpResponse<String> denied = get(provider.session, path);
             assertEquals(404, denied.statusCode(),
                     "an unassigned provider must be a secure 404 on " + path + " (got: " + denied.body() + ")");
@@ -77,7 +82,7 @@ class PatientNestedEndpointGateApiIntegrationTest {
         assertEquals(201, assign(coordinator, patientId, providerId).statusCode());
 
         Session provider = loginWithCsrf("provider@northcare.example.org");
-        for (String path : List.of(consentList(patientId), decision(patientId), assignments(patientId))) {
+        for (String path : List.of(consentList(patientId), decision(patientId), assignments(patientId), coordinatorAssignments(patientId))) {
             assertEquals(200, get(provider.session, path).statusCode(),
                     "an assigned provider may read " + path);
         }
@@ -88,7 +93,7 @@ class PatientNestedEndpointGateApiIntegrationTest {
         Session coordinator = loginWithCsrf("coordinator@northcare.example.org");
         String patientId = newPatientId(coordinator);
 
-        for (String path : List.of(consentList(patientId), decision(patientId), assignments(patientId))) {
+        for (String path : List.of(consentList(patientId), decision(patientId), assignments(patientId), coordinatorAssignments(patientId))) {
             assertEquals(200, get(coordinator.session, path).statusCode(),
                     "a coordinator has broad access to " + path);
         }

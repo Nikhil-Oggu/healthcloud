@@ -7,13 +7,15 @@
 - **Phase:** 0 ✅ · Environment ✅ · Phase 1 COMPLETE ✅ · Phase 2 COMPLETE ✅ (slices 1–8) ·
   **Phase 3 IN PROGRESS 🚧 (slice 1 ✅ consent lifecycle · 2 ✅ decision engine §22.5 · 3 ✅ field masking §23 ·
   4 ✅ provider↔patient record §14.3 · 5 ✅ object/relationship gate on patient reads §21 layer 6 ·
-  6 ✅ gate applied to the patient-nested endpoints — single `PatientAccessGuard` choke point)**
+  6 ✅ gate applied to the patient-nested endpoints — single `PatientAccessGuard` choke point ·
+  7 ✅ care_coordinator_assignment record §14.3 — the other half of the care team)**
 - **Repo:** https://github.com/Nikhil-Oggu/healthcloud (private, branch `main`)
-- **Next up:** **Phase 3, slice 7 (pick one when planning)** — candidates: wire the relationship into consent
-  **PROVIDER/CARE_TEAM scope** + `care_coordinator_assignment`; **secure S3 documents** (§19); the
-  **function-permission matrix** (§21.2) / business-need (§21 layer 8) incl. finer PATIENT/CLAIMS_REVIEWER
-  patient-read rules (incl. requests *about* a patient — `GET /requests?patientId=`, a separate resource left
-  ungated in slice 6); extend field-masking to more resources. Then consent-lifecycle
+- **Next up:** **Phase 3, slice 8 — wire CARE_TEAM consent scope** (compute "actor on care team" = active
+  provider- **or** coordinator-assignment, pass it into the pure `ConsentPolicy`, make CARE_TEAM directives
+  applicable; live demo through the care-team tier). **Then other slice-7-family forks (pick when planning):**
+  **secure S3 documents** (§19); the **function-permission matrix** (§21.2) / business-need (§21 layer 8) incl.
+  finer PATIENT/CLAIMS_REVIEWER patient-read rules (incl. requests *about* a patient — `GET /requests?patientId=`,
+  a separate resource still ungated); extend field-masking to more resources. Then consent-lifecycle
   **audit** (§22.6 → Phase 7). **Run `/security-review` in Phase 3.** Plan each slice before building. (Deferred:
   CARE_TEAM consent scope not evaluable until care-team data exists; PROVIDER/CLAIMS_REVIEWER/PATIENT finer
   read rules; provider-patient PENDING→ACTIVE/→EXPIRED time sweeps — scheduler, Phase 8; patient self-service
@@ -27,6 +29,45 @@
   then `curl -b j.txt localhost:8080/api/v1/me`. Reset DB with `./scripts/db-reset.sh`.
 
 ## Log (newest first)
+
+### 2026-09-14 — Phase 3, slice 7 ✅ (care_coordinator_assignment — the other half of the care team; §14.3, §22)
+- **Why:** a CARE_TEAM-scoped consent directive (§22) applies to the patient's whole care team = the providers
+  **and** coordinators actively assigned to them. We had the provider half (`provider_patient_assignment`, slice
+  4); this slice adds the **coordinator half** as a data model. **Records only** — exactly like slice 4 did for
+  providers; the CARE_TEAM consent wiring that consumes it is slice 8. Coordinators already have broad read
+  access, so this changes no existing read behavior; it's purely additive.
+- **`V11__care_coordinator_assignment.sql`:** mirrors V10 — tenant key `organization_id`, `patient_id`,
+  `coordinator_user_id` (→ `app_user`), `assigned_by_user_id`, `status` (PENDING/ACTIVE/EXPIRED/REVOKED),
+  `effective_from`/`to`, `assigned_at`, `ended_at`, `@Version`. Composite FK `(patient_id, organization_id) →
+  patient` (§32.10); **partial unique index** `WHERE status IN ('ACTIVE','PENDING')` on `(patient_id,
+  coordinator_user_id)` → at most one current per pair; indexes on `(org, patient)` and partial `(org,
+  coordinator)` WHERE ACTIVE (for slice 8's care-team lookup).
+- **`com.healthcloud.relationship` additions** (parallel to the provider assignment): `CareCoordinatorAssignment`
+  (`revoke()`/`isCurrent()`), `CareCoordinatorAssignmentStatus`, tenant-safe repository, DTO (with
+  `coordinatorName` + `expectedVersion`), `AssignCoordinatorRequest` / `RevokeCoordinatorAssignmentRequest`,
+  `CareCoordinatorAssignmentService`, controller. Endpoints nested under the patient:
+  `GET/POST /api/v1/patients/{id}/coordinator-assignments`, `POST …/{id}/revoke`.
+- **Rules (same shape as provider assignment):** assign gated to CARE_COORDINATOR/ORG_ADMIN (else 403); target
+  must be an active same-tenant **CARE_COORDINATOR** (else 400, no existence leak); duplicate current pair → 409;
+  cross-tenant patient → secure 404; revoke optimistic-locked (stale → 409, non-current → 409 invalid-transition).
+  The **list read routes through `PatientAccessGuard`** (the slice-6 rule — every patient-nested endpoint passes
+  the gate).
+- **`DevDataSeeder`:** the coordinator (Cory) is now assigned to patients 0 and 2 (Sam + Mock) per org — varied
+  overlap with the provider baseline (provider → Sam + Fern) so slice 8's CARE_TEAM tier has demonstrable data.
+  `admin` (Alex) is captured and used as the assigner.
+- **Verified — automated:** `./mvnw -B verify` → **117 tests pass** (+7 `CareCoordinatorAssignmentApiIntegrationTest`
+  mirroring the provider set: assign→ACTIVE+listed; revoke→REVOKED+delisted; duplicate→409; non-assigner→403;
+  non-coordinator target→400; stale version→409; cross-tenant→404. +2 `CareCoordinatorAssignmentRepositoryTest`:
+  two currents violate the partial unique index; revoking frees the pair. `PatientNestedEndpointGate…` extended
+  to include `coordinator-assignments` in all three loops — the gate covers the new nested endpoint too).
+  (Note: a stray `target/classes/…/HealthcloudApplication 2.class` build artifact — a Finder/editor copy, not in
+  git — briefly broke the jar repackage; removed it. Source has no duplicate.)
+- **Verified — live (curl, fresh `db-reset`):** V11 applied; NC-0001's seeded coordinator-assignment shows Cory
+  ACTIVE; assign→201, duplicate→409, provider-as-target→400, revoke→200 then list empties; an unassigned
+  provider GETs coordinator-assignments for NC-0003 → **404** (gate holds on the new endpoint).
+- **No frontend change** (records only, like slice 4). **Deferred → slice 8:** wire CARE_TEAM into `ConsentPolicy`
+  (compute care-team membership = active provider OR coordinator assignment, pass into the pure policy). Later
+  forks: secure S3 documents; permission matrix incl. the `GET /requests?patientId=` gate; more field masking.
 
 ### 2026-09-14 — Phase 3, slice 6 ✅ (close the gate's back doors — the §21 layer-6 gate now covers the patient-nested endpoints)
 - **The hole this closed:** slice 5 gated the patient read itself, but the endpoints *nested* under a patient

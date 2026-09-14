@@ -17,6 +17,9 @@ import com.healthcloud.organization.Organization;
 import com.healthcloud.organization.OrganizationRepository;
 import com.healthcloud.patient.Patient;
 import com.healthcloud.patient.PatientRepository;
+import com.healthcloud.relationship.CareCoordinatorAssignment;
+import com.healthcloud.relationship.CareCoordinatorAssignmentRepository;
+import com.healthcloud.relationship.CareCoordinatorAssignmentStatus;
 import com.healthcloud.relationship.ProviderPatientAssignment;
 import com.healthcloud.relationship.ProviderPatientAssignmentRepository;
 import com.healthcloud.relationship.ProviderPatientAssignmentStatus;
@@ -53,6 +56,7 @@ public class DevDataSeeder implements ApplicationRunner {
     private final FacilityMembershipRepository facilityMembershipRepository;
     private final PatientRepository patientRepository;
     private final ProviderPatientAssignmentRepository providerPatientAssignmentRepository;
+    private final CareCoordinatorAssignmentRepository careCoordinatorAssignmentRepository;
 
     public DevDataSeeder(OrganizationRepository organizationRepository,
                          AppUserRepository appUserRepository,
@@ -62,7 +66,8 @@ public class DevDataSeeder implements ApplicationRunner {
                          FacilityRepository facilityRepository,
                          FacilityMembershipRepository facilityMembershipRepository,
                          PatientRepository patientRepository,
-                         ProviderPatientAssignmentRepository providerPatientAssignmentRepository) {
+                         ProviderPatientAssignmentRepository providerPatientAssignmentRepository,
+                         CareCoordinatorAssignmentRepository careCoordinatorAssignmentRepository) {
         this.organizationRepository = organizationRepository;
         this.appUserRepository = appUserRepository;
         this.roleRepository = roleRepository;
@@ -72,6 +77,7 @@ public class DevDataSeeder implements ApplicationRunner {
         this.facilityMembershipRepository = facilityMembershipRepository;
         this.patientRepository = patientRepository;
         this.providerPatientAssignmentRepository = providerPatientAssignmentRepository;
+        this.careCoordinatorAssignmentRepository = careCoordinatorAssignmentRepository;
     }
 
     @Override
@@ -98,7 +104,8 @@ public class DevDataSeeder implements ApplicationRunner {
         AppUser coordinator =
                 createMember(org, facility, "coordinator", "Cory Coordinator",  "CARE_COORDINATOR", emailDomain, true);
         createMember(org, facility, "reviewer",    "Riley Reviewer",    "CLAIMS_REVIEWER",  emailDomain, false);
-        createMember(org, facility, "admin",       "Alex Admin",        "ORG_ADMIN",        emailDomain, false);
+        AppUser admin =
+                createMember(org, facility, "admin",       "Alex Admin",        "ORG_ADMIN",        emailDomain, false);
 
         List<Patient> patients = seedPatients(org, mrnPrefix);
 
@@ -106,6 +113,12 @@ public class DevDataSeeder implements ApplicationRunner {
         // left unassigned) so the object/relationship gate is demonstrable — the provider sees 2 of 3.
         assignProvider(org, patients.get(0), provider, coordinator);
         assignProvider(org, patients.get(1), provider, coordinator);
+
+        // Care-team coordinator relationships (§14.3, §22): put the coordinator on the care team of the first
+        // and third patients, so the CARE_TEAM consent tier has demonstrable data next slice (varied overlap
+        // with the provider assignments above).
+        assignCoordinator(org, patients.get(0), coordinator, admin);
+        assignCoordinator(org, patients.get(2), coordinator, admin);
     }
 
     /** A few clearly-synthetic patient profiles per tenant (Phase 2). MRNs are unique within the org. */
@@ -121,6 +134,13 @@ public class DevDataSeeder implements ApplicationRunner {
         providerPatientAssignmentRepository.save(new ProviderPatientAssignment(
                 org.getId(), patient.getId(), provider.getId(), assignedBy.getId(),
                 ProviderPatientAssignmentStatus.ACTIVE, LocalDate.now(), null));
+    }
+
+    /** Record an ACTIVE care-coordinator assignment (assigned today, open-ended) by the admin. */
+    private void assignCoordinator(Organization org, Patient patient, AppUser coordinator, AppUser assignedBy) {
+        careCoordinatorAssignmentRepository.save(new CareCoordinatorAssignment(
+                org.getId(), patient.getId(), coordinator.getId(), assignedBy.getId(),
+                CareCoordinatorAssignmentStatus.ACTIVE, LocalDate.now(), null));
     }
 
     private AppUser createMember(Organization org, Facility facility, String localPart, String fullName,

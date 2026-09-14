@@ -110,8 +110,11 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   the assignee must be a same-tenant PROVIDER. **Enforces the object/relationship gate** (§21 layer 6): a
   PROVIDER reads only actively-assigned patients — the gate logic lives in the shared `PatientAccessGuard`
   (patient package), which `PatientService`, the consent reads, and this module's `listCurrent` all route
-  through; unassigned → secure 404, coordinators/admins broad. `DevDataSeeder` assigns each provider to 2 of 3
-  patients),
+  through; unassigned → secure 404, coordinators/admins broad. Also **`care_coordinator_assignment`** (§14.3,
+  the sibling table — `GET/POST /api/v1/patients/{id}/coordinator-assignments`, `POST …/{id}/revoke`; same
+  effective-dated/versioned/one-current-per-pair shape, assignee must be a same-tenant CARE_COORDINATOR): the
+  two tables together are the **care team** a CARE_TEAM-scoped consent directive applies to (the consent wiring
+  is a later slice). `DevDataSeeder` assigns each provider to 2 of 3 patients and the coordinator to 2 of 3),
   `devdata` (DevDataSeeder, local-only).
 - **Tenant-owned entity pattern (Phase 2+):** hold `organizationId` as the tenant key; repositories expose
   only org-scoped finders (`findByIdAndOrganizationId`, `findByOrganizationId…`) — no bare `findById` in
