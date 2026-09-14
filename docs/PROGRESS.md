@@ -16,18 +16,20 @@
   11 ✅ object/relationship gate extended to service requests — a request is gated by its patient, so a provider
   reaches only requests about assigned patients ·
   12 ✅ patient self-service access — patient-user↔patient link (`patient.app_user_id`); a PATIENT sees only their
-  own record + requests + consent)**
+  own record + requests + consent ·
+  13 ✅ patient self-service consent — a PATIENT records/revokes directives on their OWN record; the §22.5 engine
+  is now driven from the patient's own hand)**
 - **Repo:** https://github.com/Nikhil-Oggu/healthcloud (private, branch `main`)
-- **Next up:** **Phase 3, slice 13 (pick one when planning):** **secure S3 documents** (§19) — the last big
-  Phase-3 pillar before MVP; extend field-masking to more resources; or **patient self-service consent** (a
-  PATIENT recording/revoking their own directives — now unblocked by the slice-12 patient-user↔patient link).
-  Then consent-lifecycle **audit** (§22.6 → Phase 7). **Consider running `/security-review`** now that the
-  authorization layers are broad and mostly complete (tenant + role + relationship on patients & requests +
-  PATIENT-self + consent + masking). Plan each slice before building. (Deferred: CLAIMS_REVIEWER business-need
-  scoping — premature until claims exist, Phase 4; provider/coordinator assignment PENDING→ACTIVE/→EXPIRED time
-  sweeps — scheduler, Phase 8; batch consent + care-team lookups for list reads — perf follow-up; PROVIDER-scoped
-  consent to an *un*assigned provider — the picker/candidates list assigned/eligible only. Phase-2 niceties:
-  SLA/due-dates, request edit/priority UI.)
+- **Next up:** **Phase 3, slice 14 (pick one when planning):** **secure S3 documents** (§19) — the last big
+  Phase-3 pillar before MVP; or extend field-masking to more resources. Then consent-lifecycle **audit**
+  (§22.6 → Phase 7). **Consider running `/security-review`** — the authorization stack is now broad and mostly
+  complete (tenant + role + relationship on patients & requests + PATIENT-self + patient-self consent writes +
+  masking). Plan each slice before building. (Deferred: CLAIMS_REVIEWER business-need scoping — premature until
+  claims exist, Phase 4; provider/coordinator assignment PENDING→ACTIVE/→EXPIRED time sweeps — scheduler,
+  Phase 8; batch consent + care-team lookups for list reads — perf follow-up; PROVIDER-scoped consent to an
+  *un*assigned provider — the picker/candidates list assigned/eligible only; a patient-facing consent picker for
+  PROVIDER scope currently lists their assigned providers. Phase-2 niceties: SLA/due-dates, request edit/priority
+  UI.)
 - **Run the frontend:** with Postgres + backend up, `cd frontend && npm run dev` → open
   http://localhost:5173 → sign in as a seeded demo user.
 - **Run the demo:** `docker compose up -d postgres` then
@@ -36,6 +38,30 @@
   then `curl -b j.txt localhost:8080/api/v1/me`. Reset DB with `./scripts/db-reset.sh`.
 
 ## Log (newest first)
+
+### 2026-09-14 — Phase 3, slice 13 ✅ (patient self-service consent — the patient controls their own sharing)
+- **Why:** consent writes were staff-only (CARE_COORDINATOR/ORG_ADMIN). With the slice-12 patient-user↔patient
+  link in place, a PATIENT can now record/revoke directives on their OWN record — the ethical heart of a
+  "consent-aware" platform: the patient controls what is shared, from their own hand.
+- **Backend (`ConsentDirectiveService`):** added `PATIENT` to the write roles, and switched the write-path
+  patient check from a tenant-only lookup to `accessGuard.requireAccessibleInTenant(patientId)` — so a PATIENT
+  may write only for the profile linked to their login (another patient → secure 404), while staff stay broad
+  and providers/reviewers still can't write consent (not a write role → 403). Removed the now-unused
+  `requirePatientInTenant`/`PatientRepository`. No migration, no API-shape change.
+- **Frontend (`PatientDetailPage`):** split the single write flag into `canManageConsent` (PATIENT + staff) and
+  `canManageCareTeam` (staff only) — so a patient sees the consent record/revoke controls on their own detail
+  page but never the care-team assign/revoke controls.
+- **Verified — automated:** `./mvnw -B clean verify` → **142 pass** (+3 `PatientSelfConsentApiIntegrationTest`:
+  a PATIENT records+revokes on their own record; a PATIENT writing for another patient → 404; a PROVIDER writing
+  consent → 403). Frontend `npm run typecheck` clean, `npm test` → **29 pass** (+1: a PATIENT sees the consent
+  form + revoke but no care-team controls), `npm run build` OK.
+- **Verified — live in browser** (patient@northcare, their own record Sam Sample): DOB showed **"Restricted"**;
+  the patient recorded a GRANT / CARE_COORDINATION / DEMOGRAPHICS_CONTACT / ORGANIZATION directive → their own
+  **DOB unmasked to `1985-03-14`** and the directive appeared ACTIVE with a Revoke they own; the care-team card
+  showed members but no assign/revoke controls. (Restarted the local backend onto slice-13 code first; no reseed
+  needed — no new migration.)
+- **Next:** slice 14 fork — secure S3 documents (§19) is the last big Phase-3 pillar; or extend field-masking.
+  Strong moment for `/security-review`.
 
 ### 2026-09-14 — Phase 3, slice 12 ✅ (patient self-service access — the patient-user↔patient link)
 - **Why:** a PATIENT-role user was treated as *broad* — they could list/read every patient in the tenant (and,

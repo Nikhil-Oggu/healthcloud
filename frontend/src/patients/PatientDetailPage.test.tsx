@@ -200,6 +200,24 @@ describe('PatientDetailPage', () => {
     expect(screen.queryByRole('button', { name: 'Revoke' })).not.toBeInTheDocument()
   })
 
+  it('lets a PATIENT manage consent on their own record but not the care team', async () => {
+    mockUserWithRoles(['PATIENT'])
+    getPatient.mockResolvedValue(PATIENT)
+    listConsentDirectives.mockResolvedValue([DIRECTIVE])
+    listProviderAssignments.mockResolvedValue([PROVIDER_ASSIGNMENT])
+
+    renderPage(<PatientDetailPage />)
+
+    // Consent self-service: the patient sees the record form and a revoke action.
+    expect(await screen.findByText('Record directive')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Revoke' })).toBeInTheDocument()
+
+    // Care team stays staff-only: the member is visible (read) but there are no assign/revoke controls.
+    expect(await screen.findByText('Dana Provider')).toBeInTheDocument()
+    expect(screen.queryByLabelText('Add provider')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Assign' })).not.toBeInTheDocument()
+  })
+
   it('renders the care team members', async () => {
     mockUserWithRoles(['CARE_COORDINATOR'])
     getPatient.mockResolvedValue(PATIENT)

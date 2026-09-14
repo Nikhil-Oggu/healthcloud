@@ -103,7 +103,10 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   `consent` (Phase 3 — ConsentDirective lifecycle §22: `GET/POST /api/v1/patients/{patientId}/consent-directives`,
   `POST .../consent-directives/{id}/revoke`; immutable/versioned per the supersede pattern — recording a change
   supersedes the current directive for a natural key and inserts version+1, revocation flips it to REVOKED;
-  writes gated to CARE_COORDINATOR/ORG_ADMIN, reads open to same-tenant users. Plus the **consent+purpose
+  writes allowed to staff (CARE_COORDINATOR/ORG_ADMIN) for any patient AND to a **PATIENT for their own record**
+  (self-service, §22.1 — the write path routes the patient lookup through `PatientAccessGuard`, so a PATIENT
+  touching another patient is a secure 404; providers/reviewers cannot write consent); reads open to any
+  same-tenant user with access to the patient. Plus the **consent+purpose
   decision engine** (§22.5): `ConsentPolicy` (a pure policy class), `ConsentPolicyService`, and
   `GET .../consent-directives/decision?purpose=&dataCategory=` — decides GRANT/DENY for the *calling actor*
   by most-specific-tier (PROVIDER>CARE_TEAM>ORGANIZATION), DENY-wins, deny-by-default, with the effective-date
@@ -258,10 +261,12 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
 - **Feature pages so far:** `src/patients/` (list + create + **detail** `patients/:id`; the DOB column/field
   shows a muted "Restricted" when the backend masks it — the API sends `dateOfBirth: null` + a `maskedFields`
   list, §23; the list a provider sees is also relationship-gated on the backend, so a provider simply gets fewer
-  rows — no client logic needed. The detail page has the **consent-directive UI** — record/revoke directives
-  via `src/consent/useConsent.ts`, gated to coordinator/admin; recording invalidates the patient + list queries
-  so a masked field flips live — and a **Care team card** — assign/revoke providers and coordinators via
-  `src/relationship/useAssignments.ts` (candidate picker + optional effective dates), gated to coordinator/admin;
+  rows — no client logic needed; a PATIENT sees only their own record. The detail page has the
+  **consent-directive UI** — record/revoke directives via `src/consent/useConsent.ts`, shown to staff AND to a
+  patient on their own record (`CONSENT_WRITE_ROLES = PATIENT + coordinator/admin`; the backend enforces
+  own-record-only for a patient); recording invalidates the patient + list queries so a masked field flips live
+  — and a **Care team card** — assign/revoke providers and coordinators via `src/relationship/useAssignments.ts`
+  (candidate picker + optional effective dates), staff-only (`CARE_TEAM_WRITE_ROLES` = coordinator/admin);
   a care-team change invalidates the assignment lists, the candidate lists, and the patient query, so a masked
   field driven by a PROVIDER/CARE_TEAM directive can flip live) and `src/requests/` (list + create + detail with
   status timeline, transition buttons, comments, assignment). Both follow the feature-folder + hooks + RHF/Zod pattern.

@@ -51,8 +51,11 @@ import {
   useRevokeProviderAssignment,
 } from '../relationship/useAssignments'
 
-// Roles allowed to record/revoke consent — mirrors the backend gate (the server still enforces it).
-const WRITE_ROLES = ['CARE_COORDINATOR', 'ORG_ADMIN']
+// Role-aware UI mirrors the backend gates (the server still enforces them):
+//  - consent: staff OR a PATIENT for their OWN record (self-service);
+//  - care team: staff only (a patient never manages the care team).
+const CONSENT_WRITE_ROLES = ['PATIENT', 'CARE_COORDINATOR', 'ORG_ADMIN']
+const CARE_TEAM_WRITE_ROLES = ['CARE_COORDINATOR', 'ORG_ADMIN']
 
 const PURPOSES = [
   'CARE_COORDINATION',
@@ -92,15 +95,18 @@ const statusColor = (s: ConsentStatus): 'success' | 'error' | 'default' =>
   s === 'ACTIVE' ? 'success' : s === 'REVOKED' || s === 'EXPIRED' ? 'error' : 'default'
 
 /**
- * A single patient with their consent directives (§22). Any same-tenant user may view; only
- * coordinators/admins see the record form and revoke actions (role-aware UI — the backend enforces it).
+ * A single patient with their consent directives (§22) and care team. Any same-tenant user with access may
+ * view; consent record/revoke is shown to staff and to a patient on their own record, while care-team
+ * assign/revoke is staff-only (role-aware UI — the backend enforces both).
  */
 export function PatientDetailPage() {
   const { id = '' } = useParams()
   const { data: user } = useCurrentUser()
   const patient = usePatient(id)
   const directives = useConsentDirectives(id)
-  const canWrite = (user?.roles ?? []).some((r) => WRITE_ROLES.includes(r))
+  const roles = user?.roles ?? []
+  const canManageConsent = roles.some((r) => CONSENT_WRITE_ROLES.includes(r))
+  const canManageCareTeam = roles.some((r) => CARE_TEAM_WRITE_ROLES.includes(r))
 
   if (patient.isPending) {
     return <LoadingScreen />
@@ -141,14 +147,14 @@ export function PatientDetailPage() {
         </CardContent>
       </Card>
 
-      <CareTeamCard patientId={id} canWrite={canWrite} />
+      <CareTeamCard patientId={id} canWrite={canManageCareTeam} />
 
       <Box>
         <Typography variant="h6" gutterBottom>
           Consent directives
         </Typography>
 
-        {canWrite && <RecordDirectiveForm patientId={id} />}
+        {canManageConsent && <RecordDirectiveForm patientId={id} />}
 
         {directives.isError ? (
           <ErrorScreen error={directives.error} />
@@ -163,13 +169,13 @@ export function PatientDetailPage() {
                   <TableCell>Scope</TableCell>
                   <TableCell>Status</TableCell>
                   <TableCell>Effective</TableCell>
-                  {canWrite && <TableCell align="right">Actions</TableCell>}
+                  {canManageConsent && <TableCell align="right">Actions</TableCell>}
                 </TableRow>
               </TableHead>
               <TableBody>
                 {(directives.data ?? []).length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={canWrite ? 7 : 6}>
+                    <TableCell colSpan={canManageConsent ? 7 : 6}>
                       <Typography variant="body2" color="text.secondary">
                         No consent directives yet — access falls back to deny-by-default.
                       </Typography>
@@ -177,7 +183,7 @@ export function PatientDetailPage() {
                   </TableRow>
                 ) : (
                   (directives.data ?? []).map((d) => (
-                    <DirectiveRow key={d.id} patientId={id} directive={d} canWrite={canWrite} />
+                    <DirectiveRow key={d.id} patientId={id} directive={d} canWrite={canManageConsent} />
                   ))
                 )}
               </TableBody>

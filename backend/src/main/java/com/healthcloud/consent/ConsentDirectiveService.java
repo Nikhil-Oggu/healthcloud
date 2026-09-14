@@ -8,7 +8,6 @@ import com.healthcloud.error.ErrorCode;
 import com.healthcloud.error.InvalidStateTransitionException;
 import com.healthcloud.error.NotFoundException;
 import com.healthcloud.patient.PatientAccessGuard;
-import com.healthcloud.patient.PatientRepository;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Objects;
@@ -23,31 +22,32 @@ import org.springframework.transaction.annotation.Transactional;
  * recording a change to an existing directive SUPERSEDES the current version and inserts the next one in the
  * same group; revocation flips the current row to REVOKED with immediate effect. History is never deleted.
  *
- * <p>Scope note (this slice): consent lifecycle only. The policy evaluator that consumes these rows (§21.3
- * access decision, §22.5 conflict/specificity) and field-level masking (§23) arrive in later Phase 3 slices;
- * consent-lifecycle audit events (§22.6) land with the Phase 7 audit chain. Writes are gated to staff
- * (CARE_COORDINATOR/ORG_ADMIN) recording consent on a patient's behalf — patient self-service needs a
- * patient-user↔patient-record link that does not exist yet (deferred).
+ * <p>Consent-lifecycle audit events (§22.6) land with the Phase 7 audit chain. Writes are allowed to staff
+ * (CARE_COORDINATOR/ORG_ADMIN) recording consent on a patient's behalf, and to a PATIENT for their OWN record
+ * (self-service, §22.1) — enforced by routing the patient lookup through {@link PatientAccessGuard}, which gates
+ * a PATIENT to the profile linked to their login (a patient touching another patient is a secure 404).
  */
 @Service
 @Transactional(readOnly = true)
 public class ConsentDirectiveService {
 
-    /** Roles allowed to record/revoke a directive (reads are open to any same-tenant user in this slice). */
-    private static final String[] WRITE_ROLES = {"CARE_COORDINATOR", "ORG_ADMIN"};
+    /**
+     * Roles allowed to record/revoke a directive. A PATIENT may write only for their own record (the access
+     * guard enforces that); staff may write for any patient in the tenant. Reads are open to any same-tenant
+     * user (also gated to the accessible patient). Providers/reviewers cannot write consent.
+     */
+    private static final String[] WRITE_ROLES = {"PATIENT", "CARE_COORDINATOR", "ORG_ADMIN"};
 
     /** The "current" statuses — a directive that is in force or scheduled to be (not terminal history). */
     private static final List<ConsentStatus> CURRENT = List.of(ConsentStatus.ACTIVE, ConsentStatus.SCHEDULED);
 
     private final ConsentDirectiveRepository directives;
-    private final PatientRepository patients;
     private final PatientAccessGuard accessGuard;
     private final UserContextAccessor userContext;
 
-    public ConsentDirectiveService(ConsentDirectiveRepository directives, PatientRepository patients,
+    public ConsentDirectiveService(ConsentDirectiveRepository directives,
                                    PatientAccessGuard accessGuard, UserContextAccessor userContext) {
         this.directives = directives;
-        this.patients = patients;
         this.accessGuard = accessGuard;
         this.userContext = userContext;
     }
@@ -68,13 +68,14 @@ public class ConsentDirectiveService {
     /**
      * Record a consent directive for a patient. If a current directive already exists for the same natural
      * key (purpose + category + scope), it is superseded and this becomes the next version — all in one
-     * transaction (§31.6). Requires a write role; the patient must be in the caller's tenant (else 404).
+     * transaction (§31.6). Requires a write role; the caller must be able to reach the patient (a PATIENT only
+     * their own record, else secure 404).
      */
     @Transactional
     public ConsentDirectiveDto record(UUID patientId, RecordConsentRequest request) {
         userContext.requireAnyRole(WRITE_ROLES);
         UserContext caller = userContext.requireUser();
-        UUID organizationId = requirePatientInTenant(patientId);
+        UUID organizationId = accessGuard.requireAccessibleInTenant(patientId).getOrganizationId();
 
         validateScope(request.scopeType(), request.scopeRefId());
         LocalDate today = LocalDate.now();
@@ -106,14 +107,14 @@ public class ConsentDirectiveService {
     }
 
     /**
-     * Revoke a specific current directive with immediate effect (§22.4). Requires a write role; the
-     * directive must belong to this patient in the caller's tenant (else 404), must be current (else
-     * invalid transition), and the caller's {@code expectedVersion} must match (else 409).
+     * Revoke a specific current directive with immediate effect (§22.4). Requires a write role and access to
+     * the patient (a PATIENT only their own record, else secure 404); the directive must belong to this patient
+     * (else 404), must be current (else invalid transition), and {@code expectedVersion} must match (else 409).
      */
     @Transactional
     public ConsentDirectiveDto revoke(UUID patientId, UUID directiveId, RevokeConsentRequest request) {
         userContext.requireAnyRole(WRITE_ROLES);
-        UUID organizationId = requirePatientInTenant(patientId);
+        UUID organizationId = accessGuard.requireAccessibleInTenant(patientId).getOrganizationId();
 
         ConsentDirective directive = directives.findByIdAndOrganizationId(directiveId, organizationId)
                 .filter(d -> d.getPatientId().equals(patientId))
@@ -156,12 +157,5 @@ public class ConsentDirectiveService {
             throw new ApiException(ErrorCode.VALIDATION_FAILED,
                     "Only a provider-scoped consent directive may carry a scopeRefId.");
         }
-    }
-
-    /** Resolve the tenant and confirm the patient is in it (else secure 404). Returns the organization id. */
-    private UUID requirePatientInTenant(UUID patientId) {
-        UUID organizationId = userContext.requireOrganizationId();
-        patients.findByIdAndOrganizationId(patientId, organizationId).orElseThrow(NotFoundException::new);
-        return organizationId;
     }
 }
