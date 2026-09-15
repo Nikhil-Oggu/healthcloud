@@ -43,6 +43,9 @@
   16 ✅ documents UI — a Documents card on the patient detail page: upload, list with scan-status chips, and
   download of CLEAN files; the §19 loop is now visible end-to-end in the browser)**
 - **Repo:** https://github.com/Nikhil-Oggu/healthcloud (private, branch `main`)
+- **Tooling:** HealthCloud-specific **`code-reviewer`** + **`security-reviewer`** subagents now live in
+  `.claude/agents/` (read-only; project-aware checklists — tenant isolation, `PatientAccessGuard`, consent/masking,
+  one-tx history, financial accumulators). Invoke by name in a fresh session (agent files load at startup).
 - **Phase 5 IN PROGRESS 🚧 (adjudication engine, completes the MVP):** slice 1 ✅ — the core deterministic
   engine: `POST /api/v1/claims/{id}/adjudicate` reads an ACCEPTED claim →
   `PatientEligibilityRepository.findCovering(serviceDate)` → the coverage plan → the pure `AdjudicationCalculator`
@@ -119,6 +122,43 @@
   then `curl -b j.txt localhost:8080/api/v1/me`. Reset DB with `./scripts/db-reset.sh`.
 
 ## Log (newest first)
+
+### 2026-09-15 — Tooling: HealthCloud-specific code-reviewer + security-reviewer subagents ✅
+- **Why:** `docs/PLAN.md` Part C.1 (#5) / C.3 called for **project-specific** review subagents at Phase 3 —
+  the built-in `/code-review` and `/security-review` are generic, and HealthCloud's real risks are tenant
+  isolation, the `PatientAccessGuard` object/relationship gate, consent+purpose, field masking, one-transaction
+  history, and financial-accumulator correctness. Now that the MVP (Phase 0–5) is feature-complete, these give a
+  repeatable, codebase-aware review gate for every future slice.
+- **What:** two agent definitions under `.claude/agents/`, grounded in the actual code (I read
+  `PatientAccessGuard`, `UserContextAccessor`, `AdjudicationService`, `BenefitAccumulatorRepository`, the
+  controllers, and `transitions.ts` first so the checklists match how we really built it):
+  - **`code-reviewer.md`** — bugs + quality vs the project's invariants: tenant scoping (no bare `findById`, org
+    from context never the client), thin controllers, §21 authz layering, one-transaction + status/history writes,
+    engine-command-owned statuses (ADJUDICATED/ASSIGNED not bare status changes), pure policy classes, optimistic
+    `expectedVersion` + row-lock concurrency, `BigDecimal` money rules, the supersede/versioning pattern, Flyway
+    migration discipline, plus frontend rules (role-UI-is-not-security, `MemoryRouter` tests, RHF/Zod 3-generic,
+    query invalidation) and the `.gitignore`-anchoring gotcha. Outputs severity-grouped findings + a verdict.
+  - **`security-reviewer.md`** — high-confidence, exploitable issues in the real threat model: tenant isolation,
+    the object/relationship gate on every patient-linked endpoint, secure-404-not-403, role gates, consent/purpose
+    bypass, field-masking leaks, native-SQL parameterization / path traversal, document scan-status withholding,
+    CSRF/session/`SecurityConfig` widening, PHI/bytes in logs, and financial double-apply. Tuned for low false
+    positives (>80% confidence; excludes DoS/dep-CVEs/theoretical races), and aware this is synthetic-data-only.
+- **Read-only by design:** both get `Read, Grep, Glob, Bash`; **no `Edit`/`Write`** so they can't change code.
+  `Bash` is constrained in each agent's instructions to inspection only (`git diff/log/show/status`, `grep`, `cat`)
+  — never mutating the repo/working tree/git state. They report; the human applies fixes.
+- **Test-driven both** (checklists run inline, since agent files are only spawnable in a *new* session — Claude
+  Code loads `.claude/agents/*.md` at startup): the code-reviewer on slice 12 (frontend) → clean, surfaced 3
+  accurate nits (redundant TanStack versions-invalidation via prefix matching; double-fetch of the latest
+  adjudication; silent-null on a versions error) and a commit verdict; the security-reviewer on slice 11 (backend)
+  → **no High/Medium findings**, confirmed every new query is org-scoped, the new `/adjudication/versions`
+  endpoint routes through the tenant→role→patient gate, and the re-adjudication accumulator reversal is sound under
+  the row lock with a `UNIQUE(org, claim_id, version)` backstop (the concurrent-re-adjudication race is backstopped,
+  not corrupting — noted as robustness, not a vuln). Neither manufactured issues.
+- **How to use:** in a fresh session, `use the code-reviewer subagent on my current changes` /
+  `run the security-reviewer` (they pull their own `git diff main...HEAD`). Realizes the Phase-3 custom review
+  subagents from PLAN.md Part C; also noted in `CLAUDE.md` (Custom tooling).
+- **Files:** +`.claude/agents/code-reviewer.md`, +`.claude/agents/security-reviewer.md`, `docs/PROGRESS.md`.
+  (Committed `877e7c0`, pushed.)
 
 ### 2026-09-15 — Phase 5, slice 12 ✅ (adjudication version history + re-adjudicate in the claims UI)
 - **Why:** slice 11 added re-adjudication + a versions endpoint, but the UI only showed the current breakdown and
