@@ -7,6 +7,9 @@ import com.healthcloud.identity.OrganizationMembership;
 import com.healthcloud.identity.OrganizationMembershipRepository;
 import com.healthcloud.identity.Role;
 import com.healthcloud.identity.RoleRepository;
+import com.healthcloud.coding.CodeSystem;
+import com.healthcloud.coding.MedicalCode;
+import com.healthcloud.coding.MedicalCodeRepository;
 import com.healthcloud.identity.UserRole;
 import com.healthcloud.identity.UserRoleRepository;
 import com.healthcloud.organization.Facility;
@@ -57,6 +60,7 @@ public class DevDataSeeder implements ApplicationRunner {
     private final PatientRepository patientRepository;
     private final ProviderPatientAssignmentRepository providerPatientAssignmentRepository;
     private final CareCoordinatorAssignmentRepository careCoordinatorAssignmentRepository;
+    private final MedicalCodeRepository medicalCodeRepository;
 
     public DevDataSeeder(OrganizationRepository organizationRepository,
                          AppUserRepository appUserRepository,
@@ -67,7 +71,8 @@ public class DevDataSeeder implements ApplicationRunner {
                          FacilityMembershipRepository facilityMembershipRepository,
                          PatientRepository patientRepository,
                          ProviderPatientAssignmentRepository providerPatientAssignmentRepository,
-                         CareCoordinatorAssignmentRepository careCoordinatorAssignmentRepository) {
+                         CareCoordinatorAssignmentRepository careCoordinatorAssignmentRepository,
+                         MedicalCodeRepository medicalCodeRepository) {
         this.organizationRepository = organizationRepository;
         this.appUserRepository = appUserRepository;
         this.roleRepository = roleRepository;
@@ -78,6 +83,7 @@ public class DevDataSeeder implements ApplicationRunner {
         this.patientRepository = patientRepository;
         this.providerPatientAssignmentRepository = providerPatientAssignmentRepository;
         this.careCoordinatorAssignmentRepository = careCoordinatorAssignmentRepository;
+        this.medicalCodeRepository = medicalCodeRepository;
     }
 
     @Override
@@ -90,7 +96,45 @@ public class DevDataSeeder implements ApplicationRunner {
         log.info("Seeding synthetic demo data ({} and {})...", NORTHCARE, GREEN_VALLEY);
         seedOrganization(NORTHCARE, "NorthCare Main Clinic", "northcare.example.org", "NC");
         seedOrganization(GREEN_VALLEY, "Green Valley Family Center", "greenvalley.example.org", "GV");
+        seedMedicalCodes();
         log.info("Demo data seeded.");
+    }
+
+    /**
+     * Seed a small illustrative slice of the medical code catalog (Phase 4). GLOBAL, not per-tenant: these are
+     * public national code standards shared by every organization. Real-format ICD-10-CM diagnoses and
+     * HCPCS/CPT procedures — public reference vocabularies, not PHI, so they don't fall under the
+     * synthetic-only patient-data rule. Later slices attach these to clinical summaries and claim lines.
+     */
+    private void seedMedicalCodes() {
+        List<MedicalCode> catalog = List.of(
+                // ICD-10-CM diagnoses
+                new MedicalCode(CodeSystem.ICD10CM, "E11.9", "Type 2 diabetes mellitus without complications"),
+                new MedicalCode(CodeSystem.ICD10CM, "I10", "Essential (primary) hypertension"),
+                new MedicalCode(CodeSystem.ICD10CM, "J45.909", "Unspecified asthma, uncomplicated"),
+                new MedicalCode(CodeSystem.ICD10CM, "M54.5", "Low back pain"),
+                new MedicalCode(CodeSystem.ICD10CM, "J06.9", "Acute upper respiratory infection, unspecified"),
+                new MedicalCode(CodeSystem.ICD10CM, "E78.5", "Hyperlipidemia, unspecified"),
+                new MedicalCode(CodeSystem.ICD10CM, "F41.1", "Generalized anxiety disorder"),
+                new MedicalCode(CodeSystem.ICD10CM, "Z00.00",
+                        "Encounter for general adult medical exam without abnormal findings"),
+                // CPT procedures / services
+                new MedicalCode(CodeSystem.CPT, "99213",
+                        "Office/outpatient visit, established patient, low complexity"),
+                new MedicalCode(CodeSystem.CPT, "99214",
+                        "Office/outpatient visit, established patient, moderate complexity"),
+                new MedicalCode(CodeSystem.CPT, "99203",
+                        "Office/outpatient visit, new patient, low complexity"),
+                new MedicalCode(CodeSystem.CPT, "80053", "Comprehensive metabolic panel"),
+                new MedicalCode(CodeSystem.CPT, "85025",
+                        "Complete blood count (CBC) with differential white blood cell count"),
+                new MedicalCode(CodeSystem.CPT, "93000", "Electrocardiogram, routine, with interpretation"),
+                // HCPCS Level II
+                new MedicalCode(CodeSystem.HCPCS, "J1815", "Injection, insulin, per 5 units"),
+                new MedicalCode(CodeSystem.HCPCS, "G0439",
+                        "Annual wellness visit, personalized prevention plan, subsequent visit"),
+                new MedicalCode(CodeSystem.HCPCS, "A4253", "Blood glucose test strips, per 50 strips"));
+        medicalCodeRepository.saveAll(catalog);
     }
 
     private void seedOrganization(String orgName, String facilityName, String emailDomain, String mrnPrefix) {

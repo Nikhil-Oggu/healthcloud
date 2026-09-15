@@ -78,7 +78,7 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   Checks: `npm run typecheck`, `npm test` (Vitest), `npm run build`. Node runs from `openjdk@25`'s
   sibling `node@24` — use `export PATH="/opt/homebrew/opt/node@24/bin:$PATH"` in non-interactive shells.
 
-## Current implementation (Phase 1 & 2 COMPLETE; Phase 3 IN PROGRESS — see docs/PROGRESS.md for status)
+## Current implementation (Phase 1, 2 & 3 COMPLETE; Phase 4 IN PROGRESS — see docs/PROGRESS.md for status)
 - **Backend packages** under `com.healthcloud`: `organization` (Organization, Facility, FacilityMembership),
   `identity` (AppUser, Role, OrganizationMembership, UserRole), `auth` (SecurityConfig, DevLoginController,
   CurrentUserController/Service, CsrfCookieFilter), `context` (UserContext + UserContextAccessor/Filter),
@@ -148,7 +148,16 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   QUARANTINED/PENDING document is a 409 `DOCUMENT_NOT_AVAILABLE` (not a secure 404 — the caller already sees it in
   the listing with its status). Scanning is synchronous now; the async event-driven scanner (PENDING → worker
   flips it) is Phase 8),
-  `devdata` (DevDataSeeder, local-only).
+  `coding` (Phase 4 — the medical code catalog: `GET /api/v1/medical-codes?system=&q=` search +
+  `GET /api/v1/medical-codes/{system}/{code}` single lookup. ICD-10-CM diagnoses + HCPCS/CPT procedures — the
+  shared vocabulary clinical summaries and claim lines reference. **DELIBERATELY GLOBAL reference data, NOT
+  tenant-owned** — `medical_code` has no `organization_id`, no `PatientAccessGuard`, no consent (public national
+  standards, identical for every tenant; the app's first shared business-reference table, like `role`). Reads
+  require an authenticated caller (any role) but are not tenant-scoped; rows are immutable in-app (no `@Version`).
+  Search is active-only, matches a code prefix OR a description substring, and is capped at 50. An unknown
+  `system` → 400 via the existing type-mismatch handler. `CodeSystem` carries a display `label` + `category`
+  (Diagnosis/Procedure). Codes are public reference vocabularies, not PHI — seeding real-format values is fine),
+  `devdata` (DevDataSeeder, local-only — also seeds the global `medical_code` catalog once).
 - **Tenant-owned entity pattern (Phase 2+):** hold `organizationId` as the tenant key; repositories expose
   only org-scoped finders (`findByIdAndOrganizationId`, `findByOrganizationId…`) — no bare `findById` in
   business code; services derive the org from `UserContextAccessor.requireOrganizationId()`. `patient` is

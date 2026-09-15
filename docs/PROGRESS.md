@@ -5,7 +5,9 @@
 
 ## Current position
 - **Phase:** 0 ✅ · Environment ✅ · Phase 1 COMPLETE ✅ · Phase 2 COMPLETE ✅ (slices 1–8) ·
-  **Phase 3 IN PROGRESS 🚧 (slice 1 ✅ consent lifecycle · 2 ✅ decision engine §22.5 · 3 ✅ field masking §23 ·
+  **Phase 4 IN PROGRESS 🚧 (slice 1 ✅ medical code catalog — the global ICD-10/HCPCS/CPT vocabulary that
+  clinical summaries & claim lines will reference; read-only, authenticated, not tenant-scoped)** ·
+  **Phase 3 COMPLETE ✅ (slice 1 ✅ consent lifecycle · 2 ✅ decision engine §22.5 · 3 ✅ field masking §23 ·
   4 ✅ provider↔patient record §14.3 · 5 ✅ object/relationship gate on patient reads §21 layer 6 ·
   6 ✅ gate applied to the patient-nested endpoints — single `PatientAccessGuard` choke point ·
   7 ✅ care_coordinator_assignment record §14.3 — the other half of the care team ·
@@ -26,13 +28,15 @@
   16 ✅ documents UI — a Documents card on the patient detail page: upload, list with scan-status chips, and
   download of CLEAN files; the §19 loop is now visible end-to-end in the browser)**
 - **Repo:** https://github.com/Nikhil-Oggu/healthcloud (private, branch `main`)
-- **Next up:** **Phase 3 is essentially complete** — the remaining candidates are optional polish before the MVP
-  clinical/claims work (Phase 4): **extend field-masking** to more resources; **consent-lifecycle audit** (§22.6,
-  naturally lands with the Phase 7 audit chain); or a **decision "explain" view**. **Strong moment to run
-  `/security-review`** on the now-broad authorization stack (tenant + role + relationship on patients, requests &
-  documents + PATIENT-self + patient-self consent writes + field masking + malware quarantine) before moving to
-  Phase 4. Plan each slice before building. (Deferred: CLAIMS_REVIEWER business-need scoping — premature until
-  claims exist, Phase 4; provider/coordinator assignment PENDING→ACTIVE/→EXPIRED time sweeps — scheduler,
+- **Next up (Phase 4):** with the code catalog in place, the natural next slices are **clinical summaries**
+  (encounter/diagnosis referencing an ICD-10 code, patient-scoped → reuses `PatientAccessGuard` + field masking)
+  and then the **claim header + claim lines** (a claim line references a procedure code), plan/eligibility
+  foundations, and the submission/validation workflow. **Phase 4 proof (§60):** a claims reviewer sees
+  claim-relevant data *without* unrestricted medical context — so the CLAIMS_REVIEWER business-need scoping
+  deferred through Phase 3 gets designed here. A **medical-codes UI** (a code picker) arrives when a slice first
+  consumes codes. Plan each slice before building. (Older deferred items still open — Phase 3 was
+  COMPLETE; run `/security-review` on the authorization stack at a good breakpoint. Deferred:
+  provider/coordinator assignment PENDING→ACTIVE/→EXPIRED time sweeps — scheduler,
   Phase 8; **asynchronous document scanning** — the scan is synchronous at upload now (deterministic); the
   event-driven worker that writes PENDING then flips to CLEAN/QUARANTINED is Phase 8; **admin/break-glass
   download of a quarantined document** — Phase 7; batch consent + care-team lookups for list reads — perf follow-up; PROVIDER-scoped consent to an
@@ -47,6 +51,45 @@
   then `curl -b j.txt localhost:8080/api/v1/me`. Reset DB with `./scripts/db-reset.sh`.
 
 ## Log (newest first)
+
+### 2026-09-14 — Phase 4, slice 1 ✅ (medical code catalog — the shared clinical/claims vocabulary)
+- **Why:** Phase 4 (clinical context & claims intake) opens here. Its building blocks have a dependency order —
+  a clinical summary records a *diagnosis code*, a claim line records a *procedure code*, so both need a shared
+  code vocabulary to point at first. This slice builds that catalog (ICD-10-CM / HCPCS / CPT). Backend-only.
+- **A deliberately new pattern — global reference data, NOT tenant-owned:** unlike every business table since
+  Phase 2, `medical_code` has **no `organization_id`, no `PatientAccessGuard`, no consent** — codes are public
+  national standards, identical for both tenants (the app's first shared business-reference table, like `role`).
+  Documented that reasoning in the migration + `MedicalCode`/`MedicalCodeRepository` javadoc + CLAUDE.md so the
+  deviation is intentional. Public code vocabularies are reference data, not PHI, so seeding real-format values
+  respects the synthetic-only rule (which governs patient/employer/client data).
+- **Migration `V14__medical_code.sql`:** `medical_code` — `code_system` (ICD10CM/HCPCS/CPT, CHECK-constrained),
+  `code`, `description`, `active`, `created_at`. **Unique `(code_system, code)`** (a code is unique within its
+  system; that index also serves system-scoped prefix search). No `@Version`/`updated_at` — reference rows are
+  immutable in-app (loaded by data import, not user edits).
+- **New `com.healthcloud.coding` package:** `CodeSystem` enum (carries a human `label` + `category`
+  Diagnosis/Procedure), `MedicalCode` entity, `MedicalCodeRepository` (a `search(system, term, pageable)` JPQL
+  — optional system, optional term matching a code prefix OR a description substring, active-only, bounded — and
+  an exact case-insensitive lookup), `MedicalCodeDto`, `MedicalCodeService` (caps results at 50; requires an
+  authenticated caller — no tenant/gate), `MedicalCodeController`.
+- **Endpoints (authenticated, any role; not tenant-scoped):** `GET /api/v1/medical-codes?system=&q=` (search)
+  and `GET /api/v1/medical-codes/{system}/{code}` (single; 404 miss). An unknown `system` binds to no enum
+  constant → **400 VALIDATION_FAILED** via the existing `MethodArgumentTypeMismatchException` handler (added
+  slice-2), not a 500.
+- **Seeder:** `DevDataSeeder` now seeds a small illustrative catalog **once, globally** (17 real-format codes:
+  8 ICD-10 diagnoses, 6 CPT, 3 HCPCS) after the two orgs — so a demo search returns something.
+- **Verified — automated:** `./mvnw -B clean verify` → **165 pass** (+9: `MedicalCodeRepositoryTest` ×4 —
+  system+term search, case-insensitive exact lookup scoped to its system, `(system, code)` uniqueness, page-size
+  cap; `MedicalCodeApiIntegrationTest` ×5 — 401 unauth; search filters by system & term; single hit + 404 miss;
+  unknown system → 400; the catalog reads identically for both tenants). Flyway applied V14 cleanly.
+- **Verified — live (curl, fresh `db-reset` so the seeder ran):** 401 without a session; coordinator search
+  `?system=ICD10CM&q=diabetes` → E11.9 (no CPT rows); `?system=CPT&q=992` → the three 992xx office-visit codes;
+  single lookup `ICD10CM/E11.9` → 200; `ICD10CM/NOPE.0` → 404 NOT_FOUND; `?system=BOGUS` → 400 VALIDATION_FAILED;
+  a Green Valley admin read the same `ICD10CM/I10` (global, cross-tenant). (Killed the old :8080 backend and ran
+  the fresh build first.)
+- **No frontend change** — this is the backend foundation; a code-picker UI arrives when a slice first consumes
+  codes (clinical summary / claim line).
+- **Next:** slice 2 — clinical summaries (encounter + diagnosis referencing an ICD-10 code, patient-scoped →
+  reuses `PatientAccessGuard` + field masking); then claim header + lines. Good moment for `/security-review`.
 
 ### 2026-09-14 — Phase 3, slice 16 ✅ (documents UI — the §19 loop is now visible in the browser)
 - **Why:** slices 14–15 built secure documents entirely on the backend (store, gate, scan, quarantine); this
