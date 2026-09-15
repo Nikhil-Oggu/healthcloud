@@ -78,7 +78,7 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   Checks: `npm run typecheck`, `npm test` (Vitest), `npm run build`. Node runs from `openjdk@25`'s
   sibling `node@24` — use `export PATH="/opt/homebrew/opt/node@24/bin:$PATH"` in non-interactive shells.
 
-## Current implementation (Phase 1–4 COMPLETE; Phase 5 adjudication IN PROGRESS — slices 1–3 done — see docs/PROGRESS.md for status)
+## Current implementation (Phase 1–4 COMPLETE; Phase 5 adjudication IN PROGRESS — slices 1–4 done — see docs/PROGRESS.md for status)
 - **Backend packages** under `com.healthcloud`: `organization` (Organization, Facility, FacilityMembership),
   `identity` (AppUser, Role, OrganizationMembership, UserRole), `auth` (SecurityConfig, DevLoginController,
   CurrentUserController/Service, CsrfCookieFilter), `context` (UserContext + UserContextAccessor/Filter),
@@ -213,7 +213,12 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   the plan must be in-tenant (else 400), and periods for a patient are kept **non-overlapping** (enforced in the
   service → 409) so coverage-on-a-date is deterministic. `PatientEligibilityRepository.findCovering(org, patient,
   date)` (also surfaced as `GET .../eligibility?asOf=`) is the hook the Phase-5 adjudication engine calls. Not
-  consent field-masked (claims/benefits data, not clinical context). The adjudication math is Phase 5),
+  consent field-masked (claims/benefits data, not clinical context). The adjudication math is Phase 5.
+  **Also `plan_exclusion`** (Phase 5 slice 4 — procedure codes a plan does NOT cover): `GET/POST
+  /api/v1/coverage-plans/{planId}/exclusions`, `DELETE .../exclusions/{id}`. Plan config (tenant-owned, not
+  patient-scoped), procedure FKs the global catalog; reads open to same-tenant, **add/remove ORG_ADMIN**,
+  duplicate → 409, unknown/non-procedure code → 400. The adjudication engine reads these to mark matching claim
+  lines NOT_COVERED),
   `adjudication` (Phase 5 — the basic synthetic claims-adjudication engine: `POST /api/v1/claims/{id}/adjudicate`
   + `GET /api/v1/claims/{id}/adjudication`. It turns an **ACCEPTED** claim into a deterministic, explainable
   `adjudication` (header + `adjudication_line` breakdown): it finds the coverage in effect on the claim's
@@ -239,9 +244,12 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   the year's cumulative out-of-pocket cannot exceed the plan's `outOfPocketMax` — the excess shifts to the plan and
   is recorded per line as `oopMaxAppliedAmount` (so `member = copay + deductible + coinsurance − oopMaxApplied`
   reconciles); a null `outOfPocketMax` means no cap. OOP-remaining is carried across claims by the same locked
-  accumulator (`out_of_pocket_met`), so once the max is met the plan pays 100%. **Honest MVP limitations (later
-  Phase-5 slices):** no exclusions (non-covered procedures), no fee-schedule allowed amounts (allowed = charge),
-  no re-adjudication, and no frontend. Not consent field-masked (claims/benefits data)),
+  accumulator (`out_of_pocket_met`), so once the max is met the plan pays 100%. **Plan exclusions are applied**
+  (slice 4): a claim line whose procedure the covering plan excludes (`plan_exclusion`) is `NOT_COVERED` — allowed
+  0, plan pays 0, member owes the charge — and, because it skips the cost-sharing math, it does not consume the
+  deductible or OOP; the claim is still `ADJUDICATED` (a mix of COVERED and NOT_COVERED lines). **Honest MVP
+  limitations (later Phase-5 slices):** no fee-schedule allowed amounts (allowed = charge), no re-adjudication,
+  and no frontend. Not consent field-masked (claims/benefits data)),
   `devdata` (DevDataSeeder, local-only — also seeds the global `medical_code` catalog once, then a couple of
   synthetic `clinical_summary` rows per assigned patient, one sample DRAFT `claim` (header + two procedure
   lines + its null→DRAFT status-history row) for the first patient, and two `coverage_plan` rows per org (a PPO

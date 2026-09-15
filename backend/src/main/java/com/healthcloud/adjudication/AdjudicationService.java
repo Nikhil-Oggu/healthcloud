@@ -9,10 +9,13 @@ import com.healthcloud.claim.ClaimStatusHistory;
 import com.healthcloud.claim.ClaimStatusHistoryRepository;
 import com.healthcloud.context.UserContext;
 import com.healthcloud.context.UserContextAccessor;
+import com.healthcloud.coding.CodeSystem;
 import com.healthcloud.coverage.CoveragePlan;
 import com.healthcloud.coverage.CoveragePlanRepository;
 import com.healthcloud.coverage.PatientEligibility;
 import com.healthcloud.coverage.PatientEligibilityRepository;
+import com.healthcloud.coverage.PlanExclusion;
+import com.healthcloud.coverage.PlanExclusionRepository;
 import com.healthcloud.error.CorrelationId;
 import com.healthcloud.error.InvalidStateTransitionException;
 import com.healthcloud.error.NotFoundException;
@@ -20,7 +23,11 @@ import com.healthcloud.patient.PatientAccessGuard;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -54,6 +61,7 @@ public class AdjudicationService {
     private final AdjudicationRepository adjudications;
     private final AdjudicationLineRepository adjudicationLines;
     private final BenefitAccumulatorRepository accumulators;
+    private final PlanExclusionRepository planExclusions;
     private final PatientAccessGuard accessGuard;
     private final UserContextAccessor userContext;
 
@@ -61,7 +69,7 @@ public class AdjudicationService {
                                ClaimStatusHistoryRepository claimStatusHistory,
                                CoveragePlanRepository coveragePlans, PatientEligibilityRepository eligibility,
                                AdjudicationRepository adjudications, AdjudicationLineRepository adjudicationLines,
-                               BenefitAccumulatorRepository accumulators,
+                               BenefitAccumulatorRepository accumulators, PlanExclusionRepository planExclusions,
                                PatientAccessGuard accessGuard, UserContextAccessor userContext) {
         this.claims = claims;
         this.claimLines = claimLines;
@@ -71,6 +79,7 @@ public class AdjudicationService {
         this.adjudications = adjudications;
         this.adjudicationLines = adjudicationLines;
         this.accumulators = accumulators;
+        this.planExclusions = planExclusions;
         this.accessGuard = accessGuard;
         this.userContext = userContext;
     }
@@ -110,6 +119,20 @@ public class AdjudicationService {
             CoveragePlan plan = coveragePlans
                     .findByIdAndOrganizationId(enrollment.getCoveragePlanId(), organizationId)
                     .orElseThrow(NotFoundException::new);
+
+            // A procedure excluded by the plan is NOT_COVERED — it skips the cost-sharing math and does not
+            // touch the deductible or out-of-pocket max. Only covered lines flow through the calculator.
+            Set<String> excluded = excludedCodeKeys(organizationId, plan.getId());
+            List<ClaimLine> coveredLines = new ArrayList<>();
+            List<ClaimLine> excludedLines = new ArrayList<>();
+            for (ClaimLine line : lines) {
+                if (excluded.contains(codeKey(line.getProcedureCodeSystem(), line.getProcedureCode()))) {
+                    excludedLines.add(line);
+                } else {
+                    coveredLines.add(line);
+                }
+            }
+
             // §31: lock this patient/plan/year accumulator for the rest of the tx, so the deductible carried
             // across claims is read-and-updated without a lost update under concurrency.
             int benefitYear = claim.getServiceDate().getYear();
@@ -120,13 +143,20 @@ public class AdjudicationService {
             BigDecimal oopRemaining = plan.getOutOfPocketMax() == null ? null
                     : plan.getOutOfPocketMax().subtract(accumulator.getOutOfPocketMet());
             AdjudicationCalculator.Computation computation =
-                    compute(lines, plan, deductibleRemaining, oopRemaining);
-            // Record this claim's contribution: deductible met + out-of-pocket accrued (the OOP-max hook).
+                    compute(coveredLines, plan, deductibleRemaining, oopRemaining);
+            // Record this claim's contribution: deductible met + out-of-pocket accrued (covered lines only).
             accumulator.add(deductibleApplied(computation), computation.totalMemberResponsibility());
             accumulators.save(accumulator);
-            savedHeader = adjudications.save(
-                    buildCovered(claim, plan, enrollment, computation, totalCharge(lines), caller));
-            savedLines = saveCoveredLines(claim, lines, computation, savedHeader);
+
+            // Header totals: the covered math, plus excluded charges the member owes in full (plan pays 0).
+            BigDecimal excludedCharge = totalCharge(excludedLines);
+            savedHeader = adjudications.save(new Adjudication(
+                    organizationId, claim.getId(), 1, AdjudicationOutcome.ADJUDICATED,
+                    plan.getId(), enrollment.getId(), totalCharge(lines),
+                    computation.totalAllowed(), computation.totalPlanPaid(),
+                    computation.totalMemberResponsibility().add(excludedCharge),
+                    caller.userId(), CorrelationId.current()));
+            savedLines = saveCoveredAndExcludedLines(claim, lines, excluded, computation, savedHeader);
         }
 
         // §31.6: advance the claim and append its status-history row in the same transaction.
@@ -157,30 +187,54 @@ public class AdjudicationService {
 
     // --- covered path --------------------------------------------------------
 
-    private Adjudication buildCovered(Claim claim, CoveragePlan plan, PatientEligibility enrollment,
-                                      AdjudicationCalculator.Computation computation, BigDecimal totalCharge,
-                                      UserContext caller) {
-        return new Adjudication(
-                claim.getOrganizationId(), claim.getId(), 1, AdjudicationOutcome.ADJUDICATED,
-                plan.getId(), enrollment.getId(), totalCharge,
-                computation.totalAllowed(), computation.totalPlanPaid(), computation.totalMemberResponsibility(),
-                caller.userId(), CorrelationId.current());
-    }
+    /**
+     * Persist one adjudication line per claim line, in order: an excluded procedure becomes a NOT_COVERED line
+     * (member owes the full charge, plan pays 0); every other line is a COVERED line built from its computed
+     * split. The covered computations are keyed by line number (the calculator only saw the covered lines).
+     */
+    private List<AdjudicationLine> saveCoveredAndExcludedLines(Claim claim, List<ClaimLine> lines,
+                                                              Set<String> excluded,
+                                                              AdjudicationCalculator.Computation computation,
+                                                              Adjudication header) {
+        Map<Integer, AdjudicationCalculator.LineComputation> byLine = new HashMap<>();
+        for (AdjudicationCalculator.LineComputation c : computation.lines()) {
+            byLine.put(c.lineNumber(), c);
+        }
 
-    private List<AdjudicationLine> saveCoveredLines(Claim claim, List<ClaimLine> lines,
-                                                    AdjudicationCalculator.Computation computation,
-                                                    Adjudication header) {
         List<AdjudicationLine> saved = new ArrayList<>();
-        for (int i = 0; i < lines.size(); i++) {
-            ClaimLine line = lines.get(i);
-            AdjudicationCalculator.LineComputation c = computation.lines().get(i);
-            saved.add(adjudicationLines.save(new AdjudicationLine(
-                    claim.getOrganizationId(), header.getId(), line.getId(), line.getLineNumber(),
-                    line.getProcedureCodeSystem(), line.getProcedureCode(), LineOutcome.COVERED,
-                    line.getChargeAmount(), c.allowedAmount(), c.copayAmount(), c.deductibleAppliedAmount(),
-                    c.coinsuranceAmount(), c.oopMaxAppliedAmount(), c.planPaidAmount(), c.memberResponsibility())));
+        for (ClaimLine line : lines) {
+            if (excluded.contains(codeKey(line.getProcedureCodeSystem(), line.getProcedureCode()))) {
+                BigDecimal charge = money(line.getChargeAmount());
+                saved.add(adjudicationLines.save(new AdjudicationLine(
+                        claim.getOrganizationId(), header.getId(), line.getId(), line.getLineNumber(),
+                        line.getProcedureCodeSystem(), line.getProcedureCode(), LineOutcome.NOT_COVERED,
+                        charge, money(BigDecimal.ZERO), money(BigDecimal.ZERO), money(BigDecimal.ZERO),
+                        money(BigDecimal.ZERO), money(BigDecimal.ZERO), money(BigDecimal.ZERO), charge)));
+            } else {
+                AdjudicationCalculator.LineComputation c = byLine.get(line.getLineNumber());
+                saved.add(adjudicationLines.save(new AdjudicationLine(
+                        claim.getOrganizationId(), header.getId(), line.getId(), line.getLineNumber(),
+                        line.getProcedureCodeSystem(), line.getProcedureCode(), LineOutcome.COVERED,
+                        line.getChargeAmount(), c.allowedAmount(), c.copayAmount(), c.deductibleAppliedAmount(),
+                        c.coinsuranceAmount(), c.oopMaxAppliedAmount(), c.planPaidAmount(),
+                        c.memberResponsibility())));
+            }
         }
         return saved;
+    }
+
+    /** The set of procedure keys the plan excludes, as {@code SYSTEM|CODE} (canonical, matching claim lines). */
+    private Set<String> excludedCodeKeys(UUID organizationId, UUID coveragePlanId) {
+        Set<String> keys = new HashSet<>();
+        for (PlanExclusion exclusion : planExclusions
+                .findByOrganizationIdAndCoveragePlanIdOrderByCodeSystemAscCodeAsc(organizationId, coveragePlanId)) {
+            keys.add(codeKey(exclusion.getCodeSystem(), exclusion.getCode()));
+        }
+        return keys;
+    }
+
+    private static String codeKey(CodeSystem system, String code) {
+        return system.name() + "|" + code;
     }
 
     private AdjudicationCalculator.Computation compute(List<ClaimLine> lines, CoveragePlan plan,

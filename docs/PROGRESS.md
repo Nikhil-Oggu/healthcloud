@@ -58,8 +58,12 @@
   line as `oopMaxAppliedAmount`); OOP-remaining carries across claims via the accumulator's `out_of_pocket_met`,
   so once the max is met the plan pays 100%. **The core adjudication math is now complete** (eligibility,
   deductible carry-over, copay, coinsurance, OOP max) — a natural MVP milestone.
-  **Next Phase-5 slices:** **exclusions** (non-covered procedures), a **fee-schedule** allowed amount,
-  re-adjudication versioning, and the claims/adjudication **frontend**. Also still deferred: a **frontend** for
+  slice 4 ✅ — **plan exclusions**: a `plan_exclusion` per plan lists procedure codes the plan won't cover
+  (`GET/POST/DELETE /api/v1/coverage-plans/{id}/exclusions`, ORG_ADMIN writes); the engine marks a matching claim
+  line `NOT_COVERED` (member owes the charge, plan 0) without touching the deductible/OOP, and the claim is still
+  `ADJUDICATED` with a mix of COVERED/NOT_COVERED lines.
+  **Next Phase-5 slices:** a **fee-schedule** allowed amount (allowed = charge today), re-adjudication
+  versioning, and the claims/adjudication **frontend**. Also still deferred: a **frontend** for
   clinical summaries + claims + coverage (incl. a medical-code picker); consent masking of claim fields
   (`CLAIMS_BENEFITS`) and the fuller CLAIMS_REVIEWER business-need scoping; a close/edit endpoint for an
   eligibility period. **Phase 4 proof (§60):** a claims reviewer sees
@@ -82,6 +86,38 @@
   then `curl -b j.txt localhost:8080/api/v1/me`. Reset DB with `./scripts/db-reset.sh`.
 
 ## Log (newest first)
+
+### 2026-09-15 — Phase 5, slice 4 ✅ (plan exclusions — non-covered procedures)
+- **Why:** a real plan doesn't cover everything. This lets a plan exclude specific procedure codes; an excluded
+  line adjudicates NOT_COVERED even under coverage, enriching the explainable outcome with *why* a line wasn't
+  paid. Backend-only.
+- **The model:** exclusions are checked per line **before** the cost-sharing math. An excluded procedure →
+  NOT_COVERED (allowed 0, plan 0, member owes the charge) and, because it skips the calculator, it does **not**
+  consume the deductible or out-of-pocket max. Covered lines flow through the calculator as before. A claim with
+  excluded lines is still `ADJUDICATED` (coverage existed) — a mix of COVERED and NOT_COVERED lines;
+  `DENIED_NO_ELIGIBILITY` stays reserved for the no-coverage case. Header totals: covered amounts from the math
+  plus excluded charges added to the member. `LineOutcome.NOT_COVERED` reused.
+- **Migration `V23__plan_exclusion.sql`:** `plan_exclusion` — coverage_plan, code_system, code, created_by;
+  composite FK-with-org to `coverage_plan`, FK `(code_system, code)` → `medical_code`;
+  `UNIQUE(org, coverage_plan_id, code_system, code)`. Plan config (tenant-owned, not patient-scoped).
+- **New `coverage` classes:** `PlanExclusion` entity, `PlanExclusionRepository` (org-scoped finders + `existsBy…`),
+  `PlanExclusionDto`, `AddPlanExclusionRequest`, `PlanExclusionService` (add/remove ORG_ADMIN; procedure resolved
+  + validated against the catalog, unknown/non-procedure → 400; duplicate → 409; plan not in tenant → secure 404),
+  `PlanExclusionController` (`GET/POST /api/v1/coverage-plans/{planId}/exclusions`, `DELETE .../{id}`). Modified
+  `AdjudicationService` — partitions claim lines into covered vs excluded, runs the calculator on covered only,
+  builds NOT_COVERED lines for excluded, and assembles header totals.
+- **Verified — automated:** `./mvnw -B clean verify` → **245 pass** (+8: `PlanExclusionRepositoryTest` ×2 —
+  tenant scoping, list-by-plan, existence key; `PlanExclusionApiIntegrationTest` ×5 — admin add/list/remove, a
+  non-admin → 403, duplicate → 409, unknown code → 400, cross-tenant plan → secure 404;
+  `AdjudicationExclusionApiIntegrationTest` ×1 — a mixed claim: 99213 COVERED + 80053 NOT_COVERED, header totals,
+  and a follow-up claim proving the excluded charge did not consume the deductible). Each API test creates its own
+  plan so exclusions never contaminate the shared seeded plans.
+- **Verified — live:** `db-reset` → fresh backend → admin created a PPO plan, excluded 80053 (duplicate → 409,
+  unknown code → 400), enrolled a patient, and adjudicated a mixed claim → 99213 **COVERED** (member $150, plan
+  $0), 80053 **NOT_COVERED** (member owes the full $45.50, allowed/plan $0); header allowed $150.00, member
+  $195.50, plan $0.00.
+- **Files:** +`V23__plan_exclusion.sql`, +`coverage/` (6: entity, repository, DTO, request, service, controller),
+  +3 test classes; changed `AdjudicationService`, `CLAUDE.md`, `docs/PROGRESS.md`. **Seeder untouched.**
 
 ### 2026-09-15 — Phase 5, slice 3 ✅ (out-of-pocket-max enforcement — completes the core adjudication math)
 - **Why:** slice 2 started tracking `out_of_pocket_met` but did not enforce the cap. This consumes it: once a
