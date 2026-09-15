@@ -47,6 +47,14 @@ export function canAdjudicate(status: ClaimStatus, roles: string[]): boolean {
   return status === 'ACCEPTED' && roles.some((r) => ['CLAIMS_REVIEWER', 'ORG_ADMIN'].includes(r))
 }
 
+/**
+ * Whether the caller may re-adjudicate this claim (an already-ADJUDICATED claim → a new immutable version).
+ * The backend runs the same command; each call appends a version and leaves the claim ADJUDICATED.
+ */
+export function canReadjudicate(status: ClaimStatus, roles: string[]): boolean {
+  return status === 'ADJUDICATED' && roles.some((r) => ['CLAIMS_REVIEWER', 'ORG_ADMIN'].includes(r))
+}
+
 /** Human label for a transition button. */
 export function actionLabel(to: ClaimStatus): string {
   const labels: Record<ClaimStatus, string> = {

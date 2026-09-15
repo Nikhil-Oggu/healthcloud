@@ -24,11 +24,12 @@ import { LoadingScreen } from '../components/LoadingScreen'
 import { ErrorScreen } from '../components/ErrorScreen'
 import type { ClaimStatus } from '../api/types'
 import { claimStatusColor, lineOutcomeColor } from './statusColor'
-import { actionLabel, allowedActions, canAdjudicate, reasonRequired } from './transitions'
+import { actionLabel, allowedActions, canAdjudicate, canReadjudicate, reasonRequired } from './transitions'
 import { money } from './ClaimsPage'
 import {
   useAdjudicate,
   useAdjudication,
+  useAdjudicationVersions,
   useChangeClaimStatus,
   useClaim,
   useClaimHistory,
@@ -47,8 +48,10 @@ export function ClaimDetailPage() {
   const [actionError, setActionError] = useState<string | null>(null)
   const [correlationId, setCorrelationId] = useState<string | undefined>(undefined)
 
-  // Only fetch the adjudication once the claim has been adjudicated (else it 404s).
-  const adjudication = useAdjudication(id, claim.data?.status === 'ADJUDICATED')
+  // Only fetch the adjudication (and its version history) once the claim has been adjudicated (else it 404s).
+  const isAdjudicated = claim.data?.status === 'ADJUDICATED'
+  const adjudication = useAdjudication(id, isAdjudicated)
+  const versions = useAdjudicationVersions(id, isAdjudicated)
 
   if (claim.isPending) return <LoadingScreen />
   if (claim.isError) return <ErrorScreen error={claim.error} />
@@ -57,6 +60,7 @@ export function ClaimDetailPage() {
   const roles = user?.roles ?? []
   const actions = allowedActions(c.status, roles)
   const showAdjudicate = canAdjudicate(c.status, roles)
+  const showReadjudicate = canReadjudicate(c.status, roles)
 
   async function apply(to: ClaimStatus, withReason?: string) {
     setActionError(null)
@@ -127,10 +131,10 @@ export function ClaimDetailPage() {
             </Alert>
           )}
 
-          {(actions.length > 0 || showAdjudicate) && (
+          {(actions.length > 0 || showAdjudicate || showReadjudicate) && (
             <>
               <Divider sx={{ my: 2 }} />
-              <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', rowGap: 1 }}>
+              <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', rowGap: 1, alignItems: 'center' }}>
                 {actions.map((to) => (
                   <Button
                     key={to}
@@ -151,6 +155,21 @@ export function ClaimDetailPage() {
                   >
                     {adjudicate.isPending ? 'Adjudicating…' : 'Adjudicate'}
                   </Button>
+                )}
+                {showReadjudicate && (
+                  <>
+                    <Button
+                      variant="outlined"
+                      size="small"
+                      disabled={adjudicate.isPending}
+                      onClick={() => void onAdjudicate()}
+                    >
+                      {adjudicate.isPending ? 'Re-adjudicating…' : 'Re-adjudicate'}
+                    </Button>
+                    <Typography variant="caption" color="text.secondary">
+                      Re-runs the engine and records a new version.
+                    </Typography>
+                  </>
                 )}
               </Stack>
 
@@ -213,6 +232,8 @@ export function ClaimDetailPage() {
 
       {c.status === 'ADJUDICATED' && <AdjudicationCard result={adjudication} />}
 
+      {c.status === 'ADJUDICATED' && <VersionHistoryCard versions={versions} />}
+
       <Card variant="outlined">
         <CardContent>
           <Typography variant="subtitle1" gutterBottom>
@@ -249,11 +270,12 @@ export function ClaimDetailPage() {
 
 /** The explainable adjudication breakdown (§60): the plan that applied and how every amount was computed. */
 function AdjudicationCard({ result }: { result: ReturnType<typeof useAdjudication> }) {
+  const version = result.data?.adjudicationVersion
   return (
     <Card variant="outlined">
       <CardContent>
         <Typography variant="subtitle1" gutterBottom>
-          Adjudication
+          Adjudication{version ? ` — version ${version}` : ''}
         </Typography>
 
         {result.isPending ? (
@@ -324,6 +346,59 @@ function AdjudicationCard({ result }: { result: ReturnType<typeof useAdjudicatio
             </Box>
           </Stack>
         )}
+      </CardContent>
+    </Card>
+  )
+}
+
+/**
+ * The re-adjudication history (§Phase 5 slice 11): every immutable version of this claim's adjudication, newest
+ * first, as summary rows. The current (latest) version's full per-line breakdown is the Adjudication card above;
+ * this card only appears once there is more than one version.
+ */
+function VersionHistoryCard({ versions }: { versions: ReturnType<typeof useAdjudicationVersions> }) {
+  const data = versions.data ?? []
+  if (versions.isPending || versions.isError || data.length <= 1) {
+    return null
+  }
+  return (
+    <Card variant="outlined">
+      <CardContent>
+        <Typography variant="subtitle1" gutterBottom>
+          Version history
+        </Typography>
+        <Box sx={{ overflowX: 'auto' }}>
+          <Table size="small" aria-label="Adjudication version history">
+            <TableHead>
+              <TableRow>
+                <TableCell>Version</TableCell>
+                <TableCell>Outcome</TableCell>
+                <TableCell>Plan</TableCell>
+                <TableCell align="right">Plan paid</TableCell>
+                <TableCell align="right">Member</TableCell>
+                <TableCell>Adjudicated</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {data.map((v) => (
+                <TableRow key={v.id}>
+                  <TableCell>{v.adjudicationVersion}</TableCell>
+                  <TableCell>
+                    <Chip
+                      label={v.outcome}
+                      size="small"
+                      color={v.outcome === 'ADJUDICATED' ? 'success' : 'error'}
+                    />
+                  </TableCell>
+                  <TableCell>{v.coveragePlanName ?? '—'}</TableCell>
+                  <TableCell align="right">{money(v.totalPlanPaidAmount)}</TableCell>
+                  <TableCell align="right">{money(v.totalMemberResponsibility)}</TableCell>
+                  <TableCell>{new Date(v.adjudicatedAt).toLocaleString()}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </Box>
       </CardContent>
     </Card>
   )

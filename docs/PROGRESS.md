@@ -91,6 +91,11 @@
   retroactive enrollment. `GET .../adjudication` returns the latest; `GET .../adjudication/versions` lists all,
   newest first. **Backend-only** — this completes the core Phase-5 adjudication engine. **The MVP (Phase 0–5)
   engine is now feature-complete.**
+  slice 12 ✅ — **adjudication version history + re-adjudicate in the claims UI**: the claim detail page now shows a
+  **Re-adjudicate** button on an ADJUDICATED claim (CLAIMS_REVIEWER/ORG_ADMIN), labels the breakdown with its
+  **current version**, and shows a **Version history** card (all versions, newest first) once there's more than one
+  → the slice-11 re-adjudication/versions endpoints are now visible and drivable in the browser. **Frontend-only.
+  The full MVP (Phase 0–5) — engine AND UI — is now feature-complete.**
   **Next Phase-5 slices:** none required for the MVP. Also still deferred: a **frontend** for
   clinical summaries + claims + coverage (incl. a medical-code picker); consent masking of claim fields
   (`CLAIMS_BENEFITS`) and the fuller CLAIMS_REVIEWER business-need scoping; a close/edit endpoint for an
@@ -114,6 +119,36 @@
   then `curl -b j.txt localhost:8080/api/v1/me`. Reset DB with `./scripts/db-reset.sh`.
 
 ## Log (newest first)
+
+### 2026-09-15 — Phase 5, slice 12 ✅ (adjudication version history + re-adjudicate in the claims UI)
+- **Why:** slice 11 added re-adjudication + a versions endpoint, but the UI only showed the current breakdown and
+  an Adjudicate button on ACCEPTED claims. This surfaces re-adjudication and the version history in the browser —
+  the last deferred piece of the Phase-5 frontend. **Frontend-only** (the `POST .../adjudicate` re-run and
+  `GET .../adjudication/versions` endpoints already exist from slice 11).
+- **Re-adjudicate button** on the claim detail page: shown on an ADJUDICATED claim to CLAIMS_REVIEWER/ORG_ADMIN
+  (client mirror `canReadjudicate` in `transitions.ts`), reusing the existing `useAdjudicate` mutation (the same
+  backend command handles first-vs-re-adjudication) with a caption "Re-runs the engine and records a new version".
+- **Current version label:** the Adjudication card title is now `Adjudication — version N` from
+  `adjudicationVersion`.
+- **Version history card:** appears when ADJUDICATED and there's more than one version — a table of every version
+  (version #, outcome chip, plan, plan-paid, member, adjudicated-at) newest-first, from a new
+  `useAdjudicationVersions` hook; hidden for a single-version claim (the breakdown card covers it).
+- **Plumbing:** `api/client.ts` gained `getAdjudicationVersions`; `useClaims.ts` gained `useAdjudicationVersions`
+  + `adjudicationVersionsKey`, and `useAdjudicate` now also invalidates the versions query so the history refreshes
+  after a re-adjudication.
+- **Scope boundary:** the history shows per-version summary totals, not each version's full per-line breakdown
+  expanded (the current version's full breakdown is the Adjudication card); no confirm dialog (re-adjudication is
+  additive/non-destructive).
+- **Verified — automated:** frontend `npm run typecheck` clean, `npm test` → **60 pass** (+4 in
+  `ClaimDetailPage.test.tsx`: a reviewer re-adjudicates an ADJUDICATED claim, a non-reviewer sees no Re-adjudicate,
+  the version history lists >1 version, it hides for a single version; plus the breakdown test now asserts the
+  version label). `npm run build` OK. Backend untouched (258 green).
+- **Verified — live in browser** (reviewer@northcare, fresh `db-reset` + backend + Vite): drove the seeded claim
+  to ADJUDICATED (v1) via curl; opened it → "Adjudication — version 1" + a **Re-adjudicate** button; clicked it →
+  the card became "version 2" and a **Version history** card listed both versions newest-first (both $190.00 —
+  identical, confirming the reversal for an unchanged re-run).
+- **Files:** changed `api/client.ts`, `claims/useClaims.ts`, `claims/transitions.ts`,
+  `claims/ClaimDetailPage.tsx` (+`ClaimDetailPage.test.tsx`), `CLAUDE.md`, `docs/PROGRESS.md`.
 
 ### 2026-09-15 — Phase 5, slice 11 ✅ (re-adjudication versioning — the engine's last core deferral)
 - **Why:** an adjudicated claim was frozen (a second `adjudicate` → 409). After a fee-schedule/exclusion/eligibility

@@ -6,6 +6,7 @@ export const CLAIMS_QUERY_KEY = ['claims'] as const
 export const claimKey = (id: string) => ['claims', id] as const
 export const claimHistoryKey = (id: string) => ['claims', id, 'history'] as const
 export const adjudicationKey = (id: string) => ['claims', id, 'adjudication'] as const
+export const adjudicationVersionsKey = (id: string) => ['claims', id, 'adjudication', 'versions'] as const
 
 /** The current tenant's claims (backend scopes to the caller: provider → assigned; reviewer/admin → all). */
 export function useClaims() {
@@ -37,6 +38,18 @@ export function useAdjudication(id: string, enabled: boolean) {
   return useQuery({ queryKey: adjudicationKey(id), queryFn: () => api.getAdjudication(id), enabled })
 }
 
+/**
+ * Every adjudication version for a claim, newest first (the immutable re-adjudication history). Fetched only once
+ * the claim is ADJUDICATED (else it would 404), like {@link useAdjudication}.
+ */
+export function useAdjudicationVersions(id: string, enabled: boolean) {
+  return useQuery({
+    queryKey: adjudicationVersionsKey(id),
+    queryFn: () => api.getAdjudicationVersions(id),
+    enabled,
+  })
+}
+
 /** Apply a claim status transition, then refresh the claim, its history, and the list. */
 export function useChangeClaimStatus(id: string) {
   const queryClient = useQueryClient()
@@ -59,6 +72,7 @@ export function useAdjudicate(id: string) {
       queryClient.invalidateQueries({ queryKey: claimKey(id) })
       queryClient.invalidateQueries({ queryKey: claimHistoryKey(id) })
       queryClient.invalidateQueries({ queryKey: adjudicationKey(id) })
+      queryClient.invalidateQueries({ queryKey: adjudicationVersionsKey(id) })
       queryClient.invalidateQueries({ queryKey: CLAIMS_QUERY_KEY })
     },
   })

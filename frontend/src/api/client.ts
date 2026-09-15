@@ -316,6 +316,9 @@ export const api = {
 
   getAdjudication: (id: string) => request<Adjudication>(`/api/v1/claims/${id}/adjudication`),
 
+  getAdjudicationVersions: (id: string) =>
+    request<Adjudication[]>(`/api/v1/claims/${id}/adjudication/versions`),
+
   // --- Coverage plans + exclusions (§Phase 4/5) ---
   listCoveragePlans: () => request<CoveragePlan[]>('/api/v1/coverage-plans'),
 

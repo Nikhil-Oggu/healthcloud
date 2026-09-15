@@ -78,7 +78,7 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   Checks: `npm run typecheck`, `npm test` (Vitest), `npm run build`. Node runs from `openjdk@25`'s
   sibling `node@24` — use `export PATH="/opt/homebrew/opt/node@24/bin:$PATH"` in non-interactive shells.
 
-## Current implementation (Phase 1–4 COMPLETE; Phase 5 adjudication engine feature-complete — slices 1–11 done; MVP (Phase 0–5) engine done — see docs/PROGRESS.md for status)
+## Current implementation (Phase 1–4 COMPLETE; Phase 5 COMPLETE — slices 1–12 done; MVP (Phase 0–5) feature-complete, engine AND UI — see docs/PROGRESS.md for status)
 - **Backend packages** under `com.healthcloud`: `organization` (Organization, Facility, FacilityMembership),
   `identity` (AppUser, Role, OrganizationMembership, UserRole), `auth` (SecurityConfig, DevLoginController,
   CurrentUserController/Service, CsrfCookieFilter), `context` (UserContext + UserContextAccessor/Filter),
@@ -264,8 +264,8 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   returns the latest version; `GET .../adjudication/versions` lists all, newest first (no status-history row on
   re-adjudication — the status is unchanged; the immutable adjudication row is the record). **Honest MVP
   limitations:** re-adjudication reverses/recomputes *this claim only* (not other claims in the same benefit
-  year); no Idempotency-Key (each call is an intentional new version); no adjudication frontend for the version
-  history yet. Not consent field-masked (claims/benefits data)),
+  year); no Idempotency-Key (each call is an intentional new version). The version history is surfaced in the
+  claims UI (slice 12). Not consent field-masked (claims/benefits data)),
   `devdata` (DevDataSeeder, local-only — also seeds the global `medical_code` catalog once, then a couple of
   synthetic `clinical_summary` rows per assigned patient, one sample DRAFT `claim` (header + two procedure
   lines + its null→DRAFT status-history row) for the first patient, and two `coverage_plan` rows per org (a PPO
@@ -425,7 +425,11 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   CLAIMS_REVIEWER/admin — an **Adjudicate** button on an ACCEPTED claim (`canAdjudicate`, the dedicated engine
   command, not a status button, like Assign on a request), and an **Adjudication breakdown** card showing the
   covering plan + per-line allowed/copay/deductible/coinsurance/OOP-applied/plan-paid/member + totals (the §60
-  proof, visible). Slice 6 added a **New claim form** on the list page (create roles only) — patient select,
+  proof, visible). Slice 12 added a **Re-adjudicate** button on an ADJUDICATED claim (`canReadjudicate`,
+  CLAIMS_REVIEWER/ORG_ADMIN — reuses the adjudicate command to append a new immutable version), a
+  **current-version label** on the breakdown card, and a **Version history** card (all versions newest-first via
+  `useAdjudicationVersions` → `GET .../adjudication/versions`, shown once there is more than one version).
+  Slice 6 added a **New claim form** on the list page (create roles only) — patient select,
   service date (≤ today, mirroring the backend `@PastOrPresent`), and a `useFieldArray` of lines each with a
   reusable **`MedicalCodePicker`** (an MUI Autocomplete, freeSolo + debounced, searching the catalog via
   `GET /api/v1/medical-codes` filtered to PROCEDURE codes) + units + charge; on create it navigates to the new

@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
@@ -20,6 +20,7 @@ vi.mock('../api/client', async (importOriginal) => {
       changeClaimStatus: vi.fn(),
       adjudicateClaim: vi.fn(),
       getAdjudication: vi.fn(),
+      getAdjudicationVersions: vi.fn(),
     },
   }
 })
@@ -30,6 +31,7 @@ const getClaimHistory = vi.mocked(api.getClaimHistory)
 const changeClaimStatus = vi.mocked(api.changeClaimStatus)
 const adjudicateClaim = vi.mocked(api.adjudicateClaim)
 const getAdjudication = vi.mocked(api.getAdjudication)
+const getAdjudicationVersions = vi.mocked(api.getAdjudicationVersions)
 const useCurrentUserMock = vi.mocked(useCurrentUser)
 
 const DRAFT: Claim = {
@@ -60,6 +62,12 @@ const ADJUDICATION: Adjudication = {
   ],
 }
 
+const ADJUDICATION_V2: Adjudication = {
+  ...ADJUDICATION, id: 'adj2', adjudicationVersion: 2,
+  totalAllowedAmount: 140, totalPlanPaidAmount: 40, totalMemberResponsibility: 100,
+  adjudicatedAt: '2026-01-12T09:00:00Z',
+}
+
 function mockUser(roles: string[]) {
   useCurrentUserMock.mockReturnValue({
     data: { userId: 'u1', email: 'x@northcare.example.org', fullName: 'X',
@@ -85,6 +93,7 @@ describe('ClaimDetailPage', () => {
     vi.clearAllMocks()
     getClaimHistory.mockResolvedValue(HISTORY)
     getAdjudication.mockResolvedValue(ADJUDICATION)
+    getAdjudicationVersions.mockResolvedValue([ADJUDICATION])
   })
 
   it('renders the header and the lines', async () => {
@@ -131,11 +140,61 @@ describe('ClaimDetailPage', () => {
 
     renderDetail(<ClaimDetailPage />)
 
-    expect(await screen.findByText('Adjudication')).toBeInTheDocument()
+    // The card title carries the current version number.
+    expect(await screen.findByText('Adjudication — version 1')).toBeInTheDocument()
     // The covering plan name appears once the adjudication query resolves.
     expect(await screen.findByText('Standard PPO')).toBeInTheDocument()
     // Two COVERED line outcomes in the breakdown.
     expect(screen.getAllByText('COVERED').length).toBeGreaterThanOrEqual(2)
+  })
+
+  it('a reviewer can re-adjudicate an ADJUDICATED claim', async () => {
+    mockUser(['CLAIMS_REVIEWER'])
+    getClaim.mockResolvedValue(ADJUDICATED)
+    adjudicateClaim.mockResolvedValue(ADJUDICATION_V2)
+
+    renderDetail(<ClaimDetailPage />)
+    await screen.findByText('Claim CLM-ABC12345')
+
+    await userEvent.click(screen.getByRole('button', { name: 'Re-adjudicate' }))
+
+    await waitFor(() => expect(adjudicateClaim).toHaveBeenCalledWith('cl1'))
+  })
+
+  it('a non-reviewer sees no re-adjudicate button on an ADJUDICATED claim', async () => {
+    mockUser(['CARE_COORDINATOR'])
+    getClaim.mockResolvedValue(ADJUDICATED)
+
+    renderDetail(<ClaimDetailPage />)
+    await screen.findByText('Claim CLM-ABC12345')
+
+    expect(screen.queryByRole('button', { name: 'Re-adjudicate' })).not.toBeInTheDocument()
+  })
+
+  it('lists the version history when there is more than one version', async () => {
+    mockUser(['CLAIMS_REVIEWER'])
+    getClaim.mockResolvedValue(ADJUDICATED)
+    getAdjudication.mockResolvedValue(ADJUDICATION_V2) // current = latest
+    getAdjudicationVersions.mockResolvedValue([ADJUDICATION_V2, ADJUDICATION]) // newest first
+
+    renderDetail(<ClaimDetailPage />)
+
+    expect(await screen.findByText('Version history')).toBeInTheDocument()
+    // Both version numbers appear in the history table.
+    const table = screen.getByRole('table', { name: 'Adjudication version history' })
+    expect(within(table).getByText('1')).toBeInTheDocument()
+    expect(within(table).getByText('2')).toBeInTheDocument()
+  })
+
+  it('hides the version history for a single-version adjudication', async () => {
+    mockUser(['CLAIMS_REVIEWER'])
+    getClaim.mockResolvedValue(ADJUDICATED)
+    getAdjudicationVersions.mockResolvedValue([ADJUDICATION])
+
+    renderDetail(<ClaimDetailPage />)
+    await screen.findByText('Adjudication — version 1')
+
+    expect(screen.queryByText('Version history')).not.toBeInTheDocument()
   })
 
   it('submitting sends the transition with the loaded version', async () => {
