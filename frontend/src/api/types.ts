@@ -415,6 +415,29 @@ export interface CreateCoveragePlanRequest {
   outOfPocketMax?: number
 }
 
+/** A patient's enrollment in a coverage plan for an effective-dated period (mirrors PatientEligibilityDto). */
+export interface PatientEligibility {
+  id: string
+  patientId: string
+  coveragePlanId: string
+  coveragePlanName: string
+  memberId: string
+  effectiveFrom: string
+  effectiveTo: string | null
+  version: number
+}
+
+/**
+ * Payload to enroll a patient in a coverage plan (CARE_COORDINATOR/ORG_ADMIN). Tenant + patient come from the
+ * path/context; the plan must be in-tenant (else 400) and the period must not overlap an existing one (else 409).
+ */
+export interface EnrollEligibilityRequest {
+  coveragePlanId: string
+  memberId: string
+  effectiveFrom: string
+  effectiveTo?: string
+}
+
 /** A procedure a plan excludes (mirrors PlanExclusionDto). */
 export interface PlanExclusion {
   id: string

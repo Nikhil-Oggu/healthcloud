@@ -16,7 +16,9 @@ import type {
   CreateClaimRequest,
   CreateCoveragePlanRequest,
   ConsentDirective,
+  EnrollEligibilityRequest,
   MedicalCode,
+  PatientEligibility,
   PlanExclusion,
   CoordinatorAssignment,
   CurrentUser,
@@ -336,6 +338,17 @@ export const api = {
 
   removeExclusion: (planId: string, exclusionId: string) =>
     request<void>(`/api/v1/coverage-plans/${planId}/exclusions/${exclusionId}`, { method: 'DELETE' }),
+
+  // --- Patient eligibility (§Phase 4/5) ---
+  listEligibility: (patientId: string) =>
+    request<PatientEligibility[]>(`/api/v1/patients/${patientId}/eligibility`),
+
+  enrollEligibility: (patientId: string, body: EnrollEligibilityRequest) =>
+    request<PatientEligibility>(`/api/v1/patients/${patientId}/eligibility`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }),
 }
 
 /** GET a URL and return its response body as a Blob, throwing {@link ApiClientError} on a non-2xx. */

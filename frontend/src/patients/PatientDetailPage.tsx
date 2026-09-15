@@ -53,6 +53,8 @@ import {
   useRevokeCoordinatorAssignment,
   useRevokeProviderAssignment,
 } from '../relationship/useAssignments'
+import { useCoveragePlans } from '../coverage/useCoverage'
+import { useEligibility, useEnrollEligibility } from '../coverage/useEligibility'
 
 // Role-aware UI mirrors the backend gates (the server still enforces them):
 //  - consent: staff OR a PATIENT for their OWN record (self-service);
@@ -61,6 +63,8 @@ const CONSENT_WRITE_ROLES = ['PATIENT', 'CARE_COORDINATOR', 'ORG_ADMIN']
 const CARE_TEAM_WRITE_ROLES = ['CARE_COORDINATOR', 'ORG_ADMIN']
 //  - documents: staff OR a PATIENT for their OWN record may upload (same rule the backend enforces).
 const DOCUMENT_WRITE_ROLES = ['PATIENT', 'CARE_COORDINATOR', 'ORG_ADMIN']
+//  - eligibility: staff only enroll a patient in a plan (a patient never enrolls themselves).
+const ELIGIBILITY_WRITE_ROLES = ['CARE_COORDINATOR', 'ORG_ADMIN']
 
 const PURPOSES = [
   'CARE_COORDINATION',
@@ -113,6 +117,7 @@ export function PatientDetailPage() {
   const canManageConsent = roles.some((r) => CONSENT_WRITE_ROLES.includes(r))
   const canManageCareTeam = roles.some((r) => CARE_TEAM_WRITE_ROLES.includes(r))
   const canUploadDocuments = roles.some((r) => DOCUMENT_WRITE_ROLES.includes(r))
+  const canManageEligibility = roles.some((r) => ELIGIBILITY_WRITE_ROLES.includes(r))
 
   if (patient.isPending) {
     return <LoadingScreen />
@@ -154,6 +159,8 @@ export function PatientDetailPage() {
       </Card>
 
       <CareTeamCard patientId={id} canWrite={canManageCareTeam} />
+
+      <EligibilityCard patientId={id} canWrite={canManageEligibility} />
 
       <DocumentsCard patientId={id} canWrite={canUploadDocuments} />
 
@@ -424,6 +431,156 @@ function AssignmentGroup({
             )}
           </Box>
         )}
+      </CardContent>
+    </Card>
+  )
+}
+
+/**
+ * A patient's coverage eligibility (§Phase 4/5) — the enrollments the adjudication engine reads to find the
+ * plan in effect on a claim's service date. Any same-tenant user with access to the patient may view; enrolling
+ * is shown to CARE_COORDINATOR/ORG_ADMIN (role-aware UI — the backend enforces it).
+ */
+function EligibilityCard({ patientId, canWrite }: { patientId: string; canWrite: boolean }) {
+  const eligibility = useEligibility(patientId)
+
+  return (
+    <Box>
+      <Typography variant="h6" gutterBottom>
+        Coverage eligibility
+      </Typography>
+
+      {canWrite && <EnrollEligibilityForm patientId={patientId} />}
+
+      {eligibility.isError ? (
+        <ErrorScreen error={eligibility.error} />
+      ) : (
+        <TableContainer component={Paper} variant="outlined" sx={{ mt: 2 }}>
+          <Table aria-label="Coverage eligibility">
+            <TableHead>
+              <TableRow>
+                <TableCell>Plan</TableCell>
+                <TableCell>Member ID</TableCell>
+                <TableCell>Effective from</TableCell>
+                <TableCell>Effective to</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {(eligibility.data ?? []).length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={4}>
+                    <Typography variant="body2" color="text.secondary">
+                      Not enrolled in any coverage plan yet.
+                    </Typography>
+                  </TableCell>
+                </TableRow>
+              ) : (
+                (eligibility.data ?? []).map((e) => (
+                  <TableRow key={e.id} hover>
+                    <TableCell>{e.coveragePlanName}</TableCell>
+                    <TableCell>{e.memberId}</TableCell>
+                    <TableCell>{e.effectiveFrom}</TableCell>
+                    <TableCell>{e.effectiveTo ?? 'Open-ended'}</TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </TableContainer>
+      )}
+    </Box>
+  )
+}
+
+// Mirrors the backend Jakarta rules on EnrollEligibilityRequest (coveragePlanId + memberId + effectiveFrom
+// required; effectiveTo optional/open-ended). The in-tenant-plan (400) and non-overlap (409) checks are the
+// server's — surfaced from ApiClientError.
+const enrollSchema = z.object({
+  coveragePlanId: z.string().min(1, 'Choose a plan'),
+  memberId: z.string().trim().min(1, 'Required').max(64, 'At most 64 characters'),
+  effectiveFrom: z.string().min(1, 'Required'),
+  effectiveTo: z.string().optional(),
+})
+type EnrollForm = z.infer<typeof enrollSchema>
+
+function EnrollEligibilityForm({ patientId }: { patientId: string }) {
+  const plans = useCoveragePlans()
+  const enroll = useEnrollEligibility(patientId)
+  const [submitError, setSubmitError] = useState<string | null>(null)
+
+  const {
+    register,
+    handleSubmit,
+    reset,
+    formState: { errors },
+  } = useForm<EnrollForm>({
+    resolver: zodResolver(enrollSchema),
+    defaultValues: { coveragePlanId: '', memberId: '', effectiveFrom: '', effectiveTo: '' },
+  })
+
+  async function onSubmit(values: EnrollForm) {
+    setSubmitError(null)
+    try {
+      await enroll.mutateAsync({
+        coveragePlanId: values.coveragePlanId,
+        memberId: values.memberId,
+        effectiveFrom: values.effectiveFrom,
+        effectiveTo: values.effectiveTo || undefined,
+      })
+      reset()
+    } catch (err) {
+      setSubmitError(err instanceof ApiClientError ? err.message : 'Could not enroll the patient.')
+    }
+  }
+
+  return (
+    <Card variant="outlined">
+      <CardContent>
+        <Typography variant="subtitle1" gutterBottom>
+          Enroll in a plan
+        </Typography>
+        {submitError && (
+          <Alert severity="error" sx={{ mb: 2 }} onClose={() => setSubmitError(null)}>
+            {submitError}
+          </Alert>
+        )}
+        <Box component="form" onSubmit={handleSubmit(onSubmit)} noValidate>
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ alignItems: 'flex-start' }}>
+            <TextField
+              select label="Plan" size="small" fullWidth
+              slotProps={{ select: { native: true }, inputLabel: { shrink: true } }}
+              error={!!errors.coveragePlanId} helperText={errors.coveragePlanId?.message}
+              defaultValue=""
+              {...register('coveragePlanId')}
+            >
+              <option value="">Select…</option>
+              {(plans.data ?? []).map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name} ({p.planCode})
+                </option>
+              ))}
+            </TextField>
+            <TextField
+              label="Member ID" size="small" fullWidth
+              {...register('memberId')} error={!!errors.memberId} helperText={errors.memberId?.message}
+            />
+            <TextField
+              label="Coverage start" type="date" size="small"
+              slotProps={{ inputLabel: { shrink: true } }}
+              {...register('effectiveFrom')} error={!!errors.effectiveFrom}
+              helperText={errors.effectiveFrom?.message}
+            />
+            <TextField
+              label="Coverage end (optional)" type="date" size="small"
+              slotProps={{ inputLabel: { shrink: true } }}
+              {...register('effectiveTo')} error={!!errors.effectiveTo}
+              helperText={errors.effectiveTo?.message}
+            />
+            <Button type="submit" variant="contained" disabled={enroll.isPending}>
+              {enroll.isPending ? 'Enrolling…' : 'Enroll'}
+            </Button>
+          </Stack>
+        </Box>
       </CardContent>
     </Card>
   )

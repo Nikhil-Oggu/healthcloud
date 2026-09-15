@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
@@ -10,9 +10,11 @@ import { PatientDetailPage } from './PatientDetailPage'
 import type {
   ConsentDirective,
   CoordinatorAssignment,
+  CoveragePlan,
   CurrentUser,
   Patient,
   PatientDocument,
+  PatientEligibility,
   ProviderAssignment,
 } from '../api/types'
 
@@ -37,6 +39,9 @@ vi.mock('../api/client', async (importOriginal) => {
       listDocuments: vi.fn(),
       uploadDocument: vi.fn(),
       downloadDocument: vi.fn(),
+      listEligibility: vi.fn(),
+      enrollEligibility: vi.fn(),
+      listCoveragePlans: vi.fn(),
     },
   }
 })
@@ -53,6 +58,9 @@ const assignProvider = vi.mocked(api.assignProvider)
 const revokeProviderAssignment = vi.mocked(api.revokeProviderAssignment)
 const listDocuments = vi.mocked(api.listDocuments)
 const uploadDocument = vi.mocked(api.uploadDocument)
+const listEligibility = vi.mocked(api.listEligibility)
+const enrollEligibility = vi.mocked(api.enrollEligibility)
+const listCoveragePlans = vi.mocked(api.listCoveragePlans)
 const useCurrentUserMock = vi.mocked(useCurrentUser)
 
 const PROVIDER_ASSIGNMENT: ProviderAssignment = {
@@ -128,6 +136,30 @@ const DIRECTIVE: ConsentDirective = {
   endedAt: null,
 }
 
+const COVERAGE_PLAN: CoveragePlan = {
+  id: 'pl1',
+  planCode: 'NC-PPO-STD',
+  name: 'Standard PPO',
+  planType: 'PPO',
+  deductibleAmount: 1500,
+  coinsuranceRate: 0.2,
+  copayAmount: 25,
+  outOfPocketMax: 6000,
+  active: true,
+  version: 0,
+}
+
+const ELIGIBILITY: PatientEligibility = {
+  id: 'el1',
+  patientId: 'p1',
+  coveragePlanId: 'pl1',
+  coveragePlanName: 'Standard PPO',
+  memberId: 'MBR-123',
+  effectiveFrom: '2026-01-01',
+  effectiveTo: null,
+  version: 0,
+}
+
 function mockUserWithRoles(roles: string[]) {
   useCurrentUserMock.mockReturnValue({
     data: {
@@ -162,6 +194,8 @@ describe('PatientDetailPage', () => {
     listProviderCandidates.mockResolvedValue([])
     listCoordinatorCandidates.mockResolvedValue([])
     listDocuments.mockResolvedValue([])
+    listEligibility.mockResolvedValue([])
+    listCoveragePlans.mockResolvedValue([])
   })
 
   it('renders the patient summary and a consent directive row', async () => {
@@ -368,5 +402,63 @@ describe('PatientDetailPage', () => {
     await screen.findByText('summary.txt') // the list is visible read-only
     expect(screen.queryByLabelText('Choose a document')).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Upload' })).not.toBeInTheDocument()
+  })
+
+  it('renders a coverage eligibility row', async () => {
+    mockUserWithRoles(['CLAIMS_REVIEWER'])
+    getPatient.mockResolvedValue(PATIENT)
+    listConsentDirectives.mockResolvedValue([])
+    listEligibility.mockResolvedValue([ELIGIBILITY])
+
+    renderPage(<PatientDetailPage />)
+
+    expect(await screen.findByText('Coverage eligibility')).toBeInTheDocument()
+    // The plan name loads from its own query.
+    expect(await screen.findByText('Standard PPO')).toBeInTheDocument()
+    expect(screen.getByText('MBR-123')).toBeInTheDocument()
+    expect(screen.getByText('Open-ended')).toBeInTheDocument()
+    // A non-write role sees no enroll form.
+    expect(screen.queryByText('Enroll in a plan')).not.toBeInTheDocument()
+  })
+
+  it('lets a coordinator enroll the patient in a plan', async () => {
+    mockUserWithRoles(['CARE_COORDINATOR'])
+    getPatient.mockResolvedValue(PATIENT)
+    listConsentDirectives.mockResolvedValue([])
+    listEligibility.mockResolvedValue([])
+    listCoveragePlans.mockResolvedValue([COVERAGE_PLAN])
+    enrollEligibility.mockResolvedValue(ELIGIBILITY)
+
+    renderPage(<PatientDetailPage />)
+    await screen.findByText('Enroll in a plan')
+    await screen.findByRole('option', { name: 'Standard PPO (NC-PPO-STD)' }) // plans loaded
+
+    await userEvent.selectOptions(screen.getByLabelText('Plan'), 'pl1')
+    await userEvent.type(screen.getByLabelText('Member ID'), 'MBR-123')
+    // Native date input: set the ISO value directly rather than typing it.
+    fireEvent.change(screen.getByLabelText('Coverage start'), { target: { value: '2026-01-01' } })
+    await userEvent.click(screen.getByRole('button', { name: 'Enroll' }))
+
+    await waitFor(() =>
+      expect(enrollEligibility).toHaveBeenCalledWith('p1', {
+        coveragePlanId: 'pl1',
+        memberId: 'MBR-123',
+        effectiveFrom: '2026-01-01',
+        effectiveTo: undefined,
+      }),
+    )
+  })
+
+  it('hides the enroll form for non-write roles', async () => {
+    mockUserWithRoles(['PROVIDER'])
+    getPatient.mockResolvedValue(PATIENT)
+    listConsentDirectives.mockResolvedValue([])
+    listEligibility.mockResolvedValue([ELIGIBILITY])
+
+    renderPage(<PatientDetailPage />)
+
+    await screen.findByText('Standard PPO') // the row is visible read-only
+    expect(screen.queryByText('Enroll in a plan')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Enroll' })).not.toBeInTheDocument()
   })
 })

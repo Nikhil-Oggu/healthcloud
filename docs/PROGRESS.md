@@ -71,9 +71,13 @@
   charge) → the claims UI is now self-sufficient.
   slice 7 ✅ — the **coverage admin UI**: a coverage-plans list + New-plan form (ORG_ADMIN) and a plan detail with
   an **exclusions** card (add via the code picker / remove) → benefit config is now manageable in the browser.
-  **Next Phase-5 slices:** a **patient eligibility enrollment** UI (an Eligibility card on the patient detail
-  page), a **fee-schedule** allowed amount (allowed = charge today), and re-adjudication versioning. Also still
-  deferred: a **frontend** for
+  slice 8 ✅ — the **patient eligibility enrollment UI**: a **Coverage eligibility** card on the patient detail
+  page listing a patient's enrollments (plan · member ID · effective period, "Open-ended" for no end) with an
+  **Enroll in a plan** form (CARE_COORDINATOR/ORG_ADMIN) — plan select + member ID + effective dates → the last
+  browser gap in the coverage/eligibility story is closed; the adjudication engine's `findCovering` input is now
+  set up from the browser.
+  **Next Phase-5 slices:** a **fee-schedule** allowed amount (allowed = charge today), and re-adjudication
+  versioning. Also still deferred: a **frontend** for
   clinical summaries + claims + coverage (incl. a medical-code picker); consent masking of claim fields
   (`CLAIMS_BENEFITS`) and the fuller CLAIMS_REVIEWER business-need scoping; a close/edit endpoint for an
   eligibility period. **Phase 4 proof (§60):** a claims reviewer sees
@@ -96,6 +100,32 @@
   then `curl -b j.txt localhost:8080/api/v1/me`. Reset DB with `./scripts/db-reset.sh`.
 
 ## Log (newest first)
+
+### 2026-09-15 — Phase 5, slice 8 ✅ (patient eligibility enrollment UI — enroll a patient in a plan in the browser)
+- **Why:** eligibility existed only via the API (the seeder enrolled the first patient); a coordinator couldn't
+  enroll a patient in the browser, and the adjudication engine's `findCovering(serviceDate)` input had no UI.
+  This closes the last browser gap in the coverage/eligibility story. **Frontend-only** — no backend/migration
+  change (the `GET/POST /api/v1/patients/{id}/eligibility` endpoints already existed from Phase 4 slice 6).
+- **`EligibilityCard`** on the patient detail page (after Care team, before Documents), mirroring the existing
+  cards: lists the patient's eligibility (plan name · member ID · effective from · effective to, showing
+  "Open-ended" when the period has no end), and — for **CARE_COORDINATOR/ORG_ADMIN** — an **Enroll in a plan**
+  form (RHF + Zod mirroring `EnrollEligibilityRequest`: plan select from `useCoveragePlans`, member ID, coverage
+  start required, coverage end optional). The in-tenant-plan (400) and non-overlap (409) checks are the server's,
+  surfaced via `ApiClientError`. Role-aware UI only — the backend enforces the write gate.
+- **New `src/coverage/useEligibility.ts`:** `useEligibility(patientId)` + `useEnrollEligibility(patientId)`
+  (invalidates the `['patient', id, 'eligibility']` key on success so the list refreshes live).
+- **Plumbing:** `api/types.ts` gained `PatientEligibility` + `EnrollEligibilityRequest`; `api/client.ts` gained
+  `listEligibility` + `enrollEligibility`. No new route/nav — the card lives on the existing patient detail page.
+- **Scope boundary:** no edit/terminate-eligibility UI (the backend has no update endpoint yet — still deferred).
+- **Verified — automated:** frontend `npm run typecheck` clean, `npm test` → **53 pass** (+3 in
+  `PatientDetailPage.test.tsx`: renders an eligibility row (non-write role sees no form), a coordinator enrolls
+  via the form, a provider sees the row but no enroll form). `npm run build` OK. Backend untouched (245 green).
+- **Verified — live in browser** (coordinator@northcare, fresh `db-reset` + backend + Vite): enrolled Fern
+  Fixture (NC-0002) in the HDHP via curl (201; overlap re-enroll → 409), then opened her detail page → the
+  Coverage eligibility card showed the HDHP row (Open-ended); enrolled her in **Standard PPO** for 2020-01-01 →
+  2020-12-31 through the UI form → the new row appeared immediately (list invalidation).
+- **Files:** +`src/coverage/useEligibility.ts`; changed `api/types.ts`, `api/client.ts`,
+  `patients/PatientDetailPage.tsx` (+`PatientDetailPage.test.tsx`), `CLAUDE.md`, `docs/PROGRESS.md`.
 
 ### 2026-09-15 — Phase 5, slice 7 ✅ (coverage-plan admin UI — plans + exclusions in the browser)
 - **Why:** coverage plans and exclusions existed only via the API (the seeder set them up); an admin couldn't
