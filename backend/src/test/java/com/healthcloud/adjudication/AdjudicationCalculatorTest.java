@@ -130,6 +130,52 @@ class AdjudicationCalculatorTest {
     }
 
     @Test
+    void the_out_of_pocket_max_caps_member_cost() {
+        // Deductible met, $0 copay, 20% coinsurance on $1,000 = $200 gross member — but only $50 of OOP remains,
+        // so the member pays $50, $150 shifts to the plan, and the plan pays $950.
+        Computation c = AdjudicationCalculator.adjudicate(
+                plan("1500.00", "0.2000", "0.00"), money("0.00"), money("50.00"),
+                List.of(new LineCharge(1, money("1000.00"))));
+
+        LineComputation line = c.lines().get(0);
+        assertEquals(money("200.00"), line.coinsuranceAmount());
+        assertEquals(money("150.00"), line.oopMaxAppliedAmount());
+        assertEquals(money("50.00"), line.memberResponsibility());
+        assertEquals(money("950.00"), line.planPaidAmount());
+        assertEquals(money("50.00"), c.totalMemberResponsibility());
+    }
+
+    @Test
+    void a_null_remaining_oop_never_caps() {
+        // Same line, but no OOP cap (null) → the member pays the full $200 coinsurance, nothing shifts.
+        Computation c = AdjudicationCalculator.adjudicate(
+                plan("1500.00", "0.2000", "0.00"), money("0.00"), null,
+                List.of(new LineCharge(1, money("1000.00"))));
+
+        LineComputation line = c.lines().get(0);
+        assertEquals(money("0.00"), line.oopMaxAppliedAmount());
+        assertEquals(money("200.00"), line.memberResponsibility());
+        assertEquals(money("800.00"), line.planPaidAmount());
+    }
+
+    @Test
+    void the_oop_cap_is_consumed_across_lines() {
+        // $30 OOP remaining, two $1,000 lines at 20% (no deductible/copay). Line 1: $200 gross → member $30,
+        // $170 to plan, OOP exhausted. Line 2: $200 gross → member $0, all $200 to plan.
+        Computation c = AdjudicationCalculator.adjudicate(
+                plan("1500.00", "0.2000", "0.00"), money("0.00"), money("30.00"),
+                List.of(new LineCharge(1, money("1000.00")), new LineCharge(2, money("1000.00"))));
+
+        assertEquals(money("30.00"), c.lines().get(0).memberResponsibility());
+        assertEquals(money("170.00"), c.lines().get(0).oopMaxAppliedAmount());
+        assertEquals(money("0.00"), c.lines().get(1).memberResponsibility());
+        assertEquals(money("200.00"), c.lines().get(1).oopMaxAppliedAmount());
+        assertEquals(money("2000.00"), c.totalAllowed());
+        assertEquals(money("1970.00"), c.totalPlanPaid());
+        assertEquals(money("30.00"), c.totalMemberResponsibility());
+    }
+
+    @Test
     void coinsurance_is_rounded_half_up_to_cents() {
         // No deductible, $0 copay, 15% of $155.55 = $23.3325 → rounds to $23.33; plan pays the rest.
         Computation c = AdjudicationCalculator.adjudicate(

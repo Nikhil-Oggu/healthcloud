@@ -53,9 +53,13 @@
   `deductible_met`/`out_of_pocket_met`, read-and-updated inside the adjudication tx under a `PESSIMISTIC_WRITE`
   lock (§31), so the **annual deductible carries across claims** (a later claim sees less deductible remaining →
   the plan pays more) and concurrent adjudications can't lose an update.
-  **Next Phase-5 slices:** **out-of-pocket-max** enforcement (consumes the `out_of_pocket_met` slice 2 tracks),
-  **exclusions**, a **fee-schedule** allowed amount, re-adjudication versioning, and the claims/adjudication
-  **frontend**. Also still deferred: a **frontend** for
+  slice 3 ✅ — **out-of-pocket-max enforcement**: the calculator caps the member's cost-sharing so the year's
+  cumulative out-of-pocket can't exceed the plan's `outOfPocketMax` (the excess shifts to the plan, recorded per
+  line as `oopMaxAppliedAmount`); OOP-remaining carries across claims via the accumulator's `out_of_pocket_met`,
+  so once the max is met the plan pays 100%. **The core adjudication math is now complete** (eligibility,
+  deductible carry-over, copay, coinsurance, OOP max) — a natural MVP milestone.
+  **Next Phase-5 slices:** **exclusions** (non-covered procedures), a **fee-schedule** allowed amount,
+  re-adjudication versioning, and the claims/adjudication **frontend**. Also still deferred: a **frontend** for
   clinical summaries + claims + coverage (incl. a medical-code picker); consent masking of claim fields
   (`CLAIMS_BENEFITS`) and the fuller CLAIMS_REVIEWER business-need scoping; a close/edit endpoint for an
   eligibility period. **Phase 4 proof (§60):** a claims reviewer sees
@@ -78,6 +82,36 @@
   then `curl -b j.txt localhost:8080/api/v1/me`. Reset DB with `./scripts/db-reset.sh`.
 
 ## Log (newest first)
+
+### 2026-09-15 — Phase 5, slice 3 ✅ (out-of-pocket-max enforcement — completes the core adjudication math)
+- **Why:** slice 2 started tracking `out_of_pocket_met` but did not enforce the cap. This consumes it: once a
+  member's cumulative cost-sharing for the year reaches the plan's out-of-pocket maximum, the plan pays 100% of
+  everything beyond it. With this the core money math — eligibility, deductible carry-over, copay, coinsurance,
+  OOP max — is complete (a natural MVP milestone).
+- **The model:** OOP max counts all member cost-sharing (copay + deductible + coinsurance — the modern ACA
+  definition). Per line, in order, the calculator computes the gross member amount, then caps it by the OOP
+  remaining for the year (`max(0, plan.outOfPocketMax − out_of_pocket_met)`); the excess shifts to the plan and
+  is recorded per line as `oopMaxAppliedAmount`. A null `outOfPocketMax` = no cap. The cap runs across lines
+  within a claim and across claims via the accumulator (which accrues the real, post-cap member spend).
+- **Explainability (§60):** the new per-line `oopMaxAppliedAmount` keeps the arithmetic reconciled —
+  `memberResponsibility = copay + deductibleApplied + coinsurance − oopMaxApplied`, `planPaid = allowed − member`.
+- **Migration `V22__adjudication_line_oop.sql`:** additive `oop_max_applied_amount NUMERIC(12,2) NOT NULL
+  DEFAULT 0` (+ a non-negative CHECK) on `adjudication_line`; existing rows default 0.
+- **Changed:** `AdjudicationCalculator` gains a 4-arg `adjudicate(plan, deductibleRemaining, oopRemaining, lines)`
+  (the 2-/3-arg forms delegate with an uncapped OOP, so slice-1/2 tests stay valid) and `LineComputation` gains
+  `oopMaxAppliedAmount`; `AdjudicationLine` (+column/field), `AdjudicationLineDto` (+field), `AdjudicationService`
+  (computes OOP-remaining from the plan max and the locked accumulator, passes it to the calculator).
+- **Scope boundary (later slices):** exclusions (non-covered procedures), fee-schedule allowed amounts
+  (`allowed = charge`), re-adjudication versioning, frontend.
+- **Verified — automated:** `./mvnw -B clean verify` → **237 pass** (+4: `AdjudicationCalculatorTest` +3 — the
+  cap bites, a null OOP never caps, the cap spreads across lines; `AdjudicationAccumulatorApiIntegrationTest` +1 —
+  a $40,000 PPO claim caps the member at the $6,000 OOP max (plan pays $34,000, $3,220 shifted) and a second
+  same-year claim is fully plan-paid).
+- **Verified — live:** `db-reset` → fresh backend → a $40,000 PPO claim → member $6,000, plan $34,000,
+  `oopMaxApplied` $3,220; a follow-up $500 claim → member $0, plan $500 (OOP met → plan pays 100%).
+- **Files:** +`V22__adjudication_line_oop.sql`; changed `AdjudicationCalculator`, `AdjudicationLine`,
+  `AdjudicationLineDto`, `AdjudicationService`, `AdjudicationRepositoryTest`, `AdjudicationCalculatorTest`,
+  `AdjudicationAccumulatorApiIntegrationTest`, `CLAUDE.md`, `docs/PROGRESS.md`.
 
 ### 2026-09-15 — Phase 5, slice 2 ✅ (the benefit accumulator — the annual deductible carries across claims)
 - **Why:** slice 1's honest limitation was that the deductible started fresh on every claim (each claim behaved

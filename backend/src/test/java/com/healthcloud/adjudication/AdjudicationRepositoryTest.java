@@ -95,6 +95,6 @@ class AdjudicationRepositoryTest {
         BigDecimal zero = new BigDecimal("0.00");
         BigDecimal charge = new BigDecimal("100.00");
         return new AdjudicationLine(orgId, adjId, claimLineId, lineNumber, CodeSystem.CPT, code,
-                LineOutcome.COVERED, charge, charge, zero, charge, zero, zero, charge);
+                LineOutcome.COVERED, charge, charge, zero, charge, zero, zero, zero, charge);
     }
 }

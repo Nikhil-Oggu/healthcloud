@@ -116,7 +116,11 @@ public class AdjudicationService {
             BenefitAccumulator accumulator =
                     lockAccumulator(organizationId, claim.getPatientId(), plan.getId(), benefitYear);
             BigDecimal deductibleRemaining = plan.getDeductibleAmount().subtract(accumulator.getDeductibleMet());
-            AdjudicationCalculator.Computation computation = compute(lines, plan, deductibleRemaining);
+            // Remaining out-of-pocket for the year (null plan max = no cap); the calculator caps member cost.
+            BigDecimal oopRemaining = plan.getOutOfPocketMax() == null ? null
+                    : plan.getOutOfPocketMax().subtract(accumulator.getOutOfPocketMet());
+            AdjudicationCalculator.Computation computation =
+                    compute(lines, plan, deductibleRemaining, oopRemaining);
             // Record this claim's contribution: deductible met + out-of-pocket accrued (the OOP-max hook).
             accumulator.add(deductibleApplied(computation), computation.totalMemberResponsibility());
             accumulators.save(accumulator);
@@ -174,20 +178,20 @@ public class AdjudicationService {
                     claim.getOrganizationId(), header.getId(), line.getId(), line.getLineNumber(),
                     line.getProcedureCodeSystem(), line.getProcedureCode(), LineOutcome.COVERED,
                     line.getChargeAmount(), c.allowedAmount(), c.copayAmount(), c.deductibleAppliedAmount(),
-                    c.coinsuranceAmount(), c.planPaidAmount(), c.memberResponsibility())));
+                    c.coinsuranceAmount(), c.oopMaxAppliedAmount(), c.planPaidAmount(), c.memberResponsibility())));
         }
         return saved;
     }
 
     private AdjudicationCalculator.Computation compute(List<ClaimLine> lines, CoveragePlan plan,
-                                                       BigDecimal deductibleRemaining) {
+                                                       BigDecimal deductibleRemaining, BigDecimal oopRemaining) {
         List<AdjudicationCalculator.LineCharge> charges = lines.stream()
                 .map(l -> new AdjudicationCalculator.LineCharge(l.getLineNumber(), l.getChargeAmount()))
                 .toList();
         return AdjudicationCalculator.adjudicate(
                 new AdjudicationCalculator.PlanParameters(
                         plan.getDeductibleAmount(), plan.getCoinsuranceRate(), plan.getCopayAmount()),
-                deductibleRemaining, charges);
+                deductibleRemaining, oopRemaining, charges);
     }
 
     /** Ensure the accumulator row exists, then lock it FOR UPDATE for the rest of the transaction (§31). */
@@ -223,7 +227,7 @@ public class AdjudicationService {
                     claim.getOrganizationId(), header.getId(), line.getId(), line.getLineNumber(),
                     line.getProcedureCodeSystem(), line.getProcedureCode(), LineOutcome.NOT_COVERED,
                     charge, money(BigDecimal.ZERO), money(BigDecimal.ZERO), money(BigDecimal.ZERO),
-                    money(BigDecimal.ZERO), money(BigDecimal.ZERO), charge)));
+                    money(BigDecimal.ZERO), money(BigDecimal.ZERO), money(BigDecimal.ZERO), charge)));
         }
         return saved;
     }

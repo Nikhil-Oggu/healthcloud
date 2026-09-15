@@ -19,6 +19,7 @@ public record AdjudicationLineDto(
         BigDecimal copayAmount,
         BigDecimal deductibleAppliedAmount,
         BigDecimal coinsuranceAmount,
+        BigDecimal oopMaxAppliedAmount,
         BigDecimal planPaidAmount,
         BigDecimal memberResponsibility) {
 
@@ -34,6 +35,7 @@ public record AdjudicationLineDto(
                 line.getCopayAmount(),
                 line.getDeductibleAppliedAmount(),
                 line.getCoinsuranceAmount(),
+                line.getOopMaxAppliedAmount(),
                 line.getPlanPaidAmount(),
                 line.getMemberResponsibility());
     }

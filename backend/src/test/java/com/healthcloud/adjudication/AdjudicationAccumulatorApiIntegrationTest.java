@@ -71,6 +71,28 @@ class AdjudicationAccumulatorApiIntegrationTest {
         assertTrue(a3.contains("\"totalPlanPaidAmount\":0.00"), "a new benefit year resets the deductible — " + a3);
     }
 
+    @Test
+    void the_out_of_pocket_max_caps_the_member_then_the_plan_pays_everything() throws Exception {
+        Session coordinator = loginWithCsrf("coordinator@northcare.example.org");
+        Session reviewer = loginWithCsrf("reviewer@northcare.example.org");
+        String patientId = firstId(createPatient(coordinator).body());
+        enroll(coordinator, patientId, ppoPlanId(coordinator)); // PPO: $1,500 deductible, 20%, $25 copay, $6,000 OOP
+
+        // A $40,000 claim: copay $25 + deductible $1,500 + coinsurance 20% of $38,475 = $7,695 → gross member
+        // $9,220, but the $6,000 OOP max caps it → member $6,000, $3,220 shifts to the plan, plan pays $34,000.
+        String c1 = acceptedClaim(coordinator, reviewer, patientId, "2026-05-01", "40000.00");
+        String a1 = adjudicate(reviewer, c1).body();
+        assertTrue(a1.contains("\"totalMemberResponsibility\":6000.00"), "member capped at the OOP max — " + a1);
+        assertTrue(a1.contains("\"totalPlanPaidAmount\":34000.00"), "the plan absorbs the excess — " + a1);
+        assertTrue(a1.contains("\"oopMaxAppliedAmount\":3220.00"), "the line records the OOP shift — " + a1);
+
+        // A second same-year claim: the OOP max is already met → the member pays $0 and the plan pays 100%.
+        String c2 = acceptedClaim(coordinator, reviewer, patientId, "2026-06-01", "500.00");
+        String a2 = adjudicate(reviewer, c2).body();
+        assertTrue(a2.contains("\"totalMemberResponsibility\":0.00"), "OOP met → member owes nothing — " + a2);
+        assertTrue(a2.contains("\"totalPlanPaidAmount\":500.00"), "the plan pays the whole charge — " + a2);
+    }
+
     // --- helpers -------------------------------------------------------------
 
     private record Session(String session, String xsrf) {}

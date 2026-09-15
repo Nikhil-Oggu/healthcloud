@@ -67,6 +67,9 @@ public class AdjudicationLine {
     @Column(name = "coinsurance_amount", nullable = false, precision = 12, scale = 2, updatable = false)
     private BigDecimal coinsuranceAmount;
 
+    @Column(name = "oop_max_applied_amount", nullable = false, precision = 12, scale = 2, updatable = false)
+    private BigDecimal oopMaxAppliedAmount;
+
     @Column(name = "plan_paid_amount", nullable = false, precision = 12, scale = 2, updatable = false)
     private BigDecimal planPaidAmount;
 
@@ -84,7 +87,8 @@ public class AdjudicationLine {
                             CodeSystem procedureCodeSystem, String procedureCode, LineOutcome outcome,
                             BigDecimal chargeAmount, BigDecimal allowedAmount, BigDecimal copayAmount,
                             BigDecimal deductibleAppliedAmount, BigDecimal coinsuranceAmount,
-                            BigDecimal planPaidAmount, BigDecimal memberResponsibility) {
+                            BigDecimal oopMaxAppliedAmount, BigDecimal planPaidAmount,
+                            BigDecimal memberResponsibility) {
         this.organizationId = organizationId;
         this.adjudicationId = adjudicationId;
         this.claimLineId = claimLineId;
@@ -97,6 +101,7 @@ public class AdjudicationLine {
         this.copayAmount = copayAmount;
         this.deductibleAppliedAmount = deductibleAppliedAmount;
         this.coinsuranceAmount = coinsuranceAmount;
+        this.oopMaxAppliedAmount = oopMaxAppliedAmount;
         this.planPaidAmount = planPaidAmount;
         this.memberResponsibility = memberResponsibility;
     }
@@ -156,6 +161,10 @@ public class AdjudicationLine {
 
     public BigDecimal getCoinsuranceAmount() {
         return coinsuranceAmount;
+    }
+
+    public BigDecimal getOopMaxAppliedAmount() {
+        return oopMaxAppliedAmount;
     }
 
     public BigDecimal getPlanPaidAmount() {
