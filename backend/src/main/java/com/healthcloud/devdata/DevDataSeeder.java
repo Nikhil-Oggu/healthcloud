@@ -22,6 +22,8 @@ import com.healthcloud.coding.MedicalCode;
 import com.healthcloud.coding.MedicalCodeRepository;
 import com.healthcloud.coverage.CoveragePlan;
 import com.healthcloud.coverage.CoveragePlanRepository;
+import com.healthcloud.coverage.PatientEligibility;
+import com.healthcloud.coverage.PatientEligibilityRepository;
 import com.healthcloud.coverage.PlanType;
 import com.healthcloud.identity.UserRole;
 import com.healthcloud.identity.UserRoleRepository;
@@ -80,6 +82,7 @@ public class DevDataSeeder implements ApplicationRunner {
     private final ClaimLineRepository claimLineRepository;
     private final ClaimStatusHistoryRepository claimStatusHistoryRepository;
     private final CoveragePlanRepository coveragePlanRepository;
+    private final PatientEligibilityRepository patientEligibilityRepository;
 
     public DevDataSeeder(OrganizationRepository organizationRepository,
                          AppUserRepository appUserRepository,
@@ -96,7 +99,8 @@ public class DevDataSeeder implements ApplicationRunner {
                          ClaimRepository claimRepository,
                          ClaimLineRepository claimLineRepository,
                          ClaimStatusHistoryRepository claimStatusHistoryRepository,
-                         CoveragePlanRepository coveragePlanRepository) {
+                         CoveragePlanRepository coveragePlanRepository,
+                         PatientEligibilityRepository patientEligibilityRepository) {
         this.organizationRepository = organizationRepository;
         this.appUserRepository = appUserRepository;
         this.roleRepository = roleRepository;
@@ -113,6 +117,7 @@ public class DevDataSeeder implements ApplicationRunner {
         this.claimLineRepository = claimLineRepository;
         this.claimStatusHistoryRepository = claimStatusHistoryRepository;
         this.coveragePlanRepository = coveragePlanRepository;
+        this.patientEligibilityRepository = patientEligibilityRepository;
     }
 
     @Override
@@ -213,14 +218,18 @@ public class DevDataSeeder implements ApplicationRunner {
         // demo claims list/queue returns something. Amounts are synthetic.
         seedClaim(org, patients.get(0), provider);
 
-        // A couple of synthetic coverage plans (Phase 4) the org administers, so eligibility (next slice) and
-        // Phase-5 adjudication have benefit parameters to reference.
-        seedCoveragePlans(org, mrnPrefix);
+        // A couple of synthetic coverage plans (Phase 4) the org administers, so eligibility and Phase-5
+        // adjudication have benefit parameters to reference; then enroll the first patient in the PPO.
+        CoveragePlan ppo = seedCoveragePlans(org, mrnPrefix);
+        seedEligibility(org, patients.get(0), ppo, mrnPrefix, coordinator);
     }
 
-    /** Two synthetic benefit plans per tenant: a standard PPO and a high-deductible plan. All amounts synthetic. */
-    private void seedCoveragePlans(Organization org, String planPrefix) {
-        coveragePlanRepository.save(new CoveragePlan(
+    /**
+     * Two synthetic benefit plans per tenant: a standard PPO and a high-deductible plan. All amounts synthetic.
+     * Returns the PPO so a patient can be enrolled in it.
+     */
+    private CoveragePlan seedCoveragePlans(Organization org, String planPrefix) {
+        CoveragePlan ppo = coveragePlanRepository.save(new CoveragePlan(
                 org.getId(), planPrefix + "-PPO-STD", "Standard PPO", PlanType.PPO,
                 new BigDecimal("1500.00"), new BigDecimal("0.2000"), new BigDecimal("25.00"),
                 new BigDecimal("6000.00")));
@@ -228,6 +237,15 @@ public class DevDataSeeder implements ApplicationRunner {
                 org.getId(), planPrefix + "-HDHP", "High-Deductible Health Plan", PlanType.HDHP,
                 new BigDecimal("4000.00"), new BigDecimal("0.1000"), new BigDecimal("0.00"),
                 new BigDecimal("8000.00")));
+        return ppo;
+    }
+
+    /** Enroll a patient in a plan, open-ended from a year ago, so a demo/adjudication has coverage to find. */
+    private void seedEligibility(Organization org, Patient patient, CoveragePlan plan, String memberPrefix,
+                                AppUser enrolledBy) {
+        patientEligibilityRepository.save(new PatientEligibility(
+                org.getId(), patient.getId(), plan.getId(), memberPrefix + "-M0001",
+                LocalDate.now().minusYears(1), null, enrolledBy.getId()));
     }
 
     /** A synthetic DRAFT claim with two procedure lines (CPT), header total = sum of the line charges. */

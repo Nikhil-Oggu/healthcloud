@@ -18,7 +18,10 @@
   CLAIMS_REVIEWER's accept/reject is their first write action ·
   slice 5 ✅ coverage plan foundation — the org's benefit plans (deductible/coinsurance/copay/OOP-max, plan type);
   tenant-owned but NOT patient-scoped (admin-gated create, no relationship gate); the parameters Phase-5
-  adjudication will apply)** ·
+  adjudication will apply ·
+  slice 6 ✅ patient eligibility — a patient's enrollment in a coverage plan for an effective-dated,
+  non-overlapping period; patient-scoped (reuses `PatientAccessGuard`), FKs the plan; `findCovering(date)` is the
+  hook Phase-5 adjudication walks. **Phase 4 foundations complete → next is Phase 5 (adjudication engine)**)** ·
   **Phase 3 COMPLETE ✅ (slice 1 ✅ consent lifecycle · 2 ✅ decision engine §22.5 · 3 ✅ field masking §23 ·
   4 ✅ provider↔patient record §14.3 · 5 ✅ object/relationship gate on patient reads §21 layer 6 ·
   6 ✅ gate applied to the patient-nested endpoints — single `PatientAccessGuard` choke point ·
@@ -40,14 +43,15 @@
   16 ✅ documents UI — a Documents card on the patient detail page: upload, list with scan-status chips, and
   download of CLEAN files; the §19 loop is now visible end-to-end in the browser)**
 - **Repo:** https://github.com/Nikhil-Oggu/healthcloud (private, branch `main`)
-- **Next up (Phase 4):** the coverage plan is in (slice 5). Remaining Phase-4 work: **patient eligibility**
-  (slice 6 — enroll a patient in a coverage plan for an effective-dated coverage period; patient-scoped, so it
-  reuses `PatientAccessGuard`, and FKs the plan via `coverage_plan(id, organization_id)`). Then Phase 4 tapers
-  into **Phase 5 — the adjudication engine** (reads eligibility → plan → the ACCEPTED claim's lines → line/claim
-  outcomes, `ADJUDICATED`, immutable adjudication versions; `ADJUDICATED` is already reserved as engine-owned).
-  Also still deferred: a **frontend** for clinical summaries + claims (incl. a medical-code picker); consent
-  masking of claim fields (`CLAIMS_BENEFITS`) and the fuller CLAIMS_REVIEWER business-need scoping.
-  **Phase 4 proof (§60):** a claims reviewer sees
+- **Next up — Phase 5 (adjudication engine, completes the MVP):** the Phase-4 building blocks are all in
+  (codes, clinical summaries, claims + state machine, coverage plans, patient eligibility). Phase 5's engine
+  reads an ACCEPTED claim → `PatientEligibilityRepository.findCovering(serviceDate)` → the coverage plan → and
+  computes deterministic, explainable line + claim outcomes (eligibility, coverage, allowed amount, deductible,
+  copay, coinsurance, exclusions), moving the claim to `ADJUDICATED` (already reserved as engine-owned) with
+  immutable adjudication versions. Plan Phase 5, slice 1 when ready. Also still deferred: a **frontend** for
+  clinical summaries + claims + coverage (incl. a medical-code picker); consent masking of claim fields
+  (`CLAIMS_BENEFITS`) and the fuller CLAIMS_REVIEWER business-need scoping; a close/edit endpoint for an
+  eligibility period. **Phase 4 proof (§60):** a claims reviewer sees
   claim-relevant data *without* unrestricted medical context — so the CLAIMS_REVIEWER business-need scoping
   deferred through Phase 3 gets designed here. A **medical-codes UI** (a code picker) arrives when a slice first
   consumes codes. Plan each slice before building. (Older deferred items still open — Phase 3 was
@@ -67,6 +71,32 @@
   then `curl -b j.txt localhost:8080/api/v1/me`. Reset DB with `./scripts/db-reset.sh`.
 
 ## Log (newest first)
+
+### 2026-09-15 — Phase 4, slice 6 ✅ (patient eligibility — enrollment in a coverage plan)
+- **Why:** the last Phase-4 foundation. It records which patient is on which plan and when, so Phase 5 can ask
+  "for this claim's patient + service date, what coverage was in effect?". Patient-scoped, so it reuses the
+  Phase-3 stack (`PatientAccessGuard`, tenant scoping) and FKs the slice-5 coverage plan.
+- **Migration `V19__patient_eligibility.sql`:** `patient_eligibility` — patient, coverage_plan, `member_id`,
+  `effective_from`, nullable `effective_to`, audit cols, `version`. Two composite FKs (`(patient_id, org)` →
+  patient, `(coverage_plan_id, org)` → coverage_plan, §32.10); CHECK `effective_to >= effective_from`.
+- **New in `com.healthcloud.coverage`:** `PatientEligibility` entity, `PatientEligibilityRepository` (org+patient
+  finders + a `findCovering(org, patient, date)` window query — the Phase-5 hook), `PatientEligibilityDto`
+  (carries the plan name, resolved at read), `EnrollEligibilityRequest`, `PatientEligibilityService`,
+  `PatientEligibilityController` (nested under the patient).
+- **Behaviour:** enroll requires CARE_COORDINATOR/ORG_ADMIN (a PROVIDER/PATIENT → 403) and routes through the
+  patient gate (unreachable → secure 404); the plan must be in-tenant (else 400); dates are validated; and
+  periods for a patient are kept **non-overlapping** (enforced in the service → 409) so coverage-on-a-date is
+  deterministic. Reads are gated (a patient reads their own; an assigned provider / broad roles read too);
+  `GET .../eligibility?asOf=` returns just the covering period. Not consent field-masked (claims/benefits data).
+- **Seeder:** enrolls the first patient per org in that org's PPO (open-ended, member `<PREFIX>-M0001`).
+- **Verified — automated:** `./mvnw -B clean verify` → **213 pass** (+10: `PatientEligibilityRepositoryTest` ×2
+  — tenant scoping + the `findCovering` window; `PatientEligibilityApiIntegrationTest` ×8 — 401; coordinator
+  enroll + read-back; provider enroll → 403; a patient reads their own coverage; unknown plan → 400; overlap →
+  409; `asOf` filters to the covering period; cross-tenant → secure 404).
+- **Verified — live:** `db-reset` → fresh backend → Sam's seeded PPO enrollment reads back (member NC-M0001,
+  open-ended); `asOf` today → 1 record, `asOf` 2020 → 0; an overlapping enroll → 409; an unknown plan → 400.
+- **Files:** +`V19__patient_eligibility.sql`, +5 `coverage/` classes, +2 test classes; changed `DevDataSeeder`,
+  `CLAUDE.md`, `docs/PROGRESS.md`.
 
 ### 2026-09-15 — Phase 4, slice 5 ✅ (coverage plan foundation — the benefit plan)
 - **Why:** Phase 5's adjudication engine needs benefit parameters to apply (deductible, copay, coinsurance) and

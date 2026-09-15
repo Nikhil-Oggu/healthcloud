@@ -204,13 +204,21 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   `outOfPocketMax` — plus `planType` (HMO/PPO/EPO/HDHP). **Tenant-owned but NOT patient-scoped** (administrative
   benefit config, not PHI): org-scoped finders, cross-tenant → secure 404, but **no `PatientAccessGuard`**.
   Reads open to any same-tenant authenticated user; **create requires ORG_ADMIN** (403 otherwise); `plan_code`
-  unique per tenant (duplicate → 409); `UNIQUE(id, organization_id)` so patient eligibility can FK-with-org next
-  slice. Money is `BigDecimal`/`NUMERIC`. Patient eligibility (patient↔plan for a coverage period) is the next
-  slice; the adjudication math is Phase 5),
+  unique per tenant (duplicate → 409); `UNIQUE(id, organization_id)` so patient eligibility FKs-with-org.
+  Money is `BigDecimal`/`NUMERIC`. **Also `patient_eligibility`** (same package, but patient-scoped):
+  `GET/POST /api/v1/patients/{patientId}/eligibility`, `GET .../eligibility/{id}`. A patient's enrollment in a
+  coverage plan for an effective-dated period (`effectiveFrom`, nullable `effectiveTo`, a `memberId`), FKs both
+  `patient` and `coverage_plan` with-org. Patient-scoped, so reads/writes route through `PatientAccessGuard`
+  (unreachable patient → secure 404); **enroll is CARE_COORDINATOR/ORG_ADMIN** (a PROVIDER/PATIENT enroll → 403),
+  the plan must be in-tenant (else 400), and periods for a patient are kept **non-overlapping** (enforced in the
+  service → 409) so coverage-on-a-date is deterministic. `PatientEligibilityRepository.findCovering(org, patient,
+  date)` (also surfaced as `GET .../eligibility?asOf=`) is the hook the Phase-5 adjudication engine calls. Not
+  consent field-masked (claims/benefits data, not clinical context). The adjudication math is Phase 5),
   `devdata` (DevDataSeeder, local-only — also seeds the global `medical_code` catalog once, then a couple of
   synthetic `clinical_summary` rows per assigned patient, one sample DRAFT `claim` (header + two procedure
   lines + its null→DRAFT status-history row) for the first patient, and two `coverage_plan` rows per org (a PPO
-  + an HDHP); reference codes are seeded before the orgs so the clinical-summary/claim→catalog FKs are satisfied).
+  + an HDHP) and enrolls the first patient in the PPO (`patient_eligibility`, open-ended); reference codes are
+  seeded before the orgs so the clinical-summary/claim→catalog FKs are satisfied).
 - **Tenant-owned entity pattern (Phase 2+):** hold `organizationId` as the tenant key; repositories expose
   only org-scoped finders (`findByIdAndOrganizationId`, `findByOrganizationId…`) — no bare `findById` in
   business code; services derive the org from `UserContextAccessor.requireOrganizationId()`. `patient` is
