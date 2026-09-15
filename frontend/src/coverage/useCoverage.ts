@@ -1,0 +1,47 @@
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { api } from '../api/client'
+import type { AddPlanExclusionRequest, CreateCoveragePlanRequest } from '../api/types'
+
+export const COVERAGE_PLANS_QUERY_KEY = ['coverage-plans'] as const
+export const coveragePlanKey = (id: string) => ['coverage-plans', id] as const
+export const exclusionsKey = (id: string) => ['coverage-plans', id, 'exclusions'] as const
+
+/** The current tenant's coverage plans (reads open to any same-tenant user). */
+export function useCoveragePlans() {
+  return useQuery({ queryKey: COVERAGE_PLANS_QUERY_KEY, queryFn: () => api.listCoveragePlans() })
+}
+
+export function useCoveragePlan(id: string) {
+  return useQuery({ queryKey: coveragePlanKey(id), queryFn: () => api.getCoveragePlan(id) })
+}
+
+/** Create a coverage plan (ORG_ADMIN), then refresh the list. */
+export function useCreateCoveragePlan() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (body: CreateCoveragePlanRequest) => api.createCoveragePlan(body),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: COVERAGE_PLANS_QUERY_KEY }),
+  })
+}
+
+export function useExclusions(planId: string) {
+  return useQuery({ queryKey: exclusionsKey(planId), queryFn: () => api.listExclusions(planId) })
+}
+
+/** Add an exclusion to a plan, then refresh that plan's exclusion list. */
+export function useAddExclusion(planId: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (body: AddPlanExclusionRequest) => api.addExclusion(planId, body),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: exclusionsKey(planId) }),
+  })
+}
+
+/** Remove an exclusion from a plan, then refresh that plan's exclusion list. */
+export function useRemoveExclusion(planId: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (exclusionId: string) => api.removeExclusion(planId, exclusionId),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: exclusionsKey(planId) }),
+  })
+}

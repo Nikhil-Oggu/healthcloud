@@ -6,14 +6,18 @@ import type {
   AssignMemberRequest,
   AssignmentCandidate,
   AssignRequest,
+  AddPlanExclusionRequest,
   Claim,
   ClaimStatusChange,
   ClaimStatusHistory,
   ClaimSummary,
   ClaimStatus,
+  CoveragePlan,
   CreateClaimRequest,
+  CreateCoveragePlanRequest,
   ConsentDirective,
   MedicalCode,
+  PlanExclusion,
   CoordinatorAssignment,
   CurrentUser,
   Patient,
@@ -307,6 +311,31 @@ export const api = {
     request<Adjudication>(`/api/v1/claims/${id}/adjudicate`, { method: 'POST' }),
 
   getAdjudication: (id: string) => request<Adjudication>(`/api/v1/claims/${id}/adjudication`),
+
+  // --- Coverage plans + exclusions (§Phase 4/5) ---
+  listCoveragePlans: () => request<CoveragePlan[]>('/api/v1/coverage-plans'),
+
+  getCoveragePlan: (id: string) => request<CoveragePlan>(`/api/v1/coverage-plans/${id}`),
+
+  createCoveragePlan: (body: CreateCoveragePlanRequest) =>
+    request<CoveragePlan>('/api/v1/coverage-plans', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }),
+
+  listExclusions: (planId: string) =>
+    request<PlanExclusion[]>(`/api/v1/coverage-plans/${planId}/exclusions`),
+
+  addExclusion: (planId: string, body: AddPlanExclusionRequest) =>
+    request<PlanExclusion>(`/api/v1/coverage-plans/${planId}/exclusions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }),
+
+  removeExclusion: (planId: string, exclusionId: string) =>
+    request<void>(`/api/v1/coverage-plans/${planId}/exclusions/${exclusionId}`, { method: 'DELETE' }),
 }
 
 /** GET a URL and return its response body as a Blob, throwing {@link ApiClientError} on a non-2xx. */

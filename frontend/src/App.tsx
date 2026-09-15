@@ -9,6 +9,8 @@ import { RequestsPage } from './requests/RequestsPage'
 import { RequestDetailPage } from './requests/RequestDetailPage'
 import { ClaimsPage } from './claims/ClaimsPage'
 import { ClaimDetailPage } from './claims/ClaimDetailPage'
+import { CoveragePlansPage } from './coverage/CoveragePlansPage'
+import { CoveragePlanDetailPage } from './coverage/CoveragePlanDetailPage'
 import { DeniedPage } from './pages/DeniedPage'
 import { NotFoundPage } from './pages/NotFoundPage'
 
@@ -29,6 +31,8 @@ const router = createBrowserRouter([
       { path: 'requests/:id', element: <RequestDetailPage /> },
       { path: 'claims', element: <ClaimsPage /> },
       { path: 'claims/:id', element: <ClaimDetailPage /> },
+      { path: 'coverage-plans', element: <CoveragePlansPage /> },
+      { path: 'coverage-plans/:id', element: <CoveragePlanDetailPage /> },
       { path: 'denied', element: <DeniedPage /> },
     ],
   },

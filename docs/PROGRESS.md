@@ -69,8 +69,11 @@
   slice 6 ✅ — a **claim-creation form** + reusable **medical-code picker**: create a claim in the browser
   (patient, service date, and a dynamic list of lines each with a catalog-searching procedure picker + units +
   charge) → the claims UI is now self-sufficient.
-  **Next Phase-5 slices:** a **fee-schedule** allowed amount (allowed = charge today), re-adjudication
-  versioning, and an **exclusions/coverage-plan admin** UI. Also still deferred: a **frontend** for
+  slice 7 ✅ — the **coverage admin UI**: a coverage-plans list + New-plan form (ORG_ADMIN) and a plan detail with
+  an **exclusions** card (add via the code picker / remove) → benefit config is now manageable in the browser.
+  **Next Phase-5 slices:** a **patient eligibility enrollment** UI (an Eligibility card on the patient detail
+  page), a **fee-schedule** allowed amount (allowed = charge today), and re-adjudication versioning. Also still
+  deferred: a **frontend** for
   clinical summaries + claims + coverage (incl. a medical-code picker); consent masking of claim fields
   (`CLAIMS_BENEFITS`) and the fuller CLAIMS_REVIEWER business-need scoping; a close/edit endpoint for an
   eligibility period. **Phase 4 proof (§60):** a claims reviewer sees
@@ -93,6 +96,31 @@
   then `curl -b j.txt localhost:8080/api/v1/me`. Reset DB with `./scripts/db-reset.sh`.
 
 ## Log (newest first)
+
+### 2026-09-15 — Phase 5, slice 7 ✅ (coverage-plan admin UI — plans + exclusions in the browser)
+- **Why:** coverage plans and exclusions existed only via the API (the seeder set them up); an admin couldn't
+  manage benefits in the browser. This adds a Coverage area and **reuses the slice-6 `MedicalCodePicker`** for
+  excluding procedures. **Frontend-only** — no backend/migration change.
+- **New `src/coverage/`:** `useCoverage.ts` (plans list/detail + create; exclusions list/add/remove hooks),
+  `CoveragePlansPage.tsx` (a list — code/name/type/deductible/coinsurance-as-% /copay/OOP — plus a New-plan form
+  for ORG_ADMIN, RHF+Zod mirroring `CreateCoveragePlanRequest`; input≠output form generics as in slice 6),
+  `CoveragePlanDetailPage.tsx` (the plan parameters + an **Excluded procedures** card: list + Remove and an Add
+  control using the code picker, all ORG_ADMIN; duplicate → 409 and unknown code → 400 surface via `ApiClientError`).
+- **Plumbing:** `api/types.ts` gained `PlanType`, `CoveragePlan`, `CreateCoveragePlanRequest`, `PlanExclusion`,
+  `AddPlanExclusionRequest`; `api/client.ts` gained `listCoveragePlans`, `getCoveragePlan`, `createCoveragePlan`,
+  `listExclusions`, `addExclusion`, `removeExclusion`; `App.tsx` +2 routes; `AppLayout` a **Coverage** nav button
+  for staff roles. Reads are open to same-tenant staff; writes are ORG_ADMIN (role-aware UI; backend enforces).
+- **Scope boundary:** no **patient eligibility enrollment** UI yet (slice 8); no diagnosis picker; no fee schedule.
+- **Verified — automated:** frontend `npm run typecheck` clean, `npm test` → **50 pass** (+5:
+  `CoveragePlansPage.test.tsx` ×2 — lists plans with coinsurance as %, an admin creates a plan (a non-admin sees
+  no form); `CoveragePlanDetailPage.test.tsx` ×3 — renders params + exclusions, an admin adds via the picker and
+  removes, a non-admin sees no add/remove). `npm run build` OK. Backend untouched (245 tests still green).
+- **Verified — live in browser** (admin@northcare, fresh `db-reset` + backend + Vite): Coverage listed the two
+  seeded plans (coinsurance shown 10% / 20%); created **NC-EPO-1 "Basic EPO"** via the form → appeared in the
+  list; opened Standard PPO → added an exclusion for **80053** via the picker (listed 80053 · CPT) → **Remove** →
+  back to "No exclusions".
+- **Files:** +`src/coverage/` (useCoverage, CoveragePlansPage, CoveragePlanDetailPage) +2 test files; changed
+  `api/types.ts`, `api/client.ts`, `App.tsx`, `layout/AppLayout.tsx`, `CLAUDE.md`, `docs/PROGRESS.md`.
 
 ### 2026-09-15 — Phase 5, slice 6 ✅ (claim-creation form + medical-code picker — the claims UI is self-sufficient)
 - **Why:** slice 5 could drive a claim but not create one (only the seeded DRAFT claim existed). This adds a

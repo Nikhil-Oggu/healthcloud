@@ -3,4 +3,5 @@ dist
 dist-ssr
 *.local
 .DS_Store
-coverage
+# Vitest coverage report output — anchored so it never matches src/coverage/ (a feature folder).
+/coverage/

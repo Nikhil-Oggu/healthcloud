@@ -384,3 +384,46 @@ export interface CreateClaimRequest {
   serviceDate: string
   lines: CreateClaimLine[]
 }
+
+// --- Coverage plans + exclusions (§Phase 4/5) ----------------------------
+
+/** A benefit plan type. */
+export type PlanType = 'HMO' | 'PPO' | 'EPO' | 'HDHP'
+
+/** A coverage plan (mirrors CoveragePlanDto). coinsuranceRate is a 0..1 fraction; outOfPocketMax may be null. */
+export interface CoveragePlan {
+  id: string
+  planCode: string
+  name: string
+  planType: PlanType
+  deductibleAmount: number
+  coinsuranceRate: number
+  copayAmount: number
+  outOfPocketMax: number | null
+  active: boolean
+  version: number
+}
+
+/** Payload to create a coverage plan (ORG_ADMIN). Tenant is set on the server; planCode unique per tenant. */
+export interface CreateCoveragePlanRequest {
+  planCode: string
+  name: string
+  planType: PlanType
+  deductibleAmount: number
+  coinsuranceRate: number
+  copayAmount: number
+  outOfPocketMax?: number
+}
+
+/** A procedure a plan excludes (mirrors PlanExclusionDto). */
+export interface PlanExclusion {
+  id: string
+  coveragePlanId: string
+  codeSystem: CodeSystem
+  code: string
+}
+
+/** Payload to exclude a procedure from a plan (ORG_ADMIN); the backend resolves + validates the code. */
+export interface AddPlanExclusionRequest {
+  procedureCode: string
+}
