@@ -16,6 +16,8 @@ import com.healthcloud.coverage.PatientEligibility;
 import com.healthcloud.coverage.PatientEligibilityRepository;
 import com.healthcloud.coverage.PlanExclusion;
 import com.healthcloud.coverage.PlanExclusionRepository;
+import com.healthcloud.coverage.PlanFeeScheduleEntry;
+import com.healthcloud.coverage.PlanFeeScheduleRepository;
 import com.healthcloud.error.CorrelationId;
 import com.healthcloud.error.InvalidStateTransitionException;
 import com.healthcloud.error.NotFoundException;
@@ -62,6 +64,7 @@ public class AdjudicationService {
     private final AdjudicationLineRepository adjudicationLines;
     private final BenefitAccumulatorRepository accumulators;
     private final PlanExclusionRepository planExclusions;
+    private final PlanFeeScheduleRepository planFeeSchedule;
     private final PatientAccessGuard accessGuard;
     private final UserContextAccessor userContext;
 
@@ -70,6 +73,7 @@ public class AdjudicationService {
                                CoveragePlanRepository coveragePlans, PatientEligibilityRepository eligibility,
                                AdjudicationRepository adjudications, AdjudicationLineRepository adjudicationLines,
                                BenefitAccumulatorRepository accumulators, PlanExclusionRepository planExclusions,
+                               PlanFeeScheduleRepository planFeeSchedule,
                                PatientAccessGuard accessGuard, UserContextAccessor userContext) {
         this.claims = claims;
         this.claimLines = claimLines;
@@ -80,6 +84,7 @@ public class AdjudicationService {
         this.adjudicationLines = adjudicationLines;
         this.accumulators = accumulators;
         this.planExclusions = planExclusions;
+        this.planFeeSchedule = planFeeSchedule;
         this.accessGuard = accessGuard;
         this.userContext = userContext;
     }
@@ -142,8 +147,10 @@ public class AdjudicationService {
             // Remaining out-of-pocket for the year (null plan max = no cap); the calculator caps member cost.
             BigDecimal oopRemaining = plan.getOutOfPocketMax() == null ? null
                     : plan.getOutOfPocketMax().subtract(accumulator.getOutOfPocketMet());
+            // The plan's fee schedule (if any) prices covered lines: allowed = min(charge, fee-schedule amount).
+            Map<String, BigDecimal> feeSchedule = feeScheduleByCode(organizationId, plan.getId());
             AdjudicationCalculator.Computation computation =
-                    compute(coveredLines, plan, deductibleRemaining, oopRemaining);
+                    compute(coveredLines, plan, deductibleRemaining, oopRemaining, feeSchedule);
             // Record this claim's contribution: deductible met + out-of-pocket accrued (covered lines only).
             accumulator.add(deductibleApplied(computation), computation.totalMemberResponsibility());
             accumulators.save(accumulator);
@@ -238,14 +245,31 @@ public class AdjudicationService {
     }
 
     private AdjudicationCalculator.Computation compute(List<ClaimLine> lines, CoveragePlan plan,
-                                                       BigDecimal deductibleRemaining, BigDecimal oopRemaining) {
+                                                       BigDecimal deductibleRemaining, BigDecimal oopRemaining,
+                                                       Map<String, BigDecimal> feeSchedule) {
         List<AdjudicationCalculator.LineCharge> charges = lines.stream()
-                .map(l -> new AdjudicationCalculator.LineCharge(l.getLineNumber(), l.getChargeAmount()))
+                .map(l -> {
+                    // Allowed = the fee-schedule amount when the procedure is priced, else the full charge; the
+                    // calculator caps it at the charge either way (a plan never allows more than was billed).
+                    BigDecimal priced = feeSchedule.get(codeKey(l.getProcedureCodeSystem(), l.getProcedureCode()));
+                    BigDecimal allowed = priced != null ? priced : l.getChargeAmount();
+                    return new AdjudicationCalculator.LineCharge(l.getLineNumber(), l.getChargeAmount(), allowed);
+                })
                 .toList();
         return AdjudicationCalculator.adjudicate(
                 new AdjudicationCalculator.PlanParameters(
                         plan.getDeductibleAmount(), plan.getCoinsuranceRate(), plan.getCopayAmount()),
                 deductibleRemaining, oopRemaining, charges);
+    }
+
+    /** The plan's fee-schedule allowed amounts keyed by {@code SYSTEM|CODE} (canonical, matching claim lines). */
+    private Map<String, BigDecimal> feeScheduleByCode(UUID organizationId, UUID coveragePlanId) {
+        Map<String, BigDecimal> priced = new HashMap<>();
+        for (PlanFeeScheduleEntry entry : planFeeSchedule
+                .findByOrganizationIdAndCoveragePlanIdOrderByCodeSystemAscCodeAsc(organizationId, coveragePlanId)) {
+            priced.put(codeKey(entry.getCodeSystem(), entry.getCode()), entry.getAllowedAmount());
+        }
+        return priced;
     }
 
     /** Ensure the accumulator row exists, then lock it FOR UPDATE for the rest of the transaction (§31). */

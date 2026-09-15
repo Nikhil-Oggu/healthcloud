@@ -24,6 +24,8 @@ import com.healthcloud.coverage.CoveragePlan;
 import com.healthcloud.coverage.CoveragePlanRepository;
 import com.healthcloud.coverage.PatientEligibility;
 import com.healthcloud.coverage.PatientEligibilityRepository;
+import com.healthcloud.coverage.PlanFeeScheduleEntry;
+import com.healthcloud.coverage.PlanFeeScheduleRepository;
 import com.healthcloud.coverage.PlanType;
 import com.healthcloud.identity.UserRole;
 import com.healthcloud.identity.UserRoleRepository;
@@ -83,6 +85,7 @@ public class DevDataSeeder implements ApplicationRunner {
     private final ClaimStatusHistoryRepository claimStatusHistoryRepository;
     private final CoveragePlanRepository coveragePlanRepository;
     private final PatientEligibilityRepository patientEligibilityRepository;
+    private final PlanFeeScheduleRepository planFeeScheduleRepository;
 
     public DevDataSeeder(OrganizationRepository organizationRepository,
                          AppUserRepository appUserRepository,
@@ -100,7 +103,8 @@ public class DevDataSeeder implements ApplicationRunner {
                          ClaimLineRepository claimLineRepository,
                          ClaimStatusHistoryRepository claimStatusHistoryRepository,
                          CoveragePlanRepository coveragePlanRepository,
-                         PatientEligibilityRepository patientEligibilityRepository) {
+                         PatientEligibilityRepository patientEligibilityRepository,
+                         PlanFeeScheduleRepository planFeeScheduleRepository) {
         this.organizationRepository = organizationRepository;
         this.appUserRepository = appUserRepository;
         this.roleRepository = roleRepository;
@@ -118,6 +122,7 @@ public class DevDataSeeder implements ApplicationRunner {
         this.claimStatusHistoryRepository = claimStatusHistoryRepository;
         this.coveragePlanRepository = coveragePlanRepository;
         this.patientEligibilityRepository = patientEligibilityRepository;
+        this.planFeeScheduleRepository = planFeeScheduleRepository;
     }
 
     @Override
@@ -222,6 +227,18 @@ public class DevDataSeeder implements ApplicationRunner {
         // adjudication have benefit parameters to reference; then enroll the first patient in the PPO.
         CoveragePlan ppo = seedCoveragePlans(org, mrnPrefix);
         seedEligibility(org, patients.get(0), ppo, mrnPrefix, coordinator);
+        seedFeeSchedule(org, ppo, admin);
+    }
+
+    /**
+     * A synthetic fee-schedule entry on the PPO so a demo adjudication shows a real allowed amount below the
+     * charge: the metabolic panel (80053) is billed $45.50 on the seeded claim but the plan allows only $40.00
+     * (the $5.50 difference is a provider write-off). The office-visit line (99213) has no entry, so it falls
+     * back to allowed = charge — the two lines together show both paths in one adjudication.
+     */
+    private void seedFeeSchedule(Organization org, CoveragePlan plan, AppUser createdBy) {
+        planFeeScheduleRepository.save(new PlanFeeScheduleEntry(
+                org.getId(), plan.getId(), CodeSystem.CPT, "80053", new BigDecimal("40.00"), createdBy.getId()));
     }
 
     /**

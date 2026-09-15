@@ -78,7 +78,7 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   Checks: `npm run typecheck`, `npm test` (Vitest), `npm run build`. Node runs from `openjdk@25`'s
   sibling `node@24` — use `export PATH="/opt/homebrew/opt/node@24/bin:$PATH"` in non-interactive shells.
 
-## Current implementation (Phase 1–4 COMPLETE; Phase 5 adjudication IN PROGRESS — slices 1–8 done — see docs/PROGRESS.md for status)
+## Current implementation (Phase 1–4 COMPLETE; Phase 5 adjudication IN PROGRESS — slices 1–9 done — see docs/PROGRESS.md for status)
 - **Backend packages** under `com.healthcloud`: `organization` (Organization, Facility, FacilityMembership),
   `identity` (AppUser, Role, OrganizationMembership, UserRole), `auth` (SecurityConfig, DevLoginController,
   CurrentUserController/Service, CsrfCookieFilter), `context` (UserContext + UserContextAccessor/Filter),
@@ -218,12 +218,16 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   /api/v1/coverage-plans/{planId}/exclusions`, `DELETE .../exclusions/{id}`. Plan config (tenant-owned, not
   patient-scoped), procedure FKs the global catalog; reads open to same-tenant, **add/remove ORG_ADMIN**,
   duplicate → 409, unknown/non-procedure code → 400. The adjudication engine reads these to mark matching claim
-  lines NOT_COVERED),
+  lines NOT_COVERED. **Also `plan_fee_schedule`** (Phase 5 slice 9 — the allowed amount a plan recognizes per
+  procedure): `GET/POST /api/v1/coverage-plans/{planId}/fee-schedule`, `DELETE .../fee-schedule/{id}`; same shape
+  as `plan_exclusion` (tenant-owned plan config, procedure FKs the catalog, reads same-tenant, **add/remove
+  ORG_ADMIN**, duplicate 409, unknown code 400) plus an `allowed_amount`. The engine reads these to set
+  `allowed = min(charge, fee-schedule amount)` for a priced covered line, else `allowed = charge`),
   `adjudication` (Phase 5 — the basic synthetic claims-adjudication engine: `POST /api/v1/claims/{id}/adjudicate`
   + `GET /api/v1/claims/{id}/adjudication`. It turns an **ACCEPTED** claim into a deterministic, explainable
   `adjudication` (header + `adjudication_line` breakdown): it finds the coverage in effect on the claim's
   **service date** (`PatientEligibilityRepository.findCovering`), applies the covering plan's parameters via the
-  pure **`AdjudicationCalculator`** (allowed = charge → copay → deductible consumed across the claim's lines →
+  pure **`AdjudicationCalculator`** (allowed → copay → deductible consumed across the claim's lines →
   coinsurance; money `BigDecimal` scale 2 HALF_UP), and records, per line and in total, allowed / copay /
   deductible-applied / coinsurance / **plan-paid** vs **member-responsibility** — the §60 proof (for any decision,
   which plan applied and how every amount was computed). **Adjudication is a dedicated engine command, not a bare
@@ -247,13 +251,19 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   accumulator (`out_of_pocket_met`), so once the max is met the plan pays 100%. **Plan exclusions are applied**
   (slice 4): a claim line whose procedure the covering plan excludes (`plan_exclusion`) is `NOT_COVERED` — allowed
   0, plan pays 0, member owes the charge — and, because it skips the cost-sharing math, it does not consume the
-  deductible or OOP; the claim is still `ADJUDICATED` (a mix of COVERED and NOT_COVERED lines). **Honest MVP
-  limitations (later Phase-5 slices):** no fee-schedule allowed amounts (allowed = charge), no re-adjudication,
-  and no frontend. Not consent field-masked (claims/benefits data)),
+  deductible or OOP; the claim is still `ADJUDICATED` (a mix of COVERED and NOT_COVERED lines). **Fee-schedule
+  allowed amounts are applied** (slice 9): a covered line whose procedure the covering plan prices
+  (`plan_fee_schedule`) is allowed `min(charge, fee-schedule amount)` instead of the full charge — the difference
+  is a provider write-off no one pays — and everything downstream (copay/deductible/coinsurance/OOP/split) keys off
+  that allowed; an unpriced procedure falls back to `allowed = charge`. **Honest MVP limitations (later Phase-5
+  slices):** no fee-schedule **admin UI** yet (backend only), no re-adjudication versioning. Not consent
+  field-masked (claims/benefits data)),
   `devdata` (DevDataSeeder, local-only — also seeds the global `medical_code` catalog once, then a couple of
   synthetic `clinical_summary` rows per assigned patient, one sample DRAFT `claim` (header + two procedure
   lines + its null→DRAFT status-history row) for the first patient, and two `coverage_plan` rows per org (a PPO
-  + an HDHP) and enrolls the first patient in the PPO (`patient_eligibility`, open-ended); reference codes are
+  + an HDHP), enrolls the first patient in the PPO (`patient_eligibility`, open-ended), and prices 80053 on the
+  PPO (`plan_fee_schedule`, allowed $40 < the seeded $45.50 charge) so a demo adjudication shows a write-off;
+  reference codes are
   seeded before the orgs so the clinical-summary/claim→catalog FKs are satisfied).
 - **Tenant-owned entity pattern (Phase 2+):** hold `organizationId` as the tenant key; repositories expose
   only org-scoped finders (`findByIdAndOrganizationId`, `findByOrganizationId…`) — no bare `findById` in

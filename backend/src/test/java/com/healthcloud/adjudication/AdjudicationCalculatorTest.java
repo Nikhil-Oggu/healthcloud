@@ -176,6 +176,45 @@ class AdjudicationCalculatorTest {
     }
 
     @Test
+    void a_fee_schedule_allowed_below_the_charge_drives_the_split() {
+        // $200 charge but the plan allows only $120 (fee schedule). No deductible, $0 copay, 20% coinsurance:
+        // 20% of the $120 allowed = $24 to the member, $96 to the plan. The $80 (charge - allowed) is written off.
+        Computation c = AdjudicationCalculator.adjudicate(
+                plan("0.00", "0.2000", "0.00"),
+                List.of(new LineCharge(1, money("200.00"), money("120.00"))));
+
+        LineComputation line = c.lines().get(0);
+        assertEquals(money("120.00"), line.allowedAmount());
+        assertEquals(money("24.00"), line.coinsuranceAmount());
+        assertEquals(money("24.00"), line.memberResponsibility());
+        assertEquals(money("96.00"), line.planPaidAmount());
+        assertEquals(money("120.00"), c.totalAllowed());
+    }
+
+    @Test
+    void the_allowed_amount_is_capped_at_the_billed_charge() {
+        // A fee-schedule amount above the charge never inflates the allowed — a plan allows at most what was billed.
+        Computation c = AdjudicationCalculator.adjudicate(
+                plan("0.00", "0.2000", "0.00"),
+                List.of(new LineCharge(1, money("80.00"), money("120.00"))));
+
+        LineComputation line = c.lines().get(0);
+        assertEquals(money("80.00"), line.allowedAmount());
+        assertEquals(money("16.00"), line.memberResponsibility());
+        assertEquals(money("64.00"), line.planPaidAmount());
+    }
+
+    @Test
+    void no_fee_schedule_entry_falls_back_to_allowed_equals_charge() {
+        // The two-argument LineCharge (no fee schedule) keeps the previous behavior: allowed = charge.
+        Computation c = AdjudicationCalculator.adjudicate(
+                plan("0.00", "0.2000", "0.00"),
+                List.of(new LineCharge(1, money("200.00"))));
+
+        assertEquals(money("200.00"), c.lines().get(0).allowedAmount());
+    }
+
+    @Test
     void coinsurance_is_rounded_half_up_to_cents() {
         // No deductible, $0 copay, 15% of $155.55 = $23.3325 → rounds to $23.33; plan pays the rest.
         Computation c = AdjudicationCalculator.adjudicate(

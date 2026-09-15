@@ -76,8 +76,13 @@
   **Enroll in a plan** form (CARE_COORDINATOR/ORG_ADMIN) — plan select + member ID + effective dates → the last
   browser gap in the coverage/eligibility story is closed; the adjudication engine's `findCovering` input is now
   set up from the browser.
-  **Next Phase-5 slices:** a **fee-schedule** allowed amount (allowed = charge today), and re-adjudication
-  versioning. Also still deferred: a **frontend** for
+  slice 9 ✅ — **fee-schedule allowed amounts**: a `plan_fee_schedule` per plan prices procedure codes
+  (`GET/POST/DELETE /api/v1/coverage-plans/{id}/fee-schedule`, ORG_ADMIN writes); the engine now sets
+  `allowed = min(charge, fee-schedule amount)` for a priced covered line (the difference is a provider write-off
+  no one pays) and falls back to `allowed = charge` for an unpriced line — replacing the old "allowed = charge"
+  everywhere. All cost-sharing already keys off allowed, so the whole split becomes realistic. **Backend-only.**
+  **Next Phase-5 slices:** a **fee-schedule admin UI** (a card on the coverage-plan detail page, mirroring
+  exclusions — slice 10), and re-adjudication versioning. Also still deferred: a **frontend** for
   clinical summaries + claims + coverage (incl. a medical-code picker); consent masking of claim fields
   (`CLAIMS_BENEFITS`) and the fuller CLAIMS_REVIEWER business-need scoping; a close/edit endpoint for an
   eligibility period. **Phase 4 proof (§60):** a claims reviewer sees
@@ -100,6 +105,41 @@
   then `curl -b j.txt localhost:8080/api/v1/me`. Reset DB with `./scripts/db-reset.sh`.
 
 ## Log (newest first)
+
+### 2026-09-15 — Phase 5, slice 9 ✅ (fee-schedule allowed amounts — allowed is no longer just the charge)
+- **Why:** the engine used `allowed = charge` everywhere — a provider could bill any amount and the plan/member
+  split off the full charge. This adds a per-plan fee schedule so `allowed = min(charge, fee-schedule amount)`
+  (the standard in-network model; `charge − allowed` is a provider write-off no one pays). Every downstream amount
+  (copay, deductible, coinsurance, OOP, plan/member split) already keys off allowed, so the whole computation
+  becomes realistic. **Backend-only** — mirrors `plan_exclusion` (slice 4) almost exactly.
+- **Migration `V24__plan_fee_schedule.sql`:** `plan_fee_schedule` per `(coverage_plan_id, code_system, code)` →
+  `allowed_amount` (+ non-negative CHECK), tenant key, FK-with-org to `coverage_plan`, FK to `medical_code`,
+  `UNIQUE(org, plan, code_system, code)` — identical shape to `plan_exclusion`.
+- **Coverage package:** `PlanFeeScheduleEntry`, `PlanFeeScheduleRepository`, `PlanFeeScheduleDto`,
+  `AddFeeScheduleRequest` (procedureCode + allowedAmount), `PlanFeeScheduleService` (list open to same-tenant;
+  add/remove **ORG_ADMIN**; catalog-validated code → 400; duplicate → 409; cross-tenant plan → secure 404),
+  `PlanFeeScheduleController` — `GET/POST /api/v1/coverage-plans/{planId}/fee-schedule`, `DELETE .../{entryId}`.
+- **Calculator:** `LineCharge` gains `allowedAmount` (with a 2-arg convenience ctor = charge, so existing call
+  sites/tests and the no-entry fallback are unchanged); the line's `allowed = min(allowedAmount, charge)`.
+- **Engine (`AdjudicationService`):** loads the covering plan's fee schedule into a `code → allowed` map and
+  resolves each covered line's allowed from it (else the charge). No change to the exclusion/denial/accumulator paths.
+- **Seeder:** prices **80053 at $40.00** on the seeded PPO (billed $45.50 on the seeded claim) so a demo shows
+  allowed < charge; the 99213 line stays unpriced → allowed = charge, so one adjudication shows both paths. (Chose
+  80053 deliberately: the accumulator test asserts exact 99213 amounts on the seeded PPO, so pricing 99213 there
+  would have broken it.)
+- **Verified — automated:** `./mvnw -B clean verify` → **255 pass** (+10: 3 calculator — fee-schedule split,
+  allowed capped at charge, no-entry fallback; 6 `PlanFeeScheduleApiIntegrationTest` — add/list/remove, non-admin
+  403, duplicate 409, unknown 400, negative amount 400, cross-tenant 404; 1 `AdjudicationFeeScheduleApiIntegrationTest`
+  — a priced line is allowed the fee amount and an unpriced line falls back to charge). Frontend untouched (53 green).
+- **Verified — live** (admin@northcare, fresh `db-reset` + backend): adjudicated the seeded claim → the 80053 line
+  came back `chargeAmount 45.50 / allowedAmount 40.00` (the $5.50 write-off) while 99213 stayed `150.00 / 150.00`;
+  `totalAllowedAmount 190.00` vs `totalChargeAmount 195.50` — both paths in one decision.
+- **Scope boundary:** no fee-schedule **admin UI** yet (slice 10, mirroring the exclusions card); no member
+  balance-billing of the write-off (in-network model); per-plan (not org-level) fee schedules.
+- **Files:** +`V24__plan_fee_schedule.sql`, +`coverage/PlanFeeScheduleEntry|Repository|Dto|Service|Controller.java`,
+  +`AddFeeScheduleRequest.java`, +2 tests (`coverage/PlanFeeScheduleApiIntegrationTest`,
+  `adjudication/AdjudicationFeeScheduleApiIntegrationTest`); changed `AdjudicationCalculator.java`,
+  `AdjudicationService.java`, `AdjudicationCalculatorTest.java`, `DevDataSeeder.java`, `CLAUDE.md`, `docs/PROGRESS.md`.
 
 ### 2026-09-15 — Phase 5, slice 8 ✅ (patient eligibility enrollment UI — enroll a patient in a plan in the browser)
 - **Why:** eligibility existed only via the API (the seeder enrolled the first patient); a coordinator couldn't

@@ -13,7 +13,10 @@ import java.util.List;
  *
  * <p><b>The model (deterministic, MVP-honest).</b> For each line, in line order:
  * <ol>
- *   <li>{@code allowed = charge} — the allowed amount equals the billed charge (a fee schedule is a later hook).</li>
+ *   <li><b>allowed</b> — the plan-recognized amount the split is computed from, supplied per line by the caller
+ *       (the engine resolves it from the plan's fee schedule: {@code min(charge, fee-schedule amount)}, or the
+ *       full charge when the procedure has no fee-schedule entry). The difference {@code charge - allowed} is a
+ *       provider write-off no one pays.</li>
  *   <li><b>copay</b> = {@code min(plan copay, allowed)} — a fixed member amount per line.</li>
  *   <li><b>deductible</b> — the plan's annual deductible is consumed across the claim's lines in order, up to what
  *       remains of the charge after copay; the member pays the amount applied.</li>
@@ -27,9 +30,8 @@ import java.util.List;
  * is a 0..1 fraction. The remaining deductible and remaining OOP are carried across claims by the benefit
  * accumulator (§31); this class is pure and just applies what it is given.
  *
- * <p><b>Honest limitation.</b> Exclusions (non-covered procedures) and fee-schedule allowed amounts
- * ({@code allowed = charge} here) are later Phase-5 slices. A denied claim (no coverage) is handled by the
- * service, not here — this calculator only computes the covered case.
+ * <p><b>Honest limitation.</b> A denied claim (no coverage) and excluded (non-covered) lines are handled by the
+ * service, not here — this calculator only computes the covered case from the allowed amounts it is given.
  */
 public final class AdjudicationCalculator {
 
@@ -42,8 +44,17 @@ public final class AdjudicationCalculator {
     public record PlanParameters(BigDecimal deductibleAmount, BigDecimal coinsuranceRate, BigDecimal copayAmount) {
     }
 
-    /** One line's input to the calculator. */
-    public record LineCharge(int lineNumber, BigDecimal chargeAmount) {
+    /**
+     * One line's input to the calculator: the billed charge and the plan-recognized allowed amount the split is
+     * computed from. The convenience constructor sets {@code allowed = charge} (no fee schedule) so callers that
+     * do not price lines keep the previous behavior.
+     */
+    public record LineCharge(int lineNumber, BigDecimal chargeAmount, BigDecimal allowedAmount) {
+
+        /** A line with no fee-schedule entry — the allowed amount is the full billed charge. */
+        public LineCharge(int lineNumber, BigDecimal chargeAmount) {
+            this(lineNumber, chargeAmount, chargeAmount);
+        }
     }
 
     /** How one line was computed — every amount that makes up the split, for the explainable breakdown. */
@@ -105,7 +116,8 @@ public final class AdjudicationCalculator {
         BigDecimal totalMember = ZERO;
 
         for (LineCharge line : lines) {
-            BigDecimal allowed = money(line.chargeAmount());
+            // The allowed amount is capped at the billed charge — a plan never recognizes more than was billed.
+            BigDecimal allowed = money(line.allowedAmount()).min(money(line.chargeAmount()));
 
             BigDecimal copay = copayRate.min(allowed);
             BigDecimal afterCopay = allowed.subtract(copay);
