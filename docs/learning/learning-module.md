@@ -671,3 +671,292 @@ A: Phase 3's hybrid RBAC + attribute policy evaluator checks a **relationship** 
 this provider actually assigned to / related to this request or patient?". `request_assignment` is the
 first concrete relationship the evaluator can consult; `provider_patient_assignment` and consent join it
 later. The seed's "unassigned provider → denied" scenario is precisely this check.
+
+---
+
+## Phase 3 — Consent, Authorization, Privacy & Documents (slices 1–16) — 2026-09-14
+
+### What we built
+Phase 3 is the flagship of HealthCloud: the layer that makes the platform *consent-aware* and privacy-safe.
+Across 16 slices we built a **five-layer authorization pipeline** and the two big features that depend on it —
+**consent** and **secure documents**. The §21.1 pipeline, applied to every protected read in order, is:
+
+```
+tenant  →  function/role  →  object/relationship  →  consent + purpose  →  field-level masking
+```
+
+Each layer is an independent check that can only *narrow* access; a broad role (coordinator/admin) skips the
+relationship layer but still faces consent + masking. The headline acceptance test (§60): **two users with the
+same role get different results** because relationship/consent/purpose differ — proven end to end.
+
+What landed, by theme:
+
+- **Consent** (slices 1, 2, 8, 13) — a versioned consent-directive lifecycle, a pure GRANT/DENY decision engine
+  (most-specific-tier, DENY-wins, deny-by-default), the CARE_TEAM tier wired to real care-team data, and
+  patient self-service (a patient controls their own sharing).
+- **Field masking** (slice 3) — the backend withholds a consent-controlled field (`dateOfBirth`) and names it in
+  a `maskedFields` list; the SPA only *displays* the restriction.
+- **Care relationships** (slices 4, 7) — `provider_patient_assignment` and `care_coordinator_assignment`:
+  effective-dated, versioned records that define who is on a patient's care team.
+- **The object/relationship gate** (slices 5, 6, 11, 12) — one choke point, `PatientAccessGuard`, that every
+  patient-scoped read routes through; a provider reaches only assigned patients, a patient only their own, and an
+  unreachable resource is a **secure 404**. Extended to patient-nested endpoints, to service requests, and to the
+  patient-self case.
+- **UI** (slices 9, 10, 16) — the patient detail page grew a consent card, a care-team card, and a documents card.
+- **Secure documents** (slices 14, 15, 16) — metadata in Postgres + bytes behind a storage abstraction, gated by
+  the same guard, malware-scanned and quarantined, surfaced in the browser.
+
+End state (observed locally + CI): **backend 156 tests, frontend 33 tests, all green**, and a focused
+`/security-review` of the document feature came back clean.
+
+### How it works
+
+**Consent lifecycle & versioning (slice 1, `V9__consent_directive.sql`, `com.healthcloud.consent`).**
+A `consent_directive` is an immutable, versioned record of a patient's decision to GRANT or DENY access for a
+`(purpose, dataCategory, scope)` natural key. "Changing" it never mutates in place — it **supersedes** the
+current row and inserts version+1 in the same `directive_group_id`. At most one *current* (ACTIVE/SCHEDULED) row
+per natural key, enforced by a partial unique index. Nullable scope refs are folded with `COALESCE` so org- and
+care-team-scoped currents also collide correctly:
+
+```sql
+CREATE UNIQUE INDEX ux_consent_current ON consent_directive
+    (organization_id, patient_id, purpose, data_category, scope_type, COALESCE(scope_ref_id, '00000000-…'))
+    WHERE status IN ('ACTIVE','SCHEDULED');
+```
+
+Two version numbers on purpose: a domain `version` (per group: 1, 2, 3…) and a JPA `@Version lock_version`.
+
+**Consent + purpose decision engine (slice 2, `ConsentPolicy` + `ConsentPolicyService`).**
+The decision logic is a **pure class** with no Spring/DB deps (same shape as `RequestTransitions`):
+
+```java
+ConsentDecision decide(UUID actor, ConsentPurpose purpose, ConsentDataCategory cat,
+                       List<ConsentDirective> directives, boolean actorOnCareTeam, LocalDate today)
+```
+
+Steps: (1) filter to *applicable* directives — status ACTIVE **and** in force today (effective window re-checked
+here, which also covers the not-yet-built time sweep) **and** scope applies to this actor **and** purpose+category
+match; (2) pick the **most-specific tier present** — `PROVIDER > CARE_TEAM > ORGANIZATION`; (3) within that tier,
+**DENY wins**; (4) nothing applicable → **deny by default**. `ConsentPolicyService` loads the data, computes
+care-team membership, and exposes `decideForActor(...)` (the low-level hook masking calls) — you can only ask
+"may **I** access this?", never impersonate another actor. Endpoint:
+`GET /api/v1/patients/{id}/consent-directives/decision?purpose=&dataCategory=`.
+
+**Field-level masking (slice 3, `PatientFieldPolicy`, `DataClassification`, `PatientDto`).**
+The backend is the only trusted masker (§23.3): we build **field-safe DTOs**, never rely on the client to hide a
+value it received. Each consent-controlled field maps to a `(DataClassification, ConsentDataCategory)`; the read's
+**purpose is backend-fixed per action** (§21.4), not client-chosen. For each such field the read asks
+`ConsentPolicyService.decideForActor(...)` — deny-by-default → the field comes back `null` and its name is added
+to `maskedFields`. `dateOfBirth` (`DEMOGRAPHICS_CONTACT` / `CONFIDENTIAL`) is the reference implementation; write
+responses are never masked (the caller supplied the data).
+
+**Care relationships (slices 4 & 7).** Two sibling tables, `provider_patient_assignment` and
+`care_coordinator_assignment`, mirror the versioned/effective-dated shape (states PENDING/ACTIVE/EXPIRED/REVOKED,
+at most one current per pair via a partial unique index, composite tenant FK). Assign/revoke are recorded, never
+deleted. Together they are the **care team** a CARE_TEAM-scoped directive applies to.
+
+**The object/relationship gate — one choke point (slices 5, 6, 11, 12, `PatientAccessGuard`).**
+This is the central design decision of the phase. The relationship layer has **exactly one implementation**:
+
+```java
+Patient requireAccessibleInTenant(UUID patientId) {
+    UserContext caller = userContext.requireUser();
+    UUID org = userContext.requireOrganizationId();
+    Patient patient = patients.findByIdAndOrganizationId(patientId, org)
+            .orElseThrow(NotFoundException::new);              // cross-tenant → secure 404
+    if (isProviderGated(caller) && !isActivelyAssigned(org, caller.userId(), patientId))
+        throw new NotFoundException();                          // unassigned provider → secure 404
+    if (isPatientSelfGated(caller) && !caller.userId().equals(patient.getAppUserId()))
+        throw new NotFoundException();                          // patient reading another → secure 404
+    return patient;
+}
+```
+
+Every patient-scoped read routes through it: the patient read itself, everything nested under a patient (consent
+directives, the decision, provider/coordinator assignments, documents), **and** resources *about* a patient that
+live under their own top-level route — a **service request is gated by its patient**, so request reads/writes call
+`requireAccessibleInTenant(request.getPatientId())`. List reads share one scoping source,
+`accessiblePatientIdsIfGated(caller, org)`, which returns the id set a gated caller may see (provider → assigned;
+patient → their one linked profile) or `Optional.empty()` for broad roles. The guard depends only on repositories,
+so any service can use it with no bean cycle. An object/relationship denial is a **secure 404 (§21.5)** — never a
+403 that would confirm the row exists.
+
+**CARE_TEAM scope wiring (slice 8, `CareTeamService`).** `ConsentPolicy.decide` stayed pure by taking
+`actorOnCareTeam` as a parameter; `CareTeamService.isOnCareTeam` (an active provider **or** coordinator assignment)
+computes the fact and both the `/decision` path and the masking hook pass it in. This closed the "CARE_TEAM not
+evaluable" limitation the policy had carried since slice 2, so the full PROVIDER > CARE_TEAM > ORGANIZATION ladder
+now works.
+
+**Patient self-service (slices 12 & 13, `V12__patient_user_link.sql`).** A nullable `patient.app_user_id`
+(partial-unique, FK to `app_user`) links a login to its own patient profile. That unblocks the patient-self gate
+above, and lets a PATIENT record/revoke consent **on their own record** — the write path routes through the same
+guard (another patient → secure 404), and the write roles became `{PATIENT, CARE_COORDINATOR, ORG_ADMIN}`.
+
+**Secure documents (slices 14–16, `V13__patient_document.sql`, `com.healthcloud.document`).**
+Design faithful to §19 — "bytes in a private object store, metadata in Postgres":
+
+- **Metadata** in `patient_document` (tenant key, `patient_id`, filename/type/size, opaque `storage_key`,
+  `scan_status`, uploader). **Bytes** behind a `DocumentStorage` interface with a `LocalFileSystemDocumentStorage`
+  stand-in (layout `org/patient/uuid`, path-traversal guarded) — private S3 plugs in at Phase 10 with no
+  service/controller change.
+- Endpoints nested under the patient: `POST /documents` (multipart), `GET /documents`, `GET /documents/{id}/content`.
+  **Every path routes through `PatientAccessGuard`.** Upload is gated to the document write roles; download loads by
+  `(documentId, org)` filtered by `patientId` (defeats cross-patient/cross-tenant IDOR) and re-authorizes.
+- **Malware scan (slice 15):** a swappable `DocumentScanner` (`FakeDocumentScanner` flags the EICAR test
+  signature); `download` withholds anything not `CLEAN` with a 409 `DOCUMENT_NOT_AVAILABLE` (not a secure 404 — the
+  caller already sees the row and its status). Sync now; the async event-driven scanner is Phase 8.
+- **UI (slice 16):** a documents card — upload, a table with a scan-status chip, and a Download button only for
+  CLEAN files (blob fetch → object-URL save). Multipart upload sends `FormData` with **no** explicit
+  `Content-Type` so the browser sets the boundary; the client's CSRF header still injects.
+
+### Key points to remember
+- **One choke point beats scattered checks.** `PatientAccessGuard` is the single relationship-layer implementation;
+  a new patient-or-patient-linked endpoint MUST call it, so the gate can't be side-stepped by a nested/sibling
+  route. Slice 6 existed precisely because slice 5 had left the *nested* endpoints ungated — a real back door.
+- **Secure 404, not 403, for existence-sensitive denials (§21.5).** A 403 confirms the row exists; a 404 reveals
+  nothing. The document *quarantine* refusal is the deliberate exception — a 409 — because the caller can already
+  see the document (with its status) in the list.
+- **Deny-by-default everywhere in consent.** No applicable GRANT → the field/decision is withheld. Masked fields
+  never resurface in logs/exports/events (§23.4).
+- **Keep decision logic pure.** `ConsentPolicy` (and `RequestTransitions`) take facts as parameters (`today`,
+  `actorOnCareTeam`) so they stay DB-free and trivially unit-testable; a thin service loads data and applies them.
+- **Supersede, don't mutate; flush before insert.** The consent, provider- and coordinator-assignment tables all
+  reuse the versioned/supersede pattern with a partial unique index on the "current" set — flush the supersede
+  before inserting the new current row so the index holds within the transaction.
+- **The backend is the only masker.** The SPA renders "Restricted" for a `null` consent-controlled field it was
+  never sent; role-aware UI (hiding a form/button) is convenience, never a control.
+- **Storage abstraction earns its keep.** Because bytes live behind `DocumentStorage`, the S3 swap at Phase 10 is
+  a one-class change, and tests point the local dir at `target/` so `clean` leaves nothing behind.
+- **Sync-then-async on purpose.** The malware scan is synchronous now for deterministic tests; `PENDING` stays in
+  the model and the download gate defends it, so Phase 8's outbox/worker flow is a drop-in with no API change. We
+  explicitly rejected an after-commit event listener now because it would make tests timing-flaky.
+
+### Failures and how we fixed them
+- **Shared-Testcontainers "first patient" nondeterminism (recurring, slices 11 & 12).** Tests that grabbed "the
+  first patient in the list" passed in isolation but failed in the full suite, because a single Postgres container
+  is shared across the JVM fork so list order isn't stable. Symptom: a provider/patient expected 403/200 but got
+  404. Fix: target seeded patients **by name/MRN** (e.g. "Sam Sample"), never by position.
+- **Flush ordering on supersede (slice 1, same lesson as Phase 2 assignment).** Inserting the new current
+  directive before flushing the superseded row tripped the partial unique index. Fix: `saveAndFlush` the supersede
+  first.
+- **Blast radius on existing tests when a new layer landed.** Slice 5 (the gate) and slice 8 (CARE_TEAM) changed
+  what existing provider-read tests returned. Fix: those tests now **assign the provider first** or sign in as a
+  broad role, so they keep testing what they intended (tenant isolation, masking) rather than the new gate.
+- **`target/ " 2"` duplicate-class artifact (recurring).** The machine kept creating `Foo 2.class` copies under
+  `target/`, breaking Surefire / the jar repackage ("wrong name" / "single main class"). Fix: `./mvnw -B clean
+  verify` (target/ is git-ignored, so it never affects the commit).
+- **Stale local backend after backend changes (recurring).** Live curl/browser checks hit the *old* build still on
+  :8080. Fix: always kill :8080 and restart onto the new build after backend code changes (the DB persists; only
+  reseed when a new migration needs it).
+- **Frontend async-render test flakiness (slices 9, 10, 13).** `getByText('Dana Provider')` before the care-team
+  query resolved. Fix: `await screen.findByText(...)`.
+- **Misleading browser screenshot vs DOM (slice 13).** A stale screenshot showed "Restricted" while
+  `get_page_text`/`find` confirmed the real value — compositor frame lag. Fix: treat the DOM reads as authoritative,
+  never send the misleading screenshot as proof.
+- **Vite HMR console noise (slice 16).** `DocumentsCard is not defined` and 401/502 lines appeared in the console
+  buffer — they were from hot-reloads *mid-edit* and from backend restarts, not real bugs. The reloaded page
+  rendered correctly and the production build (which would fail on an undefined reference) succeeded.
+
+### Interview Q&A
+
+#### 1. Beginner
+
+**Q: What does "consent-aware" mean here?**
+A: Access to a patient's data isn't decided by role alone. A patient records consent directives — GRANT or DENY
+for a specific purpose, data category, and scope (a named provider, the care team, or the whole org). When someone
+reads the data, the backend evaluates those directives for *that caller and that purpose* and withholds anything
+not granted. Deny-by-default: no applicable GRANT means no access.
+
+**Q: What are the five authorization layers, in order?**
+A: Tenant → function/role → object/relationship → consent + purpose → field-level masking. Each is independent and
+can only narrow access. Tenant keeps orgs apart; role gates by permission; the relationship layer limits a provider
+to their assigned patients (and a patient to their own record); consent applies the directives; masking hides
+individual fields.
+
+**Q: What is "field masking"?**
+A: A read can return an object with some fields blanked out. For a patient, `dateOfBirth` comes back as `null` and
+its name appears in a `maskedFields` list when consent doesn't grant it. The value never leaves the server, so the
+UI simply shows "Restricted" — it isn't relying on the client to hide anything.
+
+**Q: Why does an unassigned provider get a 404 instead of a 403 when reading a patient?**
+A: A 403 ("forbidden") would confirm the patient exists. A 404 ("not found") reveals nothing about whether the row
+exists at all. For existence-sensitive resources we deliberately return a secure 404.
+
+**Q: How does secure document upload/download work at a high level?**
+A: Metadata (name, type, size, scan status) is stored in Postgres; the file bytes go into a storage layer (a local
+folder now, private S3 later). Upload scans the file for malware; only a CLEAN file can be downloaded. Every
+request is authorized on the backend against the patient the document belongs to.
+
+#### 2. Intermediate
+
+**Q: Why is the relationship check a single class, and why does that matter?**
+A: `PatientAccessGuard` is the only implementation of the object/relationship layer. Centralizing it means every
+patient-scoped endpoint — the patient read, nested resources, service requests, documents — enforces the exact same
+rule, so a new route can't accidentally become a bypass. Slice 6 was created specifically because slice 5 gated the
+patient read but not the nested endpoints, which leaked existence and data around the gate.
+
+**Q: How does the consent engine decide when directives conflict?**
+A: Most-specific tier wins: PROVIDER over CARE_TEAM over ORGANIZATION. Within the deciding tier, DENY wins over
+GRANT. If nothing applies, deny by default. So a PROVIDER-scoped GRANT overrides a CARE_TEAM DENY, but a CARE_TEAM
+DENY overrides an ORGANIZATION GRANT.
+
+**Q: How did you keep the consent policy testable?**
+A: `ConsentPolicy.decide(...)` is a pure function — it takes the directives, `today`, and `actorOnCareTeam` as
+inputs and returns a decision, with no Spring or DB. Facts that need the database (like care-team membership) are
+computed by a thin service and passed in. That makes the policy exhaustively unit-testable and keeps the "same role,
+different result" scenarios easy to assert.
+
+**Q: Why store consent as immutable versions instead of updating a row?**
+A: For an auditable history of what the patient decided and when, and to make "one current directive per natural
+key" an enforceable invariant. Recording a change supersedes the current row (→ SUPERSEDED, `ended_at`) and inserts
+version+1; a partial unique index on the current set guarantees one, and backstops races.
+
+**Q: Why does a quarantined document return 409, not a secure 404 like the relationship denials?**
+A: Because an authorized caller already sees the document in the listing with its `scanStatus`. Hiding it with a 404
+would confirm nothing new and would be confusing. The 409 `DOCUMENT_NOT_AVAILABLE` says "this exists but its
+current state forbids download" — the right signal, and the frontend keys on the stable code.
+
+**Q: How do requests inherit the patient gate without new gate logic?**
+A: A request is "about" a patient, so `ServiceRequestService` loads the request in-tenant, then calls
+`accessGuard.requireAccessibleInTenant(request.getPatientId())` for every single-request read and participant write.
+List reads scope through `accessiblePatientIdsIfGated`. No new relationship code — it reuses the one guard.
+
+#### 3. Advanced
+
+**Q: Walk through exactly what happens when a provider reads a patient they aren't assigned to.**
+A: Tenant layer loads the patient by `(id, organizationId)` — found (same tenant). Role layer passes (PROVIDER can
+read patients). Relationship layer: `isProviderGated` is true (PROVIDER, not broad) and `isActivelyAssigned` is
+false, so the guard throws `NotFoundException` → **secure 404**. The consent and masking layers never run. If the
+same provider *were* assigned, they'd pass the gate but `dateOfBirth` could still be masked by the consent layer —
+two independent narrowings.
+
+**Q: How is the effective-date window handled so a stale ACTIVE row doesn't over-grant?**
+A: `ConsentPolicy` re-checks `effective_from ≤ today ≤ effective_to` at decision time, not just the stored status.
+So a directive whose window has passed but whose status hasn't been swept to EXPIRED yet is correctly treated as
+not-in-force. That also means the not-yet-built scheduled status sweep (Phase 8) isn't a correctness gap today.
+
+**Q: Why did you fold nullable scope refs with COALESCE in the consent unique index?**
+A: Postgres treats NULLs as distinct in a unique index, so two ORGANIZATION-scoped currents (both with
+`scope_ref_id = NULL`) wouldn't collide and the "one current per natural key" invariant would break for org/
+care-team scopes. `COALESCE(scope_ref_id, <sentinel-uuid>)` maps NULL to a fixed value so those rows collide as
+intended, while PROVIDER-scoped rows still key on the real provider id.
+
+**Q: What's the threat model for the document download path, and how is each threat closed?**
+A: Cross-tenant IDOR — closed by loading via the tenant-safe finder `findByIdAndOrganizationId` plus a composite
+tenant FK. Cross-patient IDOR — closed by `.filter(d -> d.getPatientId().equals(patientId))` *and* the guard on the
+patientId. Path traversal — storage keys are server-generated UUIDs and `resolve()` verifies the path stays under
+the root. XSS via served bytes — a content-type allowlist excludes HTML/SVG and downloads are always
+`Content-Disposition: attachment`. Malware — the scan gate withholds non-CLEAN bytes. A focused `/security-review`
+confirmed no high/medium findings.
+
+**Q: How would you evolve the synchronous malware scan into the real async design without breaking the API?**
+A: The pieces are already in place: `scan_status` has a `PENDING` state, `DocumentScanner` is an interface, and the
+download gate already refuses anything not CLEAN. At Phase 8, upload writes the row `PENDING` and emits an outbox
+event; a worker consumes it, runs the real scanner, and updates the row to CLEAN/QUARANTINED. The endpoints,
+DTOs, and download gate are unchanged — only *when* the status flips moves from inline to a worker.
+
+**Q: A patient can now write their own consent. How is "own record only" enforced, and why there?**
+A: The write path calls the same `PatientAccessGuard.requireAccessibleInTenant(patientId)`, which for a
+patient-self-gated caller requires `patientId`'s `app_user_id` to equal the caller's user id — another patient is a
+secure 404. Enforcing it in the shared guard (not a special-case check in the consent service) means the identical
+rule protects reads, consent writes, and documents, and a future patient-facing endpoint inherits it for free.
