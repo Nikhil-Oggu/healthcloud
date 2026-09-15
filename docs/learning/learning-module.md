@@ -960,3 +960,263 @@ A: The write path calls the same `PatientAccessGuard.requireAccessibleInTenant(p
 patient-self-gated caller requires `patientId`'s `app_user_id` to equal the caller's user id — another patient is a
 secure 404. Enforcing it in the shared guard (not a special-case check in the consent service) means the identical
 rule protects reads, consent writes, and documents, and a future patient-facing endpoint inherits it for free.
+
+---
+
+## Phase 4 — Clinical Context & Claims Intake (slices 1–6) — 2026-09-15
+
+### What we built
+
+Phase 4 is where HealthCloud stops being "care coordination + consent" and starts being a **claims
+platform**. Backend-only across six slices, all synthetic data. In dependency order:
+
+1. **Medical code catalog** — a global ICD-10-CM / HCPCS / CPT vocabulary that everything else points at.
+2. **Clinical summaries** — short clinical notes about a patient encounter, each citing an ICD-10 diagnosis.
+3. **Claims intake** — a claim header + claim lines, each line billing a CPT/HCPCS procedure with a charge.
+4. **Claim state machine** — the submission/validation workflow (DRAFT → SUBMITTED → ACCEPTED/REJECTED).
+5. **Coverage plan** — a benefit plan (deductible/coinsurance/copay/OOP-max) the org administers.
+6. **Patient eligibility** — a patient's enrollment in a plan for an effective-dated period.
+
+Together these are the inputs Phase 5's adjudication engine will consume. Two Phase-4 slices also deliver
+the two halves of the §60 acceptance proof — *a claims reviewer sees claim-relevant data without unrestricted
+medical context*: slice 2 (the clinical narrative is consent-masked while the coded diagnosis stays visible)
+and slice 3 (a claim carries no narrative at all, so the reviewer's work queue is claim data only).
+
+### How it works
+
+**Slice 1 — the catalog is a new pattern: global reference data, NOT tenant-owned.**
+Unlike every business table since Phase 2, `medical_code` has **no `organization_id`, no `PatientAccessGuard`,
+no consent** — codes are public national standards, identical for every tenant (the app's first shared
+reference table, like `role`). Reads require an authenticated caller but are not tenant-scoped. Rows are
+immutable in-app (no `@Version`). Files: `backend/src/main/java/com/healthcloud/coding/` (`CodeSystem` enum
+carrying a `label` + `category`, `MedicalCode`, `MedicalCodeRepository` with a bounded `search`, service,
+controller). `GET /api/v1/medical-codes?system=&q=` and `GET /api/v1/medical-codes/{system}/{code}`. An
+unknown `system` binds to no enum constant → 400 via the existing `MethodArgumentTypeMismatchException` handler.
+
+**Slice 2 — clinical summaries reuse the whole Phase-3 stack.**
+`clinical_summary` is tenant-owned and about a patient, so it routes every read/write through the shared
+`PatientAccessGuard` and consent-masks one field. The free-text `narrative` is `CLINICAL_CONTEXT` /
+`SENSITIVE_HEALTH_DATA` (masked deny-by-default via `ConsentPolicyService.decideForActor`, read purpose fixed
+to `CARE_COORDINATION`); the structured `diagnosisCode` stays visible. The diagnosis FKs the catalog and is
+service-validated as an active ICD-10-CM code. Files: `com/healthcloud/clinical/`, migration
+`V15__clinical_summary.sql`.
+
+**Slice 3 — the claim is the first parent→child aggregate with money.**
+`claim` (header) owns `claim_line` children; money is `BigDecimal` mapped to `NUMERIC(12,2)`. The header
+`totalChargeAmount` is **computed on the backend** from the lines. Claims are **top-level (`/api/v1/claims`)
+but gated by their patient** — mirroring `service_request`, not nested like clinical summaries — so a reviewer
+gets a cross-patient work queue (`accessiblePatientIdsIfGated` scopes the list). Create is one transaction:
+resolve each procedure code (system inferred from the code across CPT/HCPCS; a diagnosis or unknown code → 400),
+compute the total, write header + lines atomically. Files: `com/healthcloud/claim/`, `V16__claim.sql`.
+
+```java
+// ClaimService: resolve a caller-supplied code to an active CPT/HCPCS entry, else a clean 400.
+private MedicalCode resolveProcedureCode(String code) {
+    for (CodeSystem system : PROCEDURE_SYSTEMS) { // CPT, HCPCS
+        var match = medicalCodes.findByCodeSystemAndCodeIgnoreCaseAndActiveTrue(system, code);
+        if (match.isPresent()) return match.get();
+    }
+    throw new ApiException(ErrorCode.VALIDATION_FAILED, "Unknown procedure code (CPT/HCPCS): " + code);
+}
+```
+
+**Slice 4 — the claim state machine mirrors the request one.**
+A pure `ClaimTransitions` policy class (no Spring/DB) encodes legal moves, role rules, and reason-required;
+`ClaimService.changeStatus` applies them in a fixed order and writes a `claim_status_history` row in the same
+transaction. `PATCH /api/v1/claims/{id}/status`, `GET /api/v1/claims/{id}/history`.
+
+```java
+ALLOWED.put(DRAFT,     Set.of(SUBMITTED, CANCELLED));
+ALLOWED.put(SUBMITTED, Set.of(ACCEPTED, REJECTED, CANCELLED));
+ALLOWED.put(ACCEPTED,  Set.of(ADJUDICATED)); // engine-owned; a bare PATCH to it is refused
+```
+
+Check order: exists + patient gate → reserved (`ADJUDICATED` → 409) → legal move → role → reason →
+submit-validation (≥1 line, total > 0) → optimistic `expectedVersion` → status change + history row.
+The submitter roles (PROVIDER-assigned / CARE_COORDINATOR / ORG_ADMIN) submit and cancel; the
+**CLAIMS_REVIEWER** (+ ORG_ADMIN) accept/reject — the reviewer's first write action in the app.
+
+**Slice 5 — coverage plan: tenant-owned but NOT patient-scoped.**
+A third shape: `coverage_plan` uses the tenant pattern (org-scoped finders, cross-tenant → secure 404) but
+has **no `PatientAccessGuard`** — it's administrative benefit config, not PHI. Reads open to any same-tenant
+user; **create requires ORG_ADMIN**; `plan_code` unique per tenant. Holds the Phase-5 parameters:
+`deductibleAmount`, `coinsuranceRate` (member share after deductible, `NUMERIC(5,4)`, CHECK 0..1),
+`copayAmount`, optional `outOfPocketMax`, `planType` (HMO/PPO/EPO/HDHP). Files: `com/healthcloud/coverage/`,
+`V18__coverage_plan.sql`.
+
+**Slice 6 — patient eligibility bridges patient ↔ plan ↔ date.**
+`patient_eligibility` (same `coverage` package, but patient-scoped) records an enrollment for an effective-dated
+period (`effectiveFrom`, nullable `effectiveTo`, a `memberId`), FKing both `patient` and `coverage_plan`
+with-org. Enroll is CARE_COORDINATOR/ORG_ADMIN behind the patient gate; the plan must be in-tenant (else 400);
+and periods for a patient are kept **non-overlapping** (enforced in the service → 409) so coverage-on-a-date is
+deterministic. The Phase-5 hook is the covering-date query (also surfaced as `GET .../eligibility?asOf=`):
+
+```java
+@Query("""
+        SELECT e FROM PatientEligibility e
+        WHERE e.organizationId = :organizationId AND e.patientId = :patientId
+          AND e.effectiveFrom <= :date AND (e.effectiveTo IS NULL OR e.effectiveTo >= :date)
+        """)
+List<PatientEligibility> findCovering(UUID organizationId, UUID patientId, LocalDate date);
+```
+
+### Key points to remember
+
+- **Three tenancy shapes now coexist, and choosing the right one is the core design skill of Phase 4:**
+  (a) *global reference* — `medical_code` (no org, no gate); (b) *tenant-owned, not patient-scoped* —
+  `coverage_plan` (org-scoped, no relationship gate); (c) *tenant-owned + patient-scoped* — `clinical_summary`,
+  `claim`, `patient_eligibility` (org-scoped **and** through `PatientAccessGuard`).
+- **Nested-under-patient vs top-level-gated-by-patient** is a deliberate call: clinical summaries and eligibility
+  are nested (`/patients/{id}/...`) because they're read per-patient; claims are top-level (`/claims`) because a
+  reviewer needs a cross-patient queue. Both still route the patient id through the same guard.
+- **Money is `BigDecimal` + `NUMERIC(12,2)`** everywhere, with DB CHECKs (`>= 0`, coinsurance `0..1`). Never
+  `double`. Jackson serialises `BigDecimal` by its scale, so `195.50` may print as `195.5` — assert on a
+  substring (`"195.5"`), not exact text, in tests.
+- **Structural integrity via composite FKs:** child rows FK `(parent_id, organization_id)` to the parent's
+  `UNIQUE(id, organization_id)` so tenancy can't be crossed even by a bug; and coded fields FK the global
+  catalog `(code_system, code)` so a claim line / diagnosis can't reference a code that doesn't exist.
+- **Reference data first:** the seeder was reordered so `medical_code` seeds *before* the orgs, because
+  clinical summaries and claim lines FK the catalog and are seeded during org setup.
+- **The §60 proof is split:** clinical narrative is consent-masked (slice 2) *and* claims structurally carry no
+  narrative (slice 3). The stronger "reviewer sees claims regardless of consent, but never clinical context"
+  business-need rule is still deferred to the permission matrix.
+- **State reached by a command, not a bare status change:** `ADJUDICATED` is reserved for the Phase-5 engine,
+  exactly like `ASSIGNED` on a service request is reached only by assigning a user — a bare `PATCH /status`
+  to it is refused.
+- **Non-overlapping eligibility is what makes adjudication deterministic** — it guarantees `findCovering`
+  returns at most one row, so the engine never has to disambiguate two plans on one service date.
+
+### Failures and how we fixed them
+
+- **`.gitignore` silently swallowed a whole backend package.** After building slice 5, `git add -A` staged only
+  4 files — none of the 9 new `com.healthcloud.coverage` Java files. Symptom: `git status` showed the package
+  missing though the build compiled (files were on disk); the commit would have failed CI.
+  Root cause: `.gitignore` had a bare `coverage/` (meant for the frontend's Vitest coverage-report folder), and
+  a bare directory name matches **any** directory of that name anywhere — including the Java package.
+  Fix: scope it to `frontend/coverage/`, confirm with `git check-ignore -v`, `git add` the files, and
+  `git commit --amend` (the commit hadn't been pushed). Lesson: **never use a bare directory name in
+  `.gitignore`; scope it to a path.**
+- **`@Valid` on a `List<>` container is deprecated (Hibernate Validator).** The build warned about
+  `@Valid List<CreateClaimLineRequest>`. Fix: move the annotation to the type argument —
+  `List<@Valid CreateClaimLineRequest>` — so each element is cascaded-validated.
+- **A greedy `sed` in a live-check curl produced a misleading 404.** A shell one-liner used
+  `sed -E 's/.*"id":"([0-9a-f-]{36})".*/\1/'`; the greedy `.*` matched the **last** id in the JSON (a claim
+  line's id) instead of the claim header's, so a follow-up request hit a non-existent claim and returned a
+  (correct) secure 404 — which briefly looked like a role bug. Root cause was the test harness, not the app; the
+  automated integration tests (first-match extraction) proved the real 403s. Lesson: in JSON, extract the
+  **first** match, and trust the automated test over an ad-hoc curl.
+- No production-code defects surfaced this phase; every `./mvnw -B clean verify` was green
+  (156 → 165 → 173 → 184 → 196 → 203 → 213 tests as the slices landed).
+
+### Interview Q&A
+
+#### 1. Beginner
+
+**Q: What is the medical code catalog and why is it "global" instead of per-tenant?**
+A: It's a lookup table of standard ICD-10-CM (diagnosis) and HCPCS/CPT (procedure) codes. These are public
+national standards — the same for every organisation — so the table has no `organization_id`, no relationship
+gate, and no consent. It's shared reference data (like the `role` table), read by any authenticated user.
+
+**Q: What's the difference between a clinical summary and a claim?**
+A: A clinical summary is *medical* context — a note about an encounter with a diagnosis code, and a free-text
+narrative that is consent-controlled. A claim is *financial* — a header plus billed lines (procedure code +
+amount) with no clinical narrative. Keeping them separate is what lets a claims reviewer see billing data
+without unrestricted medical context.
+
+**Q: What is a claim header vs a claim line?**
+A: The header is the claim as a whole (patient, service date, status, total). Each line is one billed item —
+a procedure code, units, and a charge amount. The header total is the sum of the lines, computed on the server.
+
+**Q: Who can move a claim to ACCEPTED, and who can submit it?**
+A: The submitter side (an assigned provider, a coordinator, or an admin) submits a DRAFT claim. A
+**claims reviewer** (or admin) then accepts or rejects the submitted claim. Rejecting requires a reason.
+
+**Q: What does a coverage plan hold, and what is patient eligibility?**
+A: A coverage plan holds benefit parameters — deductible, coinsurance rate, copay, out-of-pocket max, plan type.
+Patient eligibility links a specific patient to a plan for a date range (with a member id), so the system knows
+what coverage was in effect on any given day.
+
+#### 2. Intermediate
+
+**Q: You now have three "shapes" of table. How do you decide which a new entity should be?**
+A: Ask two questions. *Is it the same for every tenant?* If yes → global reference (no `organization_id`), like
+`medical_code`. If no, it's tenant-owned. Then: *is it about a specific patient?* If yes → tenant-owned **and**
+routed through `PatientAccessGuard` (clinical summaries, claims, eligibility). If no → tenant-owned but not
+patient-scoped, gated only by role (coverage plans). Getting this wrong either over-restricts admin config or
+leaks patient data.
+
+**Q: Why are claims top-level (`/api/v1/claims`) but clinical summaries nested under the patient?**
+A: A claims reviewer works a queue *across* patients, so claims need a top-level list that scopes to the
+caller's accessible patients (`accessiblePatientIdsIfGated`) — the same idiom service requests use. Clinical
+summaries are always read in the context of one patient, so nesting them under `/patients/{id}` is clearer.
+Either way the patient id still goes through the one guard, so the access rule is identical.
+
+**Q: How does the claim state machine stay testable and correct?**
+A: The rules (legal moves, which role may make each move, when a reason is mandatory) live in a pure
+`ClaimTransitions` class with no Spring or DB dependencies — fast unit tests cover every combination. The
+service loads the claim, runs the checks in a fixed order, and writes the status change plus a history row in
+one transaction. This mirrors `RequestTransitions`, so the pattern is consistent across the codebase.
+
+**Q: Why compute the claim total on the backend instead of trusting the client?**
+A: The total drives money decisions later (adjudication). Trusting a client-supplied total would let a caller
+misstate what the lines add up to. The server sums the line charges itself, so the header is always internally
+consistent with its lines.
+
+**Q: How is a claim's procedure code validated, and why resolve the system from the code?**
+A: On create, the service looks the code up in the catalog across the procedure systems (CPT then HCPCS); if
+it's not an active procedure code — including if it's a diagnosis code — it's a 400. Resolving the system from
+the code means the caller sends just the code string and can't mismatch the system, and the canonical spelling
+from the catalog is what gets stored.
+
+**Q: What makes patient eligibility "deterministic" for adjudication?**
+A: The service forbids overlapping coverage periods for a patient (409 on overlap). That guarantees the
+covering-date query returns at most one row, so when the engine asks "what coverage was in effect on the
+service date?" there's never an ambiguous answer.
+
+#### 3. Advanced
+
+**Q: Walk through exactly what happens when a claims reviewer opens the claim queue.**
+A: `ClaimService.list` derives the org from context, then calls `accessiblePatientIdsIfGated(caller, org)`.
+A reviewer isn't provider-gated or patient-self-gated, so that returns `Optional.empty()` (broad) and the
+query returns all the tenant's claims. A provider instead gets the set of their actively-assigned patient ids
+and the list is filtered to those. Each row is a header-only summary (`ClaimSummaryDto`) — no line query — so
+the list is a single DB round-trip. The reviewer never sees any clinical narrative because a claim doesn't
+carry one.
+
+**Q: Why is `ADJUDICATED` structurally legal from `ACCEPTED` but refused by the status endpoint?**
+A: The transition table allows `ACCEPTED → ADJUDICATED` because it *is* a real lifecycle edge — but reaching it
+must do more than flip a status (it produces adjudication outcomes and amounts). So the bare `PATCH /status`
+guards against it explicitly and returns 409, reserving that move for the Phase-5 engine's dedicated command.
+It's the same "a status owned by a command, not a bare change" principle as `ASSIGNED` on service requests.
+
+**Q: How do the composite foreign keys make cross-tenant or dangling references structurally impossible?**
+A: Each parent exposes `UNIQUE(id, organization_id)`. A child stores `organization_id` and FKs
+`(parent_id, organization_id)` to that unique key — so a child can only attach to a parent in the *same* tenant;
+there's no way to reference another tenant's row even with a bug in the service. Separately, coded fields FK the
+global catalog's `(code_system, code)`, so a claim line or diagnosis can't point at a code that isn't in the
+catalog. The database enforces both invariants regardless of application logic.
+
+**Q: The eligibility overlap check runs in the service, not the database. What are the trade-offs, and how
+would you harden it?**
+A: In-service is simple and gives a clean domain error (409 with a message), but it's a check-then-act that
+isn't concurrency-safe under two simultaneous enrolments. For the synthetic single-writer demo that's fine. To
+harden it you'd add a Postgres exclusion constraint using a `daterange` and a GiST index
+(`EXCLUDE USING gist (patient_id WITH =, daterange(effective_from, effective_to, '[]') WITH &&)`), which makes
+overlap impossible at the storage layer and turns a race into a constraint violation the service maps to 409 —
+the same belt-and-suspenders approach used for the "one ACTIVE" partial unique indexes elsewhere.
+
+**Q: Jackson serialised a `BigDecimal` total as `195.5` in one place and `195.50` in another. Why, and does it
+matter?**
+A: Jackson writes a `BigDecimal` using its scale. A value read back from `NUMERIC(12,2)` keeps scale 2
+(`195.50`); an in-memory sum built from `new BigDecimal("150.00").add(new BigDecimal("45.50"))` is also scale 2,
+but other construction paths can drop trailing zeros. It doesn't affect correctness — the stored value is exact
+in `NUMERIC(12,2)` — but tests should assert on a tolerant substring (`"195.5"`) rather than exact text, which
+is what we did.
+
+**Q: If you had to make claim creation idempotent (a retried "submit claim" command), where would it hook in?**
+A: The architecture already reserves an `Idempotency-Key` for retriable create-type commands (create request /
+submit claim / start adjudication). Claim *creation* is the natural place: the controller would accept the key,
+the service would record it with the resulting claim id in a dedupe table inside the same transaction as the
+insert, and a retry with the same key returns the original claim instead of creating a second one. We didn't
+build it this phase (not required for intake), but the aggregate-in-one-transaction shape means adding it later
+doesn't disturb the create logic.
