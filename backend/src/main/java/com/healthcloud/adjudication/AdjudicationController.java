@@ -1,5 +1,6 @@
 package com.healthcloud.adjudication;
 
+import java.util.List;
 import java.util.UUID;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -30,9 +31,18 @@ public class AdjudicationController {
         return service.adjudicate(claimId);
     }
 
-    /** The claim's adjudication result — the plan that applied and how every amount was computed (§60). */
+    /**
+     * The claim's current adjudication result — the plan that applied and how every amount was computed (§60).
+     * After a re-adjudication this is the latest version; the full history is at {@code /adjudication/versions}.
+     */
     @GetMapping("/adjudication")
     public AdjudicationDto getAdjudication(@PathVariable UUID claimId) {
         return service.getByClaim(claimId);
+    }
+
+    /** Every adjudication version for the claim, newest first — the immutable re-adjudication history (§Phase 5). */
+    @GetMapping("/adjudication/versions")
+    public List<AdjudicationDto> getAdjudicationVersions(@PathVariable UUID claimId) {
+        return service.listVersions(claimId);
     }
 }

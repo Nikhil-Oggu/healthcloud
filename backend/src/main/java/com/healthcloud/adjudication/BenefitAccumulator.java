@@ -85,6 +85,16 @@ public class BenefitAccumulator {
         this.outOfPocketMet = this.outOfPocketMet.add(outOfPocket);
     }
 
+    /**
+     * Reverse a claim's earlier contribution (re-adjudication, §Phase 5): back out the deductible and
+     * out-of-pocket it previously added, before its new version's amounts are applied. Clamped at zero so a
+     * rounding/edge case can never drive an accumulator negative.
+     */
+    public void subtract(BigDecimal deductibleApplied, BigDecimal outOfPocket) {
+        this.deductibleMet = this.deductibleMet.subtract(deductibleApplied).max(BigDecimal.ZERO);
+        this.outOfPocketMet = this.outOfPocketMet.subtract(outOfPocket).max(BigDecimal.ZERO);
+    }
+
     public UUID getId() {
         return id;
     }

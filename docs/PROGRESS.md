@@ -84,7 +84,14 @@
   slice 10 ✅ — the **fee-schedule admin UI**: a **Fee schedule** card on the coverage-plan detail page (add via
   the reusable `MedicalCodePicker` + an allowed-amount field / remove, ORG_ADMIN; reads open to same-tenant),
   mirroring the exclusions card → the slice-9 fee schedule is now manageable in the browser. **Frontend-only.**
-  **Next Phase-5 slices:** re-adjudication versioning. Also still deferred: a **frontend** for
+  slice 11 ✅ — **re-adjudication versioning**: an already-ADJUDICATED claim can be re-adjudicated (the same
+  `POST /api/v1/claims/{id}/adjudicate`), writing a **new immutable version** (v2, v3…) while every prior version
+  is retained and the claim stays ADJUDICATED; the engine backs out the prior version's benefit-accumulator
+  contribution first so the deductible/OOP isn't double-counted, and a denied claim can flip to covered after a
+  retroactive enrollment. `GET .../adjudication` returns the latest; `GET .../adjudication/versions` lists all,
+  newest first. **Backend-only** — this completes the core Phase-5 adjudication engine. **The MVP (Phase 0–5)
+  engine is now feature-complete.**
+  **Next Phase-5 slices:** none required for the MVP. Also still deferred: a **frontend** for
   clinical summaries + claims + coverage (incl. a medical-code picker); consent masking of claim fields
   (`CLAIMS_BENEFITS`) and the fuller CLAIMS_REVIEWER business-need scoping; a close/edit endpoint for an
   eligibility period. **Phase 4 proof (§60):** a claims reviewer sees
@@ -107,6 +114,42 @@
   then `curl -b j.txt localhost:8080/api/v1/me`. Reset DB with `./scripts/db-reset.sh`.
 
 ## Log (newest first)
+
+### 2026-09-15 — Phase 5, slice 11 ✅ (re-adjudication versioning — the engine's last core deferral)
+- **Why:** an adjudicated claim was frozen (a second `adjudicate` → 409). After a fee-schedule/exclusion/eligibility
+  change you need to re-run adjudication. This lets an ADJUDICATED claim be re-adjudicated, producing a **new
+  immutable version** while every prior version is retained — the "immutable adjudication versions" the
+  source-of-truth calls for. **Backend-only, no migration** (the `adjudication_version` column + `UNIQUE(org,
+  claim_id, version)` existed from slice 1).
+- **Trigger (reuse `POST /api/v1/claims/{id}/adjudicate`):** ACCEPTED → first adjudication (v1), advance to
+  ADJUDICATED; ADJUDICATED → re-adjudicate (v = prior max + 1), status unchanged; any other status → 409.
+- **Accumulator reversal (the careful part):** on re-adjudication the engine first **backs out the prior latest
+  version's contribution** — the deductible applied and the covered lines' member responsibility, read back from
+  that version's own immutable line snapshot — from its `(plan, year)` accumulator under the lock, then recomputes
+  the new version against the corrected remaining deductible/OOP and adds its contribution. So re-adjudicating a
+  claim unchanged yields identical amounts (proves no double-count); `BenefitAccumulator.subtract(...)` clamps at 0.
+  **Honest limitation:** it reverses/recomputes *this claim only*, not other claims in the same benefit year.
+- **Reads:** `GET .../adjudication` now returns the **latest** version (repo switched to
+  `findFirstBy…OrderByAdjudicationVersionDesc` — the old single-row finder would throw once >1 version exists);
+  **new** `GET .../adjudication/versions` returns all versions newest-first. No status-history row on
+  re-adjudication (status unchanged) — the immutable adjudication row (who/when/version/correlationId) is the record.
+- **Files:** `AdjudicationRepository` (latest + all-versions finders), `BenefitAccumulator` (`subtract`),
+  `AdjudicationService` (version selection, `reversePriorContribution`, first-vs-re-adjudication status handling,
+  `getByClaim` → latest, `listVersions`), `AdjudicationController` (versions endpoint).
+- **Scope boundary:** backend-only (surfacing version history in the claims UI is a later slice); no Idempotency-Key
+  (each call is an intentional new version); no retroactive re-adjudication of other claims in the year.
+- **Verified — automated:** `./mvnw -B clean verify` → **258 pass** (+3 net: new
+  `AdjudicationReadjudicationApiIntegrationTest` ×3 — re-adjudicate after a fee-schedule change writes v2 & retains
+  v1 (latest read + versions list), re-adjudicating unchanged doesn't double-count the deductible, a denied claim
+  flips to covered after enrollment; the old "adjudicated only once → 409" test rewritten to assert v2; the repo
+  test switched to the latest finder). Frontend untouched (56 green).
+- **Verified — live** (admin@northcare, fresh `db-reset` + backend): adjudicated the seeded claim → **v1 allowed
+  190.00**; priced 99213 at $100 on the plan, re-adjudicated → **v2 allowed 140.00**; `GET .../adjudication` = v2;
+  `GET .../adjudication/versions` listed both, newest first.
+- **Files:** changed `adjudication/AdjudicationRepository.java`, `adjudication/BenefitAccumulator.java`,
+  `adjudication/AdjudicationService.java`, `adjudication/AdjudicationController.java`,
+  `adjudication/AdjudicationRepositoryTest.java`, `adjudication/AdjudicationApiIntegrationTest.java`,
+  +`adjudication/AdjudicationReadjudicationApiIntegrationTest.java`, `CLAUDE.md`, `docs/PROGRESS.md`.
 
 ### 2026-09-15 — Phase 5, slice 10 ✅ (fee-schedule admin UI — pricing procedures in the browser)
 - **Why:** slice 9 added the fee schedule but it could only be managed via the API. This adds a **Fee schedule**

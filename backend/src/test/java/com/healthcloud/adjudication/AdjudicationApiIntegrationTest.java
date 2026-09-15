@@ -115,18 +115,22 @@ class AdjudicationApiIntegrationTest {
     }
 
     @Test
-    void a_claim_is_adjudicated_only_once() throws Exception {
+    void re_adjudicating_an_adjudicated_claim_creates_a_new_version() throws Exception {
         Session coordinator = loginWithCsrf("coordinator@northcare.example.org");
         String patientId = firstId(createPatient(coordinator).body());
         enroll(coordinator, patientId, firstPlanId(coordinator));
         Session reviewer = loginWithCsrf("reviewer@northcare.example.org");
         String claimId = acceptedClaim(coordinator, reviewer, patientId);
 
-        assertEquals(200, adjudicate(reviewer, claimId).statusCode());
-        // A second attempt fails the ACCEPTED gate (the claim is now ADJUDICATED) → 409, the double-apply safety.
+        HttpResponse<String> first = adjudicate(reviewer, claimId);
+        assertEquals(200, first.statusCode(), first.body());
+        assertTrue(first.body().contains("\"adjudicationVersion\":1"), first.body());
+        // The claim is now ADJUDICATED; a second call re-adjudicates it → a new immutable version (not a 409).
         HttpResponse<String> again = adjudicate(reviewer, claimId);
-        assertEquals(409, again.statusCode(), again.body());
-        assertTrue(again.body().contains("INVALID_STATE_TRANSITION"));
+        assertEquals(200, again.statusCode(), again.body());
+        assertTrue(again.body().contains("\"adjudicationVersion\":2"), again.body());
+        // The claim stays ADJUDICATED.
+        assertTrue(get(reviewer.session, "/api/v1/claims/" + claimId).body().contains("\"status\":\"ADJUDICATED\""));
     }
 
     @Test

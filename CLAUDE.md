@@ -78,7 +78,7 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   Checks: `npm run typecheck`, `npm test` (Vitest), `npm run build`. Node runs from `openjdk@25`'s
   sibling `node@24` — use `export PATH="/opt/homebrew/opt/node@24/bin:$PATH"` in non-interactive shells.
 
-## Current implementation (Phase 1–4 COMPLETE; Phase 5 adjudication IN PROGRESS — slices 1–10 done — see docs/PROGRESS.md for status)
+## Current implementation (Phase 1–4 COMPLETE; Phase 5 adjudication engine feature-complete — slices 1–11 done; MVP (Phase 0–5) engine done — see docs/PROGRESS.md for status)
 - **Backend packages** under `com.healthcloud`: `organization` (Organization, Facility, FacilityMembership),
   `identity` (AppUser, Role, OrganizationMembership, UserRole), `auth` (SecurityConfig, DevLoginController,
   CurrentUserController/Service, CsrfCookieFilter), `context` (UserContext + UserContextAccessor/Filter),
@@ -233,9 +233,9 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   which plan applied and how every amount was computed). **Adjudication is a dedicated engine command, not a bare
   status change** (like `ASSIGNED` on a request): the command advances ACCEPTED → ADJUDICATED and writes the
   adjudication + a `claim_status_history` row in **one transaction** (§31.6); a second attempt fails the ACCEPTED
-  gate (the claim is now ADJUDICATED) → 409, the double-apply safety. A claim with **no coverage** on the service
-  date is `DENIED_NO_ELIGIBILITY` (plan pays 0, member responsible for the charge) — still a recorded, explainable
-  decision. Authorization is the usual pipeline (§21): tenant → role (**CLAIMS_REVIEWER/ORG_ADMIN**, the reviewer's
+  gate (the claim is now ADJUDICATED) — but that same command **re-adjudicates** it (slice 11, below). A claim
+  with **no coverage** on the service date is `DENIED_NO_ELIGIBILITY` (plan pays 0, member responsible for the
+  charge) — still a recorded, explainable decision. Authorization is the usual pipeline (§21): tenant → role (**CLAIMS_REVIEWER/ORG_ADMIN**, the reviewer's
   action) → object/relationship (`PatientAccessGuard`, via the claim's patient → secure 404). The record is
   **immutable** and carries `adjudicationVersion` (1 this slice). **The annual deductible carries across claims**
   (slice 2): a **`benefit_accumulator`** row per `(patient, coverage_plan, benefit_year)` tracks `deductible_met`
@@ -255,9 +255,17 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   allowed amounts are applied** (slice 9): a covered line whose procedure the covering plan prices
   (`plan_fee_schedule`) is allowed `min(charge, fee-schedule amount)` instead of the full charge — the difference
   is a provider write-off no one pays — and everything downstream (copay/deductible/coinsurance/OOP/split) keys off
-  that allowed; an unpriced procedure falls back to `allowed = charge`. **Honest MVP limitations (later Phase-5
-  slices):** no fee-schedule **admin UI** yet (backend only), no re-adjudication versioning. Not consent
-  field-masked (claims/benefits data)),
+  that allowed; an unpriced procedure falls back to `allowed = charge`. **Re-adjudication is versioned** (slice 11):
+  the same `POST .../adjudicate` re-runs on an already-ADJUDICATED claim, writing a **new immutable version**
+  (v = prior max + 1) while every prior version is retained and the claim stays ADJUDICATED; the engine first
+  **backs out the prior version's benefit-accumulator contribution** (read from that version's own line snapshot,
+  `BenefitAccumulator.subtract`) so the deductible/OOP isn't double-counted, then recomputes under current
+  coverage/config (a denied claim can flip to covered after a retroactive enrollment). `GET .../adjudication`
+  returns the latest version; `GET .../adjudication/versions` lists all, newest first (no status-history row on
+  re-adjudication — the status is unchanged; the immutable adjudication row is the record). **Honest MVP
+  limitations:** re-adjudication reverses/recomputes *this claim only* (not other claims in the same benefit
+  year); no Idempotency-Key (each call is an intentional new version); no adjudication frontend for the version
+  history yet. Not consent field-masked (claims/benefits data)),
   `devdata` (DevDataSeeder, local-only — also seeds the global `medical_code` catalog once, then a couple of
   synthetic `clinical_summary` rows per assigned patient, one sample DRAFT `claim` (header + two procedure
   lines + its null→DRAFT status-history row) for the first patient, and two `coverage_plan` rows per org (a PPO

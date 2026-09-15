@@ -61,8 +61,10 @@ class AdjudicationRepositoryTest {
                 "same-tenant lookup finds the row");
         assertTrue(adjudicationRepository.findByIdAndOrganizationId(saved.getId(), green.getId()).isEmpty(),
                 "cross-tenant lookup of the same id returns nothing (→ secure 404)");
-        assertTrue(adjudicationRepository.findByOrganizationIdAndClaimId(north.getId(), claim.getId()).isPresent(),
-                "the by-claim finder returns the stored adjudication");
+        assertTrue(adjudicationRepository
+                        .findFirstByOrganizationIdAndClaimIdOrderByAdjudicationVersionDesc(north.getId(), claim.getId())
+                        .isPresent(),
+                "the latest-by-claim finder returns the stored adjudication");
         assertTrue(adjudicationRepository.existsByOrganizationIdAndClaimId(north.getId(), claim.getId()));
     }
 

@@ -1,5 +1,6 @@
 package com.healthcloud.adjudication;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -15,8 +16,16 @@ public interface AdjudicationRepository extends JpaRepository<Adjudication, UUID
     /** One adjudication within the caller's tenant (cross-tenant id → empty → secure 404). */
     Optional<Adjudication> findByIdAndOrganizationId(UUID id, UUID organizationId);
 
-    /** The adjudication for a claim within the tenant, if any (a claim is adjudicated once this slice). */
-    Optional<Adjudication> findByOrganizationIdAndClaimId(UUID organizationId, UUID claimId);
+    /**
+     * The current (latest-version) adjudication for a claim within the tenant, if any. A claim may have several
+     * immutable versions (re-adjudication, §Phase 5); the highest version is the one in effect.
+     */
+    Optional<Adjudication> findFirstByOrganizationIdAndClaimIdOrderByAdjudicationVersionDesc(
+            UUID organizationId, UUID claimId);
+
+    /** All adjudication versions for a claim within the tenant, newest first (the version history). */
+    List<Adjudication> findByOrganizationIdAndClaimIdOrderByAdjudicationVersionDesc(
+            UUID organizationId, UUID claimId);
 
     /** Whether a claim has already been adjudicated in this tenant (backstops the state gate). */
     boolean existsByOrganizationIdAndClaimId(UUID organizationId, UUID claimId);

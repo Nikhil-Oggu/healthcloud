@@ -90,9 +90,12 @@ public class AdjudicationService {
     }
 
     /**
-     * Adjudicate an ACCEPTED claim. Check order: role → exists + patient gate → ACCEPTED state → find coverage →
-     * compute → persist adjudication + lines, advance the claim to ADJUDICATED, and append a status-history row,
-     * all in one transaction. Returns the explainable result.
+     * Adjudicate a claim. An ACCEPTED claim is adjudicated for the first time (version 1) and advanced to
+     * ADJUDICATED; an already-ADJUDICATED claim is <b>re-adjudicated</b>, writing a new immutable version
+     * (§Phase 5) while every prior version is retained — its status stays ADJUDICATED. Any other status is a 409.
+     * Check order: role → exists + patient gate → adjudicatable state → back out the prior version's benefit
+     * contribution (re-adjudication) → find coverage → compute → persist the new adjudication + lines (and, on the
+     * first adjudication only, advance the claim + append a status-history row), all in one transaction.
      */
     @Transactional
     public AdjudicationDto adjudicate(UUID claimId) {
@@ -100,15 +103,27 @@ public class AdjudicationService {
         UserContext caller = userContext.requireUser();
         Claim claim = requireAccessibleClaim(claimId);
 
-        // Only an ACCEPTED claim can be adjudicated (a second attempt fails here → 409, the double-apply safety).
-        if (claim.getStatus() != ClaimStatus.ACCEPTED) {
+        // An ACCEPTED claim is adjudicated (v1); an ADJUDICATED one is re-adjudicated (v+1). Nothing else.
+        boolean firstAdjudication = claim.getStatus() == ClaimStatus.ACCEPTED;
+        if (!firstAdjudication && claim.getStatus() != ClaimStatus.ADJUDICATED) {
             throw new InvalidStateTransitionException(
-                    "Only an ACCEPTED claim can be adjudicated; this claim is " + claim.getStatus() + ".");
+                    "Only an ACCEPTED or ADJUDICATED claim can be adjudicated; this claim is "
+                            + claim.getStatus() + ".");
         }
 
         UUID organizationId = claim.getOrganizationId();
         List<ClaimLine> lines = claimLines
                 .findByOrganizationIdAndClaimIdOrderByLineNumberAsc(organizationId, claimId);
+
+        // The current (latest) version, if any. Re-adjudication supersedes it by latest-version-wins, and its
+        // benefit-accumulator contribution is backed out first so this claim's deductible/OOP is not double-counted.
+        Adjudication prior = adjudications
+                .findFirstByOrganizationIdAndClaimIdOrderByAdjudicationVersionDesc(organizationId, claimId)
+                .orElse(null);
+        int nextVersion = prior == null ? 1 : prior.getAdjudicationVersion() + 1;
+        if (prior != null) {
+            reversePriorContribution(prior, organizationId, claim);
+        }
 
         // Find the coverage in effect on the service date (0 or 1 row — periods are non-overlapping).
         List<PatientEligibility> covering =
@@ -118,7 +133,7 @@ public class AdjudicationService {
         Adjudication savedHeader;
         List<AdjudicationLine> savedLines;
         if (enrollment == null) {
-            savedHeader = adjudications.save(buildDenial(claim, lines, caller));
+            savedHeader = adjudications.save(buildDenial(claim, lines, caller, nextVersion));
             savedLines = saveDenialLines(claim, lines, savedHeader);
         } else {
             CoveragePlan plan = coveragePlans
@@ -158,7 +173,7 @@ public class AdjudicationService {
             // Header totals: the covered math, plus excluded charges the member owes in full (plan pays 0).
             BigDecimal excludedCharge = totalCharge(excludedLines);
             savedHeader = adjudications.save(new Adjudication(
-                    organizationId, claim.getId(), 1, AdjudicationOutcome.ADJUDICATED,
+                    organizationId, claim.getId(), nextVersion, AdjudicationOutcome.ADJUDICATED,
                     plan.getId(), enrollment.getId(), totalCharge(lines),
                     computation.totalAllowed(), computation.totalPlanPaid(),
                     computation.totalMemberResponsibility().add(excludedCharge),
@@ -166,30 +181,52 @@ public class AdjudicationService {
             savedLines = saveCoveredAndExcludedLines(claim, lines, excluded, computation, savedHeader);
         }
 
-        // §31.6: advance the claim and append its status-history row in the same transaction.
-        ClaimStatus from = claim.getStatus();
-        claim.setStatus(ClaimStatus.ADJUDICATED);
-        claims.saveAndFlush(claim);
-        claimStatusHistory.save(new ClaimStatusHistory(
-                organizationId, claim.getId(), from, ClaimStatus.ADJUDICATED, caller.userId(),
-                "Adjudicated by the adjudication engine (" + savedHeader.getOutcome() + ")",
-                CorrelationId.current()));
+        // §31.6: on the first adjudication only, advance the claim and append its status-history row in the same
+        // transaction. Re-adjudication leaves the claim ADJUDICATED (no status change) — the new immutable
+        // adjudication row (who/when/version/correlationId) is itself the record of the re-adjudication event.
+        if (firstAdjudication) {
+            ClaimStatus from = claim.getStatus();
+            claim.setStatus(ClaimStatus.ADJUDICATED);
+            claims.saveAndFlush(claim);
+            claimStatusHistory.save(new ClaimStatusHistory(
+                    organizationId, claim.getId(), from, ClaimStatus.ADJUDICATED, caller.userId(),
+                    "Adjudicated by the adjudication engine (" + savedHeader.getOutcome() + ")",
+                    CorrelationId.current()));
+        }
 
         return AdjudicationDto.from(savedHeader, planName(organizationId, savedHeader.getCoveragePlanId()),
                 savedLines);
     }
 
-    /** The stored adjudication for a claim, tenant + relationship gated (secure 404 if unreachable or none). */
+    /**
+     * The current (latest-version) adjudication for a claim, tenant + relationship gated (secure 404 if unreachable
+     * or none). Earlier versions are retained and read via {@link #listVersions(UUID)}.
+     */
     public AdjudicationDto getByClaim(UUID claimId) {
         Claim claim = requireAccessibleClaim(claimId);
         Adjudication adjudication = adjudications
-                .findByOrganizationIdAndClaimId(claim.getOrganizationId(), claimId)
+                .findFirstByOrganizationIdAndClaimIdOrderByAdjudicationVersionDesc(
+                        claim.getOrganizationId(), claimId)
                 .orElseThrow(NotFoundException::new);
+        return toDto(claim.getOrganizationId(), adjudication);
+    }
+
+    /** Every adjudication version for a claim, newest first (the immutable version history), gated as above. */
+    public List<AdjudicationDto> listVersions(UUID claimId) {
+        Claim claim = requireAccessibleClaim(claimId);
+        return adjudications
+                .findByOrganizationIdAndClaimIdOrderByAdjudicationVersionDesc(claim.getOrganizationId(), claimId)
+                .stream()
+                .map(a -> toDto(claim.getOrganizationId(), a))
+                .toList();
+    }
+
+    /** Load an adjudication's lines and render the explainable DTO (the plan that applied + the breakdown). */
+    private AdjudicationDto toDto(UUID organizationId, Adjudication adjudication) {
         List<AdjudicationLine> lines = adjudicationLines
-                .findByOrganizationIdAndAdjudicationIdOrderByLineNumberAsc(
-                        claim.getOrganizationId(), adjudication.getId());
+                .findByOrganizationIdAndAdjudicationIdOrderByLineNumberAsc(organizationId, adjudication.getId());
         return AdjudicationDto.from(adjudication,
-                planName(claim.getOrganizationId(), adjudication.getCoveragePlanId()), lines);
+                planName(organizationId, adjudication.getCoveragePlanId()), lines);
     }
 
     // --- covered path --------------------------------------------------------
@@ -272,6 +309,35 @@ public class AdjudicationService {
         return priced;
     }
 
+    /**
+     * Back out the prior adjudication version's benefit-accumulator contribution (re-adjudication, §Phase 5), so
+     * this claim's deductible and out-of-pocket are not counted twice. A prior denied version (no coverage plan)
+     * contributed nothing. The contribution is read back from the prior version's own line snapshot — the
+     * deductible applied and the covered lines' member responsibility — and subtracted from the prior version's
+     * (plan, year) accumulator under a lock. The benefit year is the claim's service-date year (service date is
+     * fixed across versions); the plan is the one the prior version used (usually the same as the new version's).
+     */
+    private void reversePriorContribution(Adjudication prior, UUID organizationId, Claim claim) {
+        if (prior.getCoveragePlanId() == null) {
+            return; // a denied prior version never touched an accumulator
+        }
+        List<AdjudicationLine> priorLines = adjudicationLines
+                .findByOrganizationIdAndAdjudicationIdOrderByLineNumberAsc(organizationId, prior.getId());
+        BigDecimal priorDeductible = BigDecimal.ZERO;
+        BigDecimal priorOutOfPocket = BigDecimal.ZERO;
+        for (AdjudicationLine line : priorLines) {
+            if (line.getOutcome() == LineOutcome.COVERED) {
+                priorDeductible = priorDeductible.add(line.getDeductibleAppliedAmount());
+                priorOutOfPocket = priorOutOfPocket.add(line.getMemberResponsibility());
+            }
+        }
+        int benefitYear = claim.getServiceDate().getYear();
+        BenefitAccumulator accumulator =
+                lockAccumulator(organizationId, claim.getPatientId(), prior.getCoveragePlanId(), benefitYear);
+        accumulator.subtract(priorDeductible, priorOutOfPocket);
+        accumulators.saveAndFlush(accumulator);
+    }
+
     /** Ensure the accumulator row exists, then lock it FOR UPDATE for the rest of the transaction (§31). */
     private BenefitAccumulator lockAccumulator(UUID organizationId, UUID patientId, UUID planId, int benefitYear) {
         accumulators.insertIfAbsent(organizationId, patientId, planId, benefitYear);
@@ -288,11 +354,11 @@ public class AdjudicationService {
 
     // --- denied path (no coverage on the service date) -----------------------
 
-    private Adjudication buildDenial(Claim claim, List<ClaimLine> lines, UserContext caller) {
+    private Adjudication buildDenial(Claim claim, List<ClaimLine> lines, UserContext caller, int version) {
         BigDecimal totalCharge = totalCharge(lines);
         // No plan pays: the member is responsible for the full charge; allowed is 0 (nothing was covered).
         return new Adjudication(
-                claim.getOrganizationId(), claim.getId(), 1, AdjudicationOutcome.DENIED_NO_ELIGIBILITY,
+                claim.getOrganizationId(), claim.getId(), version, AdjudicationOutcome.DENIED_NO_ELIGIBILITY,
                 null, null, totalCharge, money(BigDecimal.ZERO), money(BigDecimal.ZERO), totalCharge,
                 caller.userId(), CorrelationId.current());
     }
