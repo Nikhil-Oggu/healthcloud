@@ -450,3 +450,18 @@ export interface PlanExclusion {
 export interface AddPlanExclusionRequest {
   procedureCode: string
 }
+
+/** A procedure a plan prices — the allowed amount the adjudication engine uses (mirrors PlanFeeScheduleDto). */
+export interface PlanFeeScheduleEntry {
+  id: string
+  coveragePlanId: string
+  codeSystem: CodeSystem
+  code: string
+  allowedAmount: number
+}
+
+/** Payload to price a procedure on a plan (ORG_ADMIN); the backend resolves + validates the code. */
+export interface AddFeeScheduleRequest {
+  procedureCode: string
+  allowedAmount: number
+}

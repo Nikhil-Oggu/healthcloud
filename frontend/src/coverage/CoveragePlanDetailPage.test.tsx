@@ -7,7 +7,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { api } from '../api/client'
 import { useCurrentUser } from '../auth/useAuth'
 import { CoveragePlanDetailPage } from './CoveragePlanDetailPage'
-import type { CoveragePlan, CurrentUser, PlanExclusion } from '../api/types'
+import type { CoveragePlan, CurrentUser, PlanExclusion, PlanFeeScheduleEntry } from '../api/types'
 
 vi.mock('../api/client', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../api/client')>()
@@ -19,6 +19,9 @@ vi.mock('../api/client', async (importOriginal) => {
       listExclusions: vi.fn(),
       addExclusion: vi.fn(),
       removeExclusion: vi.fn(),
+      listFeeSchedule: vi.fn(),
+      addFeeSchedule: vi.fn(),
+      removeFeeSchedule: vi.fn(),
       searchMedicalCodes: vi.fn(),
     },
   }
@@ -29,6 +32,9 @@ const getCoveragePlan = vi.mocked(api.getCoveragePlan)
 const listExclusions = vi.mocked(api.listExclusions)
 const addExclusion = vi.mocked(api.addExclusion)
 const removeExclusion = vi.mocked(api.removeExclusion)
+const listFeeSchedule = vi.mocked(api.listFeeSchedule)
+const addFeeSchedule = vi.mocked(api.addFeeSchedule)
+const removeFeeSchedule = vi.mocked(api.removeFeeSchedule)
 const searchMedicalCodes = vi.mocked(api.searchMedicalCodes)
 const useCurrentUserMock = vi.mocked(useCurrentUser)
 
@@ -38,6 +44,9 @@ const PLAN: CoveragePlan = {
 }
 const EXCLUSIONS: PlanExclusion[] = [
   { id: 'ex1', coveragePlanId: 'pl1', codeSystem: 'CPT', code: '80053' },
+]
+const FEE_SCHEDULE: PlanFeeScheduleEntry[] = [
+  { id: 'fs1', coveragePlanId: 'pl1', codeSystem: 'CPT', code: '99213', allowedAmount: 110 },
 ]
 
 function mockUser(roles: string[]) {
@@ -65,6 +74,8 @@ describe('CoveragePlanDetailPage', () => {
     vi.clearAllMocks()
     getCoveragePlan.mockResolvedValue(PLAN)
     searchMedicalCodes.mockResolvedValue([])
+    listExclusions.mockResolvedValue([])
+    listFeeSchedule.mockResolvedValue([])
   })
 
   it('renders the plan parameters and its exclusions', async () => {
@@ -106,5 +117,50 @@ describe('CoveragePlanDetailPage', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Remove' }))
 
     await waitFor(() => expect(removeExclusion).toHaveBeenCalledWith('pl1', 'ex1'))
+  })
+
+  it('renders a fee-schedule entry with its allowed amount', async () => {
+    mockUser(['CLAIMS_REVIEWER'])
+    listFeeSchedule.mockResolvedValue(FEE_SCHEDULE)
+
+    renderDetail(<CoveragePlanDetailPage />)
+
+    expect(await screen.findByText(/Standard PPO/)).toBeInTheDocument()
+    // The fee-schedule list loads from its own query.
+    expect(await screen.findByText('$110.00')).toBeInTheDocument()
+    // A non-admin sees no add/remove controls.
+    expect(screen.queryByLabelText('Price a procedure')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Add entry' })).not.toBeInTheDocument()
+  })
+
+  it('an admin can add a fee-schedule entry via the picker and amount', async () => {
+    mockUser(['ORG_ADMIN'])
+    listFeeSchedule.mockResolvedValue([])
+    addFeeSchedule.mockResolvedValue({
+      id: 'fs2', coveragePlanId: 'pl1', codeSystem: 'CPT', code: '99213', allowedAmount: 90,
+    })
+
+    renderDetail(<CoveragePlanDetailPage />)
+    await screen.findByText(/Standard PPO/)
+
+    await userEvent.type(screen.getByLabelText('Price a procedure'), '99213')
+    await userEvent.type(screen.getByLabelText('Allowed amount'), '90.00')
+    await userEvent.click(screen.getByRole('button', { name: 'Add entry' }))
+
+    await waitFor(() =>
+      expect(addFeeSchedule).toHaveBeenCalledWith('pl1', { procedureCode: '99213', allowedAmount: 90 }))
+  })
+
+  it('an admin can remove a fee-schedule entry', async () => {
+    mockUser(['ORG_ADMIN'])
+    listFeeSchedule.mockResolvedValue(FEE_SCHEDULE)
+    removeFeeSchedule.mockResolvedValue(undefined)
+
+    renderDetail(<CoveragePlanDetailPage />)
+    await screen.findByText('$110.00')
+
+    await userEvent.click(screen.getByRole('button', { name: 'Remove' }))
+
+    await waitFor(() => expect(removeFeeSchedule).toHaveBeenCalledWith('pl1', 'fs1'))
   })
 })

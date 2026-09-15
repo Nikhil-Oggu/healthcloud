@@ -7,6 +7,7 @@ import type {
   AssignmentCandidate,
   AssignRequest,
   AddPlanExclusionRequest,
+  AddFeeScheduleRequest,
   Claim,
   ClaimStatusChange,
   ClaimStatusHistory,
@@ -20,6 +21,7 @@ import type {
   MedicalCode,
   PatientEligibility,
   PlanExclusion,
+  PlanFeeScheduleEntry,
   CoordinatorAssignment,
   CurrentUser,
   Patient,
@@ -338,6 +340,19 @@ export const api = {
 
   removeExclusion: (planId: string, exclusionId: string) =>
     request<void>(`/api/v1/coverage-plans/${planId}/exclusions/${exclusionId}`, { method: 'DELETE' }),
+
+  listFeeSchedule: (planId: string) =>
+    request<PlanFeeScheduleEntry[]>(`/api/v1/coverage-plans/${planId}/fee-schedule`),
+
+  addFeeSchedule: (planId: string, body: AddFeeScheduleRequest) =>
+    request<PlanFeeScheduleEntry>(`/api/v1/coverage-plans/${planId}/fee-schedule`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }),
+
+  removeFeeSchedule: (planId: string, entryId: string) =>
+    request<void>(`/api/v1/coverage-plans/${planId}/fee-schedule/${entryId}`, { method: 'DELETE' }),
 
   // --- Patient eligibility (§Phase 4/5) ---
   listEligibility: (patientId: string) =>

@@ -81,8 +81,10 @@
   `allowed = min(charge, fee-schedule amount)` for a priced covered line (the difference is a provider write-off
   no one pays) and falls back to `allowed = charge` for an unpriced line — replacing the old "allowed = charge"
   everywhere. All cost-sharing already keys off allowed, so the whole split becomes realistic. **Backend-only.**
-  **Next Phase-5 slices:** a **fee-schedule admin UI** (a card on the coverage-plan detail page, mirroring
-  exclusions — slice 10), and re-adjudication versioning. Also still deferred: a **frontend** for
+  slice 10 ✅ — the **fee-schedule admin UI**: a **Fee schedule** card on the coverage-plan detail page (add via
+  the reusable `MedicalCodePicker` + an allowed-amount field / remove, ORG_ADMIN; reads open to same-tenant),
+  mirroring the exclusions card → the slice-9 fee schedule is now manageable in the browser. **Frontend-only.**
+  **Next Phase-5 slices:** re-adjudication versioning. Also still deferred: a **frontend** for
   clinical summaries + claims + coverage (incl. a medical-code picker); consent masking of claim fields
   (`CLAIMS_BENEFITS`) and the fuller CLAIMS_REVIEWER business-need scoping; a close/edit endpoint for an
   eligibility period. **Phase 4 proof (§60):** a claims reviewer sees
@@ -105,6 +107,33 @@
   then `curl -b j.txt localhost:8080/api/v1/me`. Reset DB with `./scripts/db-reset.sh`.
 
 ## Log (newest first)
+
+### 2026-09-15 — Phase 5, slice 10 ✅ (fee-schedule admin UI — pricing procedures in the browser)
+- **Why:** slice 9 added the fee schedule but it could only be managed via the API. This adds a **Fee schedule**
+  card to the coverage-plan detail page so an admin can price procedures in the browser, mirroring the Exclusions
+  card and reusing the same `MedicalCodePicker`. **Frontend-only** — the `GET/POST/DELETE
+  /api/v1/coverage-plans/{id}/fee-schedule` endpoints already exist (slice 9).
+- **`FeeScheduleCard`** on `CoveragePlanDetailPage.tsx` (after the Exclusions card): a table of Code / System /
+  **Allowed** (via the `money()` helper) + a Remove action for ORG_ADMIN, and an add row — the `MedicalCodePicker`
+  plus an "Allowed amount" number field (Add disabled until a code and a valid non-negative amount are entered).
+  Server errors (409 duplicate, 400 unknown code / negative amount) surface via `ApiClientError` + correlationId,
+  same `reportError` pattern as the exclusions card. Reads open to same-tenant; add/remove ORG_ADMIN only
+  (role-aware UI — the backend enforces it).
+- **New hooks** (`src/coverage/useCoverage.ts`): `useFeeSchedule` / `useAddFeeSchedule` / `useRemoveFeeSchedule`
+  keyed by `['coverage-plans', id, 'fee-schedule']` (invalidated on add/remove).
+- **Plumbing:** `api/types.ts` gained `PlanFeeScheduleEntry` + `AddFeeScheduleRequest`; `api/client.ts` gained
+  `listFeeSchedule` / `addFeeSchedule` / `removeFeeSchedule`. No new route/nav — the card lives on the existing
+  plan detail page.
+- **Scope boundary:** no edit-in-place (remove + re-add, like exclusions — no backend update endpoint); adjudication
+  behavior unchanged (slice 9 already applied the fee schedule).
+- **Verified — automated:** frontend `npm run typecheck` clean, `npm test` → **56 pass** (+3 in
+  `CoveragePlanDetailPage.test.tsx`: renders an entry with its allowed amount (non-admin sees no controls), an
+  admin adds via picker + amount, an admin removes). `npm run build` OK. Backend untouched (255 green).
+- **Verified — live in browser** (admin@northcare, fresh `db-reset` + backend + Vite): opened Standard PPO → the
+  Fee schedule card showed the seeded **80053 · $40.00**; added **99213 · $130.00** via the picker + amount → it
+  appeared immediately (list invalidation); **Remove** → back to just 80053.
+- **Files:** changed `api/types.ts`, `api/client.ts`, `coverage/useCoverage.ts`,
+  `coverage/CoveragePlanDetailPage.tsx` (+`CoveragePlanDetailPage.test.tsx`), `CLAUDE.md`, `docs/PROGRESS.md`.
 
 ### 2026-09-15 — Phase 5, slice 9 ✅ (fee-schedule allowed amounts — allowed is no longer just the charge)
 - **Why:** the engine used `allowed = charge` everywhere — a provider could bill any amount and the plan/member

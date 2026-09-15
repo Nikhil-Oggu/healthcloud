@@ -1,10 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api/client'
-import type { AddPlanExclusionRequest, CreateCoveragePlanRequest } from '../api/types'
+import type { AddFeeScheduleRequest, AddPlanExclusionRequest, CreateCoveragePlanRequest } from '../api/types'
 
 export const COVERAGE_PLANS_QUERY_KEY = ['coverage-plans'] as const
 export const coveragePlanKey = (id: string) => ['coverage-plans', id] as const
 export const exclusionsKey = (id: string) => ['coverage-plans', id, 'exclusions'] as const
+export const feeScheduleKey = (id: string) => ['coverage-plans', id, 'fee-schedule'] as const
 
 /** The current tenant's coverage plans (reads open to any same-tenant user). */
 export function useCoveragePlans() {
@@ -43,5 +44,27 @@ export function useRemoveExclusion(planId: string) {
   return useMutation({
     mutationFn: (exclusionId: string) => api.removeExclusion(planId, exclusionId),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: exclusionsKey(planId) }),
+  })
+}
+
+export function useFeeSchedule(planId: string) {
+  return useQuery({ queryKey: feeScheduleKey(planId), queryFn: () => api.listFeeSchedule(planId) })
+}
+
+/** Price a procedure on a plan, then refresh that plan's fee schedule. */
+export function useAddFeeSchedule(planId: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (body: AddFeeScheduleRequest) => api.addFeeSchedule(planId, body),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: feeScheduleKey(planId) }),
+  })
+}
+
+/** Remove a fee-schedule entry from a plan, then refresh that plan's fee schedule. */
+export function useRemoveFeeSchedule(planId: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (entryId: string) => api.removeFeeSchedule(planId, entryId),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: feeScheduleKey(planId) }),
   })
 }
