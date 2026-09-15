@@ -7,6 +7,10 @@ import com.healthcloud.identity.OrganizationMembership;
 import com.healthcloud.identity.OrganizationMembershipRepository;
 import com.healthcloud.identity.Role;
 import com.healthcloud.identity.RoleRepository;
+import com.healthcloud.claim.Claim;
+import com.healthcloud.claim.ClaimLine;
+import com.healthcloud.claim.ClaimLineRepository;
+import com.healthcloud.claim.ClaimRepository;
 import com.healthcloud.clinical.ClinicalSummary;
 import com.healthcloud.clinical.ClinicalSummaryRepository;
 import com.healthcloud.clinical.ClinicalSummaryType;
@@ -29,6 +33,7 @@ import com.healthcloud.relationship.CareCoordinatorAssignmentStatus;
 import com.healthcloud.relationship.ProviderPatientAssignment;
 import com.healthcloud.relationship.ProviderPatientAssignmentRepository;
 import com.healthcloud.relationship.ProviderPatientAssignmentStatus;
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
 import org.slf4j.Logger;
@@ -65,6 +70,8 @@ public class DevDataSeeder implements ApplicationRunner {
     private final CareCoordinatorAssignmentRepository careCoordinatorAssignmentRepository;
     private final MedicalCodeRepository medicalCodeRepository;
     private final ClinicalSummaryRepository clinicalSummaryRepository;
+    private final ClaimRepository claimRepository;
+    private final ClaimLineRepository claimLineRepository;
 
     public DevDataSeeder(OrganizationRepository organizationRepository,
                          AppUserRepository appUserRepository,
@@ -77,7 +84,9 @@ public class DevDataSeeder implements ApplicationRunner {
                          ProviderPatientAssignmentRepository providerPatientAssignmentRepository,
                          CareCoordinatorAssignmentRepository careCoordinatorAssignmentRepository,
                          MedicalCodeRepository medicalCodeRepository,
-                         ClinicalSummaryRepository clinicalSummaryRepository) {
+                         ClinicalSummaryRepository clinicalSummaryRepository,
+                         ClaimRepository claimRepository,
+                         ClaimLineRepository claimLineRepository) {
         this.organizationRepository = organizationRepository;
         this.appUserRepository = appUserRepository;
         this.roleRepository = roleRepository;
@@ -90,6 +99,8 @@ public class DevDataSeeder implements ApplicationRunner {
         this.careCoordinatorAssignmentRepository = careCoordinatorAssignmentRepository;
         this.medicalCodeRepository = medicalCodeRepository;
         this.clinicalSummaryRepository = clinicalSummaryRepository;
+        this.claimRepository = claimRepository;
+        this.claimLineRepository = claimLineRepository;
     }
 
     @Override
@@ -185,6 +196,24 @@ public class DevDataSeeder implements ApplicationRunner {
         // read masks it by default; recording a CLINICAL_CONTEXT grant on the patient makes it visible.
         seedClinicalSummaries(org, patients.get(0), provider);
         seedClinicalSummaries(org, patients.get(1), provider);
+
+        // A sample DRAFT claim (Phase 4) for the first patient, with two procedure lines from the catalog, so a
+        // demo claims list/queue returns something. Amounts are synthetic.
+        seedClaim(org, patients.get(0), provider);
+    }
+
+    /** A synthetic DRAFT claim with two procedure lines (CPT), header total = sum of the line charges. */
+    private void seedClaim(Organization org, Patient patient, AppUser author) {
+        BigDecimal officeVisit = new BigDecimal("150.00");
+        BigDecimal metabolicPanel = new BigDecimal("45.50");
+        Claim claim = claimRepository.save(new Claim(
+                org.getId(), patient.getId(),
+                "CLM-" + org.getId().toString().substring(0, 4).toUpperCase() + "01",
+                LocalDate.now().minusWeeks(3), officeVisit.add(metabolicPanel), author.getId()));
+        claimLineRepository.save(new ClaimLine(
+                org.getId(), claim.getId(), 1, CodeSystem.CPT, "99213", 1, officeVisit));
+        claimLineRepository.save(new ClaimLine(
+                org.getId(), claim.getId(), 2, CodeSystem.CPT, "80053", 1, metabolicPanel));
     }
 
     /** A couple of synthetic clinical summaries for a patient, each pointing at a real ICD-10-CM diagnosis. */

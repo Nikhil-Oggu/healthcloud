@@ -148,6 +148,23 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   QUARANTINED/PENDING document is a 409 `DOCUMENT_NOT_AVAILABLE` (not a secure 404 — the caller already sees it in
   the listing with its status). Scanning is synchronous now; the async event-driven scanner (PENDING → worker
   flips it) is Phase 8),
+  `claim` (Phase 4 — the claims-intake aggregate: `POST /api/v1/claims`, `GET /api/v1/claims` (list),
+  `GET /api/v1/claims/{claimId}` (header + lines). A `claim` header owns one or more `claim_line` children, each
+  billing a **procedure** code (CPT/HCPCS) from the global `medical_code` catalog; money is `BigDecimal` /
+  `NUMERIC(12,2)` and the header `totalChargeAmount` is **computed on the backend** from the lines. **Top-level
+  but gated by its patient** (like `service_request`, NOT nested): every read routes through `PatientAccessGuard`
+  and the list scopes via `accessiblePatientIdsIfGated` — a provider sees only assigned patients' claims, while
+  a broad role (coordinator/admin/**claims reviewer**) sees the tenant's claims as a work queue; another tenant's
+  claim is a secure 404. Created in `DRAFT` only this slice. Creation is **one transaction** (§31.6 aggregate):
+  the header + all lines are written atomically after each line's procedure code is validated against the catalog
+  (the system — CPT or HCPCS — is resolved from the code; unknown or a **diagnosis** code → 400
+  `VALIDATION_FAILED`; the canonical spelling is stored). Two DB FKs enforce integrity structurally:
+  `(patient_id, organization_id)` → patient and `(procedure_code_system, procedure_code)` → the global catalog;
+  `claim_number` is unique per tenant (server-allocated `CLM-XXXXXXXX`). **§60 proof:** a claim carries only
+  coded, claim-relevant data (procedure codes + amounts + dates) — **no clinical narrative** — so a reviewer
+  works claims without unrestricted medical context; the narrative lives (consent-masked) in `clinical_summary`.
+  Not consent field-masked. **Status transitions + `claim_status_history` + submission/validation are the NEXT
+  slice** (only DRAFT exists now, though the status CHECK lists the forward lifecycle). Backend-only so far),
   `clinical` (Phase 4 — clinical summaries: `GET/POST /api/v1/patients/{patientId}/clinical-summaries`,
   `GET .../clinical-summaries/{id}`. A short clinical note about a patient encounter, pointing at an ICD-10-CM
   diagnosis from the global `medical_code` catalog. **Tenant-owned + patient-scoped**, so it reuses the whole
@@ -174,8 +191,9 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   `system` → 400 via the existing type-mismatch handler. `CodeSystem` carries a display `label` + `category`
   (Diagnosis/Procedure). Codes are public reference vocabularies, not PHI — seeding real-format values is fine),
   `devdata` (DevDataSeeder, local-only — also seeds the global `medical_code` catalog once, then a couple of
-  synthetic `clinical_summary` rows per assigned patient; reference codes are seeded before the orgs so the
-  clinical-summary→catalog FK is satisfied).
+  synthetic `clinical_summary` rows per assigned patient and one sample `claim` (header + two procedure lines)
+  for the first patient; reference codes are seeded before the orgs so the clinical-summary/claim→catalog FKs
+  are satisfied).
 - **Tenant-owned entity pattern (Phase 2+):** hold `organizationId` as the tenant key; repositories expose
   only org-scoped finders (`findByIdAndOrganizationId`, `findByOrganizationId…`) — no bare `findById` in
   business code; services derive the org from `UserContextAccessor.requireOrganizationId()`. `patient` is

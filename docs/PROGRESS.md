@@ -9,7 +9,10 @@
   clinical summaries & claim lines reference; read-only, authenticated, not tenant-scoped ·
   slice 2 ✅ clinical summaries — patient-scoped clinical notes pointing at an ICD-10-CM diagnosis; reuses the
   `PatientAccessGuard` gate + consent field masking on the free-text narrative, coded diagnosis stays visible
-  → the first half of the §60 proof)** ·
+  → the first half of the §60 proof ·
+  slice 3 ✅ claims intake — the claim header + claim lines aggregate (lines bill CPT/HCPCS procedure codes from
+  the catalog; backend-computed total; top-level `/api/v1/claims` gated by patient → reviewer work queue);
+  created in DRAFT, no clinical narrative on a claim → the §60 reviewer half)** ·
   **Phase 3 COMPLETE ✅ (slice 1 ✅ consent lifecycle · 2 ✅ decision engine §22.5 · 3 ✅ field masking §23 ·
   4 ✅ provider↔patient record §14.3 · 5 ✅ object/relationship gate on patient reads §21 layer 6 ·
   6 ✅ gate applied to the patient-nested endpoints — single `PatientAccessGuard` choke point ·
@@ -31,11 +34,13 @@
   16 ✅ documents UI — a Documents card on the patient detail page: upload, list with scan-status chips, and
   download of CLEAN files; the §19 loop is now visible end-to-end in the browser)**
 - **Repo:** https://github.com/Nikhil-Oggu/healthcloud (private, branch `main`)
-- **Next up (Phase 4):** clinical summaries are in (slice 2). The natural next slices are the **claim header +
-  claim lines** (a claim line references a procedure code from the catalog; tenant-owned + patient-scoped, same
-  pattern), then plan/eligibility foundations, and the submission/validation workflow. A **medical-codes UI**
-  (a code picker) arrives with the first frontend slice that consumes codes — likely the claim-line or a
-  clinical-summary create form. **Phase 4 proof (§60):** a claims reviewer sees
+- **Next up (Phase 4):** claims intake is in (slice 3). The natural next slice is the **claim submission +
+  validation workflow** — the `claim_status_history` table + controlled DRAFT→SUBMITTED (and accept/reject/
+  cancel) transitions with validation rules (at least one line, positive amounts, etc.), mirroring the
+  `service_request` state machine (pure `ClaimTransitions` policy class + status history in one tx). Then
+  plan/eligibility foundations, and — at the front of Phase 5 — the adjudication engine that reads these lines.
+  A **medical-codes UI** (a code picker) + a **claims/clinical UI** arrive with the first frontend slice that
+  consumes codes. **Phase 4 proof (§60):** a claims reviewer sees
   claim-relevant data *without* unrestricted medical context — so the CLAIMS_REVIEWER business-need scoping
   deferred through Phase 3 gets designed here. A **medical-codes UI** (a code picker) arrives when a slice first
   consumes codes. Plan each slice before building. (Older deferred items still open — Phase 3 was
@@ -55,6 +60,51 @@
   then `curl -b j.txt localhost:8080/api/v1/me`. Reset DB with `./scripts/db-reset.sh`.
 
 ## Log (newest first)
+
+### 2026-09-15 — Phase 4, slice 3 ✅ (claims intake — the claim header + claim lines aggregate)
+- **Why:** the money side of Phase 4. A claim is a header + one or more lines, each line billing a *procedure*
+  code (CPT/HCPCS) from the slice-1 catalog. It's the first Phase-4 resource with a **parent→child aggregate**
+  and with **monetary amounts**, and it sets up Phase 5's adjudication engine (which will read these lines). It
+  reuses the Phase-3 stack (tenant scoping + `PatientAccessGuard`) rather than adding new access machinery.
+- **Design choice — top-level, gated by patient (like `service_request`, NOT nested like clinical summaries):**
+  a reviewer needs a cross-patient **work queue**, so claims live at `/api/v1/claims` and the list scopes via the
+  request module's `accessiblePatientIdsIfGated` — a provider sees only assigned patients' claims; a broad role
+  (coordinator/admin/reviewer) sees the tenant's claims. Directly serves the §60 reviewer proof.
+- **Migration `V16__claim.sql`:** `claim` header (tenant key, `patient_id`, unique-per-tenant `claim_number`,
+  `status` DEFAULT DRAFT with the forward lifecycle in the CHECK, `service_date`, `total_charge_amount`
+  NUMERIC(12,2), audit cols, `version`) + `claim_line` child (`line_number` unique per claim, procedure
+  code+system, `units`>0, `charge_amount`≥0). Structural integrity via **two FKs**: `(patient_id,
+  organization_id)`→patient and `(procedure_code_system, procedure_code)`→the global `medical_code`; plus
+  `UNIQUE(id, organization_id)` so lines FK-with-org, and `UNIQUE(organization_id, claim_number)`.
+- **New `com.healthcloud.claim` package:** `Claim` + `ClaimLine` entities (money as `BigDecimal`), `ClaimStatus`
+  enum, `ClaimRepository`/`ClaimLineRepository` (org-scoped finders + list-by-accessible-patients),
+  `ClaimDto`(header+lines)/`ClaimLineDto`/`ClaimSummaryDto`(header-only list), `CreateClaimRequest` +
+  `CreateClaimLineRequest` (`@Valid`), `ClaimService`, `ClaimController`.
+- **Behaviour:** create is **one transaction** (§31.6 aggregate) — validate every line's procedure code first
+  (system resolved from the code among CPT/HCPCS; unknown or a diagnosis code → **400 VALIDATION_FAILED**, the
+  canonical spelling is stored), compute the header total from the lines (never the client), then write header +
+  lines atomically. `claim_number` is server-allocated (`CLM-XXXXXXXX`, unique-checked). Reads route through the
+  patient gate (unreachable/cross-tenant → secure 404); list optionally filters `?patientId=` / `?status=`.
+  Create roles: PROVIDER (must be actively assigned)/CARE_COORDINATOR/ORG_ADMIN — a CLAIMS_REVIEWER reads, not
+  writes. Created in DRAFT only.
+- **§60 proof (reviewer half):** a claim carries only coded, claim-relevant data — **no clinical narrative** —
+  so a reviewer works the claim queue without unrestricted medical context; the narrative stays consent-masked
+  in `clinical_summary`. Claims are not consent field-masked.
+- **Seeder:** one sample DRAFT claim (two CPT lines, total 195.50) for the first patient per tenant; reference
+  codes already seed before the orgs (slice 2) so the new catalog FK is satisfied.
+- **Verified — automated:** `./mvnw -B clean verify` → **184 pass** (+11: `ClaimRepositoryTest` ×4 — tenant
+  scoping, per-tenant number uniqueness + cross-tenant reuse, line ordering + per-claim line-number uniqueness,
+  the catalog FK; `ClaimApiIntegrationTest` ×7 — 401; create returns the aggregate with a computed total; single
+  read; unknown + diagnosis-as-procedure → 400; reviewer lists/reads claim data (§60); a provider sees only
+  assigned patients' claims (gate); cross-tenant → secure 404).
+- **Verified — live:** `db-reset` → fresh backend → the reviewer's queue shows the seeded DRAFT claim (total
+  195.5); a coordinator created a mixed CPT+HCPCS claim (lowercase `j1815` resolved to canonical `J1815`, total
+  240.00 computed); a diagnosis code as a procedure line returned a clean `400`.
+- **Deferred to slice 4:** `claim_status_history` + the controlled submission/validation state machine (only
+  DRAFT is created now). Also still open: consent masking of claim fields (`CLAIMS_BENEFITS`) and the fuller
+  CLAIMS_REVIEWER business-need scoping — this slice delivers the structural half (claims have no narrative).
+- **Files:** +`V16__claim.sql`, +`claim/` package (11 files), +2 test classes; changed `DevDataSeeder`,
+  `CLAUDE.md`, `docs/PROGRESS.md`.
 
 ### 2026-09-15 — Phase 4, slice 2 ✅ (clinical summaries — patient clinical context, consent-masked)
 - **Why:** with the code vocabulary in place (slice 1), the next Phase-4 building block is a clinical summary —
