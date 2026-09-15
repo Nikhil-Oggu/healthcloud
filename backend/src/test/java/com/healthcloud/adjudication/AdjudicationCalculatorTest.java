@@ -102,6 +102,34 @@ class AdjudicationCalculatorTest {
     }
 
     @Test
+    void a_partial_remaining_deductible_is_consumed_then_coinsurance() {
+        // Only $50 of the deductible remains (the rest met on earlier claims), $0 copay, 20% coinsurance on $200:
+        // $50 to the deductible, then 20% of the remaining $150 = $30 → member $80, plan $120.
+        Computation c = AdjudicationCalculator.adjudicate(
+                plan("1500.00", "0.2000", "0.00"), money("50.00"),
+                List.of(new LineCharge(1, money("200.00"))));
+
+        LineComputation line = c.lines().get(0);
+        assertEquals(money("50.00"), line.deductibleAppliedAmount());
+        assertEquals(money("30.00"), line.coinsuranceAmount());
+        assertEquals(money("80.00"), line.memberResponsibility());
+        assertEquals(money("120.00"), line.planPaidAmount());
+    }
+
+    @Test
+    void a_met_deductible_means_the_plan_pays_from_the_first_dollar() {
+        // Deductible fully met (remaining $0), $0 copay, 20% coinsurance on $200 → member $40, plan $160.
+        Computation c = AdjudicationCalculator.adjudicate(
+                plan("1500.00", "0.2000", "0.00"), money("0.00"),
+                List.of(new LineCharge(1, money("200.00"))));
+
+        LineComputation line = c.lines().get(0);
+        assertEquals(money("0.00"), line.deductibleAppliedAmount());
+        assertEquals(money("40.00"), line.coinsuranceAmount());
+        assertEquals(money("160.00"), line.planPaidAmount());
+    }
+
+    @Test
     void coinsurance_is_rounded_half_up_to_cents() {
         // No deductible, $0 copay, 15% of $155.55 = $23.3325 → rounds to $23.33; plan pays the rest.
         Computation c = AdjudicationCalculator.adjudicate(

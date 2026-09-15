@@ -78,7 +78,7 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   Checks: `npm run typecheck`, `npm test` (Vitest), `npm run build`. Node runs from `openjdk@25`'s
   sibling `node@24` — use `export PATH="/opt/homebrew/opt/node@24/bin:$PATH"` in non-interactive shells.
 
-## Current implementation (Phase 1–4 COMPLETE; Phase 5 adjudication IN PROGRESS — slice 1 done — see docs/PROGRESS.md for status)
+## Current implementation (Phase 1–4 COMPLETE; Phase 5 adjudication IN PROGRESS — slices 1–2 done — see docs/PROGRESS.md for status)
 - **Backend packages** under `com.healthcloud`: `organization` (Organization, Facility, FacilityMembership),
   `identity` (AppUser, Role, OrganizationMembership, UserRole), `auth` (SecurityConfig, DevLoginController,
   CurrentUserController/Service, CsrfCookieFilter), `context` (UserContext + UserContextAccessor/Filter),
@@ -228,10 +228,16 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   date is `DENIED_NO_ELIGIBILITY` (plan pays 0, member responsible for the charge) — still a recorded, explainable
   decision. Authorization is the usual pipeline (§21): tenant → role (**CLAIMS_REVIEWER/ORG_ADMIN**, the reviewer's
   action) → object/relationship (`PatientAccessGuard`, via the claim's patient → secure 404). The record is
-  **immutable** and carries `adjudicationVersion` (1 this slice). **Honest MVP limitations (later Phase-5 slices):**
-  no cross-claim annual deductible/out-of-pocket accumulator (the deductible starts fresh per claim — the accumulator
-  needs row locks, §31), no out-of-pocket-max enforcement, no exclusions, no fee-schedule allowed amounts, no
-  re-adjudication, and no frontend. Not consent field-masked (claims/benefits data)),
+  **immutable** and carries `adjudicationVersion` (1 this slice). **The annual deductible carries across claims**
+  (slice 2): a **`benefit_accumulator`** row per `(patient, coverage_plan, benefit_year)` tracks `deductible_met`
+  (and `out_of_pocket_met`), and the engine reads-and-updates it **inside the adjudication transaction under a
+  `PESSIMISTIC_WRITE` lock** (§31 "row locks for financial accumulators") — an **insert-if-absent** (`ON CONFLICT
+  DO NOTHING`) guarantees the row before the locked read, so concurrent adjudications for the same patient/plan/year
+  serialize without a lost update. The calculator takes the **deductible still remaining** (plan deductible − met);
+  `benefit_year` is the claim's service-date calendar year (MVP: plan year = calendar year). **Honest MVP
+  limitations (later Phase-5 slices):** `out_of_pocket_met` is tracked but the **out-of-pocket-max cap is not yet
+  enforced** (slice 3), no exclusions, no fee-schedule allowed amounts (allowed = charge), no re-adjudication, and
+  no frontend. Not consent field-masked (claims/benefits data)),
   `devdata` (DevDataSeeder, local-only — also seeds the global `medical_code` catalog once, then a couple of
   synthetic `clinical_summary` rows per assigned patient, one sample DRAFT `claim` (header + two procedure
   lines + its null→DRAFT status-history row) for the first patient, and two `coverage_plan` rows per org (a PPO

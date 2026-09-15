@@ -63,11 +63,23 @@ public final class AdjudicationCalculator {
     }
 
     /**
-     * Compute the covered adjudication for {@code lines} under {@code plan}. Deterministic: the same inputs
-     * always produce the same amounts. The deductible is consumed across the lines in the order given.
+     * Compute the covered adjudication as if this were the first claim of the benefit year — the plan's full
+     * deductible is available. Kept for callers/tests that do not track cross-claim accumulation; the engine
+     * uses {@link #adjudicate(PlanParameters, BigDecimal, List)} with the deductible already met carried in.
      */
     public static Computation adjudicate(PlanParameters plan, List<LineCharge> lines) {
-        BigDecimal remainingDeductible = money(plan.deductibleAmount());
+        return adjudicate(plan, plan.deductibleAmount(), lines);
+    }
+
+    /**
+     * Compute the covered adjudication for {@code lines} under {@code plan}, given how much of the annual
+     * deductible is <b>still remaining</b> for this patient/plan/year (the benefit accumulator carries the rest
+     * across claims, §31). Deterministic: the same inputs always produce the same amounts. The remaining
+     * deductible is consumed across the lines in the order given.
+     */
+    public static Computation adjudicate(PlanParameters plan, BigDecimal deductibleRemaining,
+                                         List<LineCharge> lines) {
+        BigDecimal remainingDeductible = money(deductibleRemaining).max(ZERO);
         BigDecimal copayRate = plan.copayAmount() == null ? ZERO : money(plan.copayAmount());
         BigDecimal coinsuranceRate = plan.coinsuranceRate() == null ? BigDecimal.ZERO : plan.coinsuranceRate();
 

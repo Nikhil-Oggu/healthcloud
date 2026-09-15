@@ -53,6 +53,7 @@ public class AdjudicationService {
     private final PatientEligibilityRepository eligibility;
     private final AdjudicationRepository adjudications;
     private final AdjudicationLineRepository adjudicationLines;
+    private final BenefitAccumulatorRepository accumulators;
     private final PatientAccessGuard accessGuard;
     private final UserContextAccessor userContext;
 
@@ -60,6 +61,7 @@ public class AdjudicationService {
                                ClaimStatusHistoryRepository claimStatusHistory,
                                CoveragePlanRepository coveragePlans, PatientEligibilityRepository eligibility,
                                AdjudicationRepository adjudications, AdjudicationLineRepository adjudicationLines,
+                               BenefitAccumulatorRepository accumulators,
                                PatientAccessGuard accessGuard, UserContextAccessor userContext) {
         this.claims = claims;
         this.claimLines = claimLines;
@@ -68,6 +70,7 @@ public class AdjudicationService {
         this.eligibility = eligibility;
         this.adjudications = adjudications;
         this.adjudicationLines = adjudicationLines;
+        this.accumulators = accumulators;
         this.accessGuard = accessGuard;
         this.userContext = userContext;
     }
@@ -107,7 +110,16 @@ public class AdjudicationService {
             CoveragePlan plan = coveragePlans
                     .findByIdAndOrganizationId(enrollment.getCoveragePlanId(), organizationId)
                     .orElseThrow(NotFoundException::new);
-            AdjudicationCalculator.Computation computation = compute(lines, plan);
+            // §31: lock this patient/plan/year accumulator for the rest of the tx, so the deductible carried
+            // across claims is read-and-updated without a lost update under concurrency.
+            int benefitYear = claim.getServiceDate().getYear();
+            BenefitAccumulator accumulator =
+                    lockAccumulator(organizationId, claim.getPatientId(), plan.getId(), benefitYear);
+            BigDecimal deductibleRemaining = plan.getDeductibleAmount().subtract(accumulator.getDeductibleMet());
+            AdjudicationCalculator.Computation computation = compute(lines, plan, deductibleRemaining);
+            // Record this claim's contribution: deductible met + out-of-pocket accrued (the OOP-max hook).
+            accumulator.add(deductibleApplied(computation), computation.totalMemberResponsibility());
+            accumulators.save(accumulator);
             savedHeader = adjudications.save(
                     buildCovered(claim, plan, enrollment, computation, totalCharge(lines), caller));
             savedLines = saveCoveredLines(claim, lines, computation, savedHeader);
@@ -167,14 +179,29 @@ public class AdjudicationService {
         return saved;
     }
 
-    private AdjudicationCalculator.Computation compute(List<ClaimLine> lines, CoveragePlan plan) {
+    private AdjudicationCalculator.Computation compute(List<ClaimLine> lines, CoveragePlan plan,
+                                                       BigDecimal deductibleRemaining) {
         List<AdjudicationCalculator.LineCharge> charges = lines.stream()
                 .map(l -> new AdjudicationCalculator.LineCharge(l.getLineNumber(), l.getChargeAmount()))
                 .toList();
         return AdjudicationCalculator.adjudicate(
                 new AdjudicationCalculator.PlanParameters(
                         plan.getDeductibleAmount(), plan.getCoinsuranceRate(), plan.getCopayAmount()),
-                charges);
+                deductibleRemaining, charges);
+    }
+
+    /** Ensure the accumulator row exists, then lock it FOR UPDATE for the rest of the transaction (§31). */
+    private BenefitAccumulator lockAccumulator(UUID organizationId, UUID patientId, UUID planId, int benefitYear) {
+        accumulators.insertIfAbsent(organizationId, patientId, planId, benefitYear);
+        return accumulators.lockByKey(organizationId, patientId, planId, benefitYear)
+                .orElseThrow(() -> new IllegalStateException("benefit accumulator missing after insert-if-absent"));
+    }
+
+    /** The total deductible this claim consumed — added to the accumulator. */
+    private static BigDecimal deductibleApplied(AdjudicationCalculator.Computation computation) {
+        return computation.lines().stream()
+                .map(AdjudicationCalculator.LineComputation::deductibleAppliedAmount)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
     }
 
     // --- denied path (no coverage on the service date) -----------------------

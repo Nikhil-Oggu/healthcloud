@@ -49,9 +49,13 @@
   (allowed → copay → deductible → coinsurance) → an **immutable** `adjudication` (header + per-line breakdown)
   and moves the claim to `ADJUDICATED` in one transaction (a no-coverage claim is `DENIED_NO_ELIGIBILITY`); the
   §60 proof surface (which plan applied + how every amount was computed) reads back at `GET .../adjudication`.
-  **Next Phase-5 slices:** the cross-claim annual **deductible/out-of-pocket accumulator** (row-locked, §31),
-  **out-of-pocket-max** enforcement, **exclusions**, a **fee-schedule** allowed amount, re-adjudication
-  versioning, and the claims/adjudication **frontend**. Also still deferred: a **frontend** for
+  slice 2 ✅ — the **benefit accumulator**: a `benefit_accumulator` per `(patient, plan, benefit_year)` tracks
+  `deductible_met`/`out_of_pocket_met`, read-and-updated inside the adjudication tx under a `PESSIMISTIC_WRITE`
+  lock (§31), so the **annual deductible carries across claims** (a later claim sees less deductible remaining →
+  the plan pays more) and concurrent adjudications can't lose an update.
+  **Next Phase-5 slices:** **out-of-pocket-max** enforcement (consumes the `out_of_pocket_met` slice 2 tracks),
+  **exclusions**, a **fee-schedule** allowed amount, re-adjudication versioning, and the claims/adjudication
+  **frontend**. Also still deferred: a **frontend** for
   clinical summaries + claims + coverage (incl. a medical-code picker); consent masking of claim fields
   (`CLAIMS_BENEFITS`) and the fuller CLAIMS_REVIEWER business-need scoping; a close/edit endpoint for an
   eligibility period. **Phase 4 proof (§60):** a claims reviewer sees
@@ -74,6 +78,41 @@
   then `curl -b j.txt localhost:8080/api/v1/me`. Reset DB with `./scripts/db-reset.sh`.
 
 ## Log (newest first)
+
+### 2026-09-15 — Phase 5, slice 2 ✅ (the benefit accumulator — the annual deductible carries across claims)
+- **Why:** slice 1's honest limitation was that the deductible started fresh on every claim (each claim behaved
+  like the first of the year). This adds the financial accumulator so the annual deductible **carries across
+  claims** within a benefit year — and does it under the source-of-truth's §31 rule (**row locks for financial
+  accumulators**), so concurrent adjudications can't lose an update.
+- **How:** a `benefit_accumulator` row per `(patient, coverage_plan, benefit_year)` holds `deductible_met` and
+  `out_of_pocket_met`. Inside the adjudication transaction the engine (1) **insert-if-absent** (`ON CONFLICT DO
+  NOTHING`) to guarantee the row exists, then (2) **locks it `FOR UPDATE`** (`@Lock(PESSIMISTIC_WRITE)`), computes
+  `deductibleRemaining = max(0, plan.deductible − deductible_met)`, feeds that to the calculator, and increments
+  the accumulator by this claim's deductible-applied + member responsibility. `benefit_year` = the claim's
+  service-date calendar year (MVP: plan year = calendar year).
+- **Calculator:** added `adjudicate(plan, deductibleRemaining, lines)`; the old 2-arg form delegates with the
+  plan's full deductible (the "first claim of the year" case), so slice-1's tests stay valid.
+- **Migration `V21__benefit_accumulator.sql`:** `benefit_accumulator` — patient, coverage_plan, benefit_year,
+  `deductible_met`/`out_of_pocket_met` NUMERIC(12,2), `version`, audit; composite FKs-with-org to patient +
+  coverage_plan (§32.10); `UNIQUE(org, patient, coverage_plan, benefit_year)` (the insert-if-absent + lock target).
+- **New in `com.healthcloud.adjudication`:** `BenefitAccumulator` entity, `BenefitAccumulatorRepository`
+  (`insertIfAbsent` native + `lockByKey` PESSIMISTIC_WRITE + an unlocked finder). Modified `AdjudicationService`
+  (accumulator read-lock-update woven into the covered path; denial path untouched — no coverage, no accumulator)
+  and `AdjudicationCalculator` (the remaining-deductible overload).
+- **Scope boundary (slice 3):** `out_of_pocket_met` is tracked now but the **out-of-pocket-max cap is not yet
+  enforced** — the same "build the hook now, consume it next" pattern as `findCovering`. Also deferred: exclusions,
+  fee-schedule allowed amounts, re-adjudication, frontend. A true multi-threaded race test is inherently flaky, so
+  concurrency safety rests on the pessimistic lock (proven by the repository test), stated honestly not shipped
+  as a flaky test.
+- **Verified — automated:** `./mvnw -B clean verify` → **233 pass** (+6: `AdjudicationCalculatorTest` +2
+  remaining-deductible cases; `BenefitAccumulatorRepositoryTest` ×3 — insert-if-absent idempotent + locked read,
+  tenant/year scoping, `add` accrual; `AdjudicationAccumulatorApiIntegrationTest` ×1 — two 2026 claims: the first
+  is all deductible (plan pays 0), the second sees $525 remaining and the plan pays $360, and a 2025 claim resets).
+- **Verified — live:** `db-reset` → fresh backend → PPO patient; a 2026 $1,000 claim → plan pays $0 (all
+  deductible, $975 met after the $25 copay); a second 2026 $1,000 claim → deductible-applied $525, coinsurance
+  $90, **plan pays $360**; a 2025 $1,000 claim → plan pays $0 again (a new benefit year resets the deductible).
+- **Files:** +`V21__benefit_accumulator.sql`, +`adjudication/` (2: entity + repository), +2 test classes; changed
+  `AdjudicationService`, `AdjudicationCalculator`, `CLAUDE.md`, `docs/PROGRESS.md`.
 
 ### 2026-09-15 — Phase 5, slice 1 ✅ (the core claims-adjudication engine — ACCEPTED → ADJUDICATED)
 - **Why:** Phase 5 completes the MVP — the deterministic, explainable adjudication engine. All the Phase-4
