@@ -7,6 +7,8 @@ import { PatientsPage } from './patients/PatientsPage'
 import { PatientDetailPage } from './patients/PatientDetailPage'
 import { RequestsPage } from './requests/RequestsPage'
 import { RequestDetailPage } from './requests/RequestDetailPage'
+import { ClaimsPage } from './claims/ClaimsPage'
+import { ClaimDetailPage } from './claims/ClaimDetailPage'
 import { DeniedPage } from './pages/DeniedPage'
 import { NotFoundPage } from './pages/NotFoundPage'
 
@@ -25,6 +27,8 @@ const router = createBrowserRouter([
       { path: 'patients/:id', element: <PatientDetailPage /> },
       { path: 'requests', element: <RequestsPage /> },
       { path: 'requests/:id', element: <RequestDetailPage /> },
+      { path: 'claims', element: <ClaimsPage /> },
+      { path: 'claims/:id', element: <ClaimDetailPage /> },
       { path: 'denied', element: <DeniedPage /> },
     ],
   },

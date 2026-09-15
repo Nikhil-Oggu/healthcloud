@@ -62,8 +62,13 @@
   (`GET/POST/DELETE /api/v1/coverage-plans/{id}/exclusions`, ORG_ADMIN writes); the engine marks a matching claim
   line `NOT_COVERED` (member owes the charge, plan 0) without touching the deductible/OOP, and the claim is still
   `ADJUDICATED` with a mix of COVERED/NOT_COVERED lines.
+  slice 5 ✅ — the **claims/adjudication frontend**: a claims work queue (`/claims`) + claim detail (`/claims/:id`)
+  with the lines table, status timeline, lifecycle action buttons (submit/accept/reject/cancel), an **Adjudicate**
+  button on an ACCEPTED claim, and the **adjudication breakdown** card — the whole money engine is now visible and
+  drivable in the browser.
   **Next Phase-5 slices:** a **fee-schedule** allowed amount (allowed = charge today), re-adjudication
-  versioning, and the claims/adjudication **frontend**. Also still deferred: a **frontend** for
+  versioning, and the remaining claims UI (a **claim-creation form** with a medical-code picker, and an
+  **exclusions/coverage-plan admin** UI). Also still deferred: a **frontend** for
   clinical summaries + claims + coverage (incl. a medical-code picker); consent masking of claim fields
   (`CLAIMS_BENEFITS`) and the fuller CLAIMS_REVIEWER business-need scoping; a close/edit endpoint for an
   eligibility period. **Phase 4 proof (§60):** a claims reviewer sees
@@ -86,6 +91,36 @@
   then `curl -b j.txt localhost:8080/api/v1/me`. Reset DB with `./scripts/db-reset.sh`.
 
 ## Log (newest first)
+
+### 2026-09-15 — Phase 5, slice 5 ✅ (the claims & adjudication frontend — the money engine, visible)
+- **Why:** all of Phase 4/5 was backend-only. This surfaces the claims work queue, the claim lifecycle, and the
+  adjudication breakdown in the browser — the portfolio payoff and the §60 "how every amount was computed" proof,
+  made visible. **Frontend-only** — no backend/migration change.
+- **New `src/claims/`:** `useClaims.ts` (list/detail/history/adjudication queries + change-status/adjudicate
+  mutations; the adjudication query is enabled only when the claim is ADJUDICATED so a pre-adjudication claim
+  doesn't 404), `transitions.ts` (client mirror of `ClaimTransitions`; ADJUDICATED is not a status button —
+  `canAdjudicate` gates the dedicated Adjudicate command, like Assign on a request), `statusColor.ts`,
+  `ClaimsPage.tsx` (the work queue: claim #, patient, service date, total charge, status), `ClaimDetailPage.tsx`
+  (header + lines table + status timeline + lifecycle buttons with a reason prompt for reject/cancel + Adjudicate
+  + the adjudication breakdown card: outcome, plan, per-line allowed/copay/deductible/coinsurance/OOP/plan-paid/
+  member + totals). Role-aware UI (backend still enforces).
+- **Plumbing:** `api/types.ts` gained the Claim + Adjudication types; `api/client.ts` gained `listClaims`,
+  `getClaim`, `getClaimHistory`, `changeClaimStatus`, `adjudicateClaim`, `getAdjudication`; `App.tsx` gained the
+  two routes; `AppLayout` enabled the **Claims** nav button (was a disabled placeholder) for
+  provider/coordinator/reviewer/admin.
+- **Scope boundary:** no claim-creation form (needs a medical-code picker) and no exclusions/coverage-plan admin
+  UI — later slices. The seeded DRAFT claim is the demo entry point (an ORG_ADMIN can drive submit→accept→adjudicate).
+- **Verified — automated:** frontend `npm run typecheck` clean, `npm test` → **40 pass** (+7:
+  `ClaimsPage.test.tsx` ×2 — lists claims with patient name/status, empty state; `ClaimDetailPage.test.tsx` ×5 —
+  renders header + lines + a coordinator's Submit; a wrong role sees no lifecycle actions; a reviewer adjudicates
+  an ACCEPTED claim; the breakdown shows once adjudicated; submit sends the loaded version). `npm run build` OK
+  (pre-existing chunk-size advisory only). Backend untouched (245 tests still green from slice 4).
+- **Verified — live in browser** (admin@northcare, fresh `db-reset` + backend + Vite): opened the seeded DRAFT
+  claim CLM-… → **Submit → Accept → Adjudicate** → the claim flipped to ADJUDICATED and the **Adjudication card**
+  rendered the Standard PPO breakdown — 99213 COVERED (allowed $150, copay $25, deductible $125, member $150) +
+  80053 COVERED (member $45.50), totals plan **$0.00** / member **$195.50** (all under the fresh deductible).
+- **Files:** +`src/claims/` (5: statusColor, transitions, useClaims, ClaimsPage, ClaimDetailPage) + 2 test files;
+  changed `api/types.ts`, `api/client.ts`, `App.tsx`, `layout/AppLayout.tsx`, `CLAUDE.md`, `docs/PROGRESS.md`.
 
 ### 2026-09-15 — Phase 5, slice 4 ✅ (plan exclusions — non-covered procedures)
 - **Why:** a real plan doesn't cover everything. This lets a plan exclude specific procedure codes; an excluded

@@ -255,3 +255,106 @@ export interface PatientDocument {
   uploadedByUserId: string
   uploadedAt: string
 }
+
+// --- Claims (§Phase 4) ----------------------------------------------------
+
+/** The claim lifecycle. ADJUDICATED is reached only by the adjudication engine, never a bare status change. */
+export type ClaimStatus = 'DRAFT' | 'SUBMITTED' | 'ACCEPTED' | 'REJECTED' | 'ADJUDICATED' | 'CANCELLED'
+
+/** The medical-code systems a claim line can reference (procedures are CPT/HCPCS). */
+export type CodeSystem = 'ICD10CM' | 'HCPCS' | 'CPT'
+
+/** One billed line of a claim (mirrors ClaimLineDto). Money is a plain number (NUMERIC → JSON number). */
+export interface ClaimLine {
+  id: string
+  lineNumber: number
+  procedureCodeSystem: CodeSystem
+  procedureCode: string
+  units: number
+  chargeAmount: number
+}
+
+/** A claim header row for the list/work queue (mirrors ClaimSummaryDto). */
+export interface ClaimSummary {
+  id: string
+  patientId: string
+  claimNumber: string
+  status: ClaimStatus
+  serviceDate: string // ISO date
+  totalChargeAmount: number
+  createdAt: string
+}
+
+/** A claim aggregate — header plus lines (mirrors ClaimDto). */
+export interface Claim {
+  id: string
+  patientId: string
+  claimNumber: string
+  status: ClaimStatus
+  serviceDate: string
+  totalChargeAmount: number
+  createdBy: string
+  createdAt: string
+  version: number
+  lines: ClaimLine[]
+}
+
+/** One claim status-history entry (mirrors ClaimStatusHistoryDto). */
+export interface ClaimStatusHistory {
+  id: string
+  fromStatus: ClaimStatus | null
+  toStatus: ClaimStatus
+  actorUserId: string
+  reason: string | null
+  createdAt: string
+}
+
+/** Payload to apply a controlled claim status transition (optimistic-locked). */
+export interface ClaimStatusChange {
+  targetStatus: ClaimStatus
+  expectedVersion: number
+  reason?: string
+}
+
+// --- Adjudication (§Phase 5) ---------------------------------------------
+
+/** The claim-level adjudication outcome. */
+export type AdjudicationOutcome = 'ADJUDICATED' | 'DENIED_NO_ELIGIBILITY'
+
+/** The per-line adjudication outcome. */
+export type LineOutcome = 'COVERED' | 'NOT_COVERED'
+
+/** The explainable per-line breakdown (mirrors AdjudicationLineDto). All amounts are numbers. */
+export interface AdjudicationLine {
+  claimLineId: string
+  lineNumber: number
+  procedureCodeSystem: CodeSystem
+  procedureCode: string
+  outcome: LineOutcome
+  chargeAmount: number
+  allowedAmount: number
+  copayAmount: number
+  deductibleAppliedAmount: number
+  coinsuranceAmount: number
+  oopMaxAppliedAmount: number
+  planPaidAmount: number
+  memberResponsibility: number
+}
+
+/** A claim's adjudication — the plan that applied, the totals, and the per-line breakdown (mirrors AdjudicationDto). */
+export interface Adjudication {
+  id: string
+  claimId: string
+  adjudicationVersion: number
+  outcome: AdjudicationOutcome
+  coveragePlanId: string | null
+  coveragePlanName: string | null
+  eligibilityId: string | null
+  totalChargeAmount: number
+  totalAllowedAmount: number
+  totalPlanPaidAmount: number
+  totalMemberResponsibility: number
+  adjudicatedBy: string
+  adjudicatedAt: string
+  lines: AdjudicationLine[]
+}

@@ -1,10 +1,16 @@
 import type {
   AddCommentRequest,
+  Adjudication,
   ApiError,
   AssignableUser,
   AssignMemberRequest,
   AssignmentCandidate,
   AssignRequest,
+  Claim,
+  ClaimStatusChange,
+  ClaimStatusHistory,
+  ClaimSummary,
+  ClaimStatus,
   ConsentDirective,
   CoordinatorAssignment,
   CurrentUser,
@@ -259,6 +265,31 @@ export const api = {
   // caller shows the backend message instead of navigating to a JSON error page.
   downloadDocument: (patientId: string, documentId: string) =>
     downloadBlob(`/api/v1/patients/${patientId}/documents/${documentId}/content`),
+
+  // --- Claims (§Phase 4) + adjudication (§Phase 5) ---
+  listClaims: (params?: { patientId?: string; status?: ClaimStatus }) => {
+    const q = new URLSearchParams()
+    if (params?.patientId) q.set('patientId', params.patientId)
+    if (params?.status) q.set('status', params.status)
+    const suffix = q.toString() ? `?${q.toString()}` : ''
+    return request<ClaimSummary[]>(`/api/v1/claims${suffix}`)
+  },
+
+  getClaim: (id: string) => request<Claim>(`/api/v1/claims/${id}`),
+
+  getClaimHistory: (id: string) => request<ClaimStatusHistory[]>(`/api/v1/claims/${id}/history`),
+
+  changeClaimStatus: (id: string, body: ClaimStatusChange) =>
+    request<Claim>(`/api/v1/claims/${id}/status`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }),
+
+  adjudicateClaim: (id: string) =>
+    request<Adjudication>(`/api/v1/claims/${id}/adjudicate`, { method: 'POST' }),
+
+  getAdjudication: (id: string) => request<Adjudication>(`/api/v1/claims/${id}/adjudication`),
 }
 
 /** GET a URL and return its response body as a Blob, throwing {@link ApiClientError} on a non-2xx. */

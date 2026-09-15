@@ -78,7 +78,7 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   Checks: `npm run typecheck`, `npm test` (Vitest), `npm run build`. Node runs from `openjdk@25`'s
   sibling `node@24` — use `export PATH="/opt/homebrew/opt/node@24/bin:$PATH"` in non-interactive shells.
 
-## Current implementation (Phase 1–4 COMPLETE; Phase 5 adjudication IN PROGRESS — slices 1–4 done — see docs/PROGRESS.md for status)
+## Current implementation (Phase 1–4 COMPLETE; Phase 5 adjudication IN PROGRESS — slices 1–5 done — see docs/PROGRESS.md for status)
 - **Backend packages** under `com.healthcloud`: `organization` (Organization, Facility, FacilityMembership),
   `identity` (AppUser, Role, OrganizationMembership, UserRole), `auth` (SecurityConfig, DevLoginController,
   CurrentUserController/Service, CsrfCookieFilter), `context` (UserContext + UserContextAccessor/Filter),
@@ -396,7 +396,14 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   quarantined/pending file shows its status, no download), and an upload control shown to `DOCUMENT_WRITE_ROLES`
   = PATIENT-own-record + coordinator/admin. Uploads go through `api.uploadDocument` as multipart `FormData` — no
   explicit `Content-Type` header so the browser sets the boundary; the client's CSRF header still injects) and
-  `src/requests/` (list + create + detail with status timeline, transition buttons, comments, assignment). Both
+  `src/requests/` (list + create + detail with status timeline, transition buttons, comments, assignment), and
+  `src/claims/` (Phase 5 slice 5 — the money engine UI: a claims **work queue** `claims`, and a **detail**
+  `claims/:id` with the lines table, a status timeline, lifecycle action buttons driven by a client mirror of
+  `ClaimTransitions` in `src/claims/transitions.ts` — submit/cancel for submitter roles, accept/reject for
+  CLAIMS_REVIEWER/admin — an **Adjudicate** button on an ACCEPTED claim (`canAdjudicate`, the dedicated engine
+  command, not a status button, like Assign on a request), and an **Adjudication breakdown** card showing the
+  covering plan + per-line allowed/copay/deductible/coinsurance/OOP-applied/plan-paid/member + totals (the §60
+  proof, visible). No claim-creation form or exclusions/coverage admin UI yet — later slices). All
   follow the feature-folder + hooks + RHF/Zod pattern.
 - **Consent/field masking in the UI (Phase 3+):** the backend already withholds masked values, so the SPA only
   *displays* the state — render a "Restricted"/placeholder for a `null` consent-controlled field (named in
