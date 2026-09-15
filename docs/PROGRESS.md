@@ -5,7 +5,7 @@
 
 ## Current position
 - **Phase:** 0 ✅ · Environment ✅ · Phase 1 COMPLETE ✅ · Phase 2 COMPLETE ✅ (slices 1–8) ·
-  **Phase 4 IN PROGRESS 🚧 (slice 1 ✅ medical code catalog — the global ICD-10/HCPCS/CPT vocabulary that
+  **Phase 4 COMPLETE ✅ (slice 1 ✅ medical code catalog — the global ICD-10/HCPCS/CPT vocabulary that
   clinical summaries & claim lines reference; read-only, authenticated, not tenant-scoped ·
   slice 2 ✅ clinical summaries — patient-scoped clinical notes pointing at an ICD-10-CM diagnosis; reuses the
   `PatientAccessGuard` gate + consent field masking on the free-text narrative, coded diagnosis stays visible
