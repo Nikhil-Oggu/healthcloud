@@ -43,12 +43,15 @@
   16 ✅ documents UI — a Documents card on the patient detail page: upload, list with scan-status chips, and
   download of CLEAN files; the §19 loop is now visible end-to-end in the browser)**
 - **Repo:** https://github.com/Nikhil-Oggu/healthcloud (private, branch `main`)
-- **Next up — Phase 5 (adjudication engine, completes the MVP):** the Phase-4 building blocks are all in
-  (codes, clinical summaries, claims + state machine, coverage plans, patient eligibility). Phase 5's engine
-  reads an ACCEPTED claim → `PatientEligibilityRepository.findCovering(serviceDate)` → the coverage plan → and
-  computes deterministic, explainable line + claim outcomes (eligibility, coverage, allowed amount, deductible,
-  copay, coinsurance, exclusions), moving the claim to `ADJUDICATED` (already reserved as engine-owned) with
-  immutable adjudication versions. Plan Phase 5, slice 1 when ready. Also still deferred: a **frontend** for
+- **Phase 5 IN PROGRESS 🚧 (adjudication engine, completes the MVP):** slice 1 ✅ — the core deterministic
+  engine: `POST /api/v1/claims/{id}/adjudicate` reads an ACCEPTED claim →
+  `PatientEligibilityRepository.findCovering(serviceDate)` → the coverage plan → the pure `AdjudicationCalculator`
+  (allowed → copay → deductible → coinsurance) → an **immutable** `adjudication` (header + per-line breakdown)
+  and moves the claim to `ADJUDICATED` in one transaction (a no-coverage claim is `DENIED_NO_ELIGIBILITY`); the
+  §60 proof surface (which plan applied + how every amount was computed) reads back at `GET .../adjudication`.
+  **Next Phase-5 slices:** the cross-claim annual **deductible/out-of-pocket accumulator** (row-locked, §31),
+  **out-of-pocket-max** enforcement, **exclusions**, a **fee-schedule** allowed amount, re-adjudication
+  versioning, and the claims/adjudication **frontend**. Also still deferred: a **frontend** for
   clinical summaries + claims + coverage (incl. a medical-code picker); consent masking of claim fields
   (`CLAIMS_BENEFITS`) and the fuller CLAIMS_REVIEWER business-need scoping; a close/edit endpoint for an
   eligibility period. **Phase 4 proof (§60):** a claims reviewer sees
@@ -71,6 +74,52 @@
   then `curl -b j.txt localhost:8080/api/v1/me`. Reset DB with `./scripts/db-reset.sh`.
 
 ## Log (newest first)
+
+### 2026-09-15 — Phase 5, slice 1 ✅ (the core claims-adjudication engine — ACCEPTED → ADJUDICATED)
+- **Why:** Phase 5 completes the MVP — the deterministic, explainable adjudication engine. All the Phase-4
+  building blocks are in (claims + state machine, coverage plans, patient eligibility), so this slice wires them
+  together: turn an ACCEPTED claim into a recorded, explainable outcome and move it to ADJUDICATED. It delivers
+  the §60 proof directly: for any decision, show which plan applied and how every amount was computed.
+- **A dedicated engine command, not a bare status change:** `ADJUDICATED` is reached only by
+  `POST /api/v1/claims/{id}/adjudicate` (like `ASSIGNED` via `PUT .../assignment`); slice 4 already refuses a
+  bare `PATCH /status` to ADJUDICATED. The command advances ACCEPTED → ADJUDICATED and writes the adjudication +
+  a `claim_status_history` row in **one transaction** (§31.6). A second attempt fails the ACCEPTED gate (the
+  claim is now ADJUDICATED) → 409, so the state gate is the double-apply safety (no Idempotency-Key needed).
+- **The math (pure policy — the third exemplar after `ClaimTransitions`/`ConsentPolicy`):**
+  `AdjudicationCalculator` (no Spring/DB) takes the covering plan's parameters + line charges and, per line in
+  order, computes `allowed = charge` → **copay** (min(copay, allowed)) → **deductible** consumed across the
+  claim's lines → **coinsurance** = round(remainder × rate); `member = copay + deductible + coinsurance`,
+  `plan = allowed − member`. Money `BigDecimal` scale 2 HALF_UP. Fully unit-tested (deductible-across-lines,
+  zero-coinsurance, no-coverage handled by the service, rounding).
+- **Outcomes:** coverage found on the service date (`findCovering`, 0/1 row) → `ADJUDICATED`, lines `COVERED`;
+  no coverage → `DENIED_NO_ELIGIBILITY` (plan pays 0, member responsible for the charge), lines `NOT_COVERED` —
+  still a recorded, explainable decision. The record is **immutable** and carries `adjudicationVersion` (1).
+- **Authorization (§21):** tenant → role (**CLAIMS_REVIEWER/ORG_ADMIN** — the reviewer's action, mirrors
+  accept/reject) → object/relationship (`PatientAccessGuard`, via the claim's patient → secure 404).
+- **Migration `V20__adjudication.sql`:** `adjudication` (header: outcome CHECK, nullable coverage_plan_id +
+  eligibility_id, total charge/allowed/plan-paid/member amounts, `adjudication_version`, audit + correlation id;
+  FK-with-org to claim, `UNIQUE(id, org)`, `UNIQUE(org, claim_id, version)`) + `adjudication_line` (per-line
+  outcome + allowed/copay/deductible/coinsurance/plan-paid/member; a self-contained immutable snapshot copying
+  the procedure code + charge; FK-with-org to adjudication). Both append-only.
+- **New `com.healthcloud.adjudication` package:** `AdjudicationOutcome` + `LineOutcome` enums, `Adjudication` +
+  `AdjudicationLine` entities, `AdjudicationRepository` + `AdjudicationLineRepository` (org-scoped finders),
+  `AdjudicationCalculator` (pure), `AdjudicationDto` + `AdjudicationLineDto` (the explainable read),
+  `AdjudicationService`, `AdjudicationController` (`POST .../adjudicate`, `GET .../adjudication`).
+- **Honest MVP limitations (later Phase-5 slices):** no cross-claim annual deductible/OOP accumulator (the
+  deductible starts fresh per claim — the accumulator needs row locks, §31); no out-of-pocket-max; no exclusions;
+  allowed = charge (no fee schedule); no re-adjudication; no frontend.
+- **Verified — automated:** `./mvnw -B clean verify` → **227 pass** (+14: `AdjudicationCalculatorTest` ×5 pure
+  math; `AdjudicationRepositoryTest` ×2 — tenant scoping + line order; `AdjudicationApiIntegrationTest` ×7 — 401;
+  a reviewer adjudicates a covered claim → ADJUDICATED + reads the breakdown; no coverage → DENIED; a non-ACCEPTED
+  claim → 409; a coordinator → 403; re-adjudication → 409; cross-tenant → secure 404).
+- **Verified — live:** `db-reset` → fresh backend → enrolled a patient in the PPO, ran a $2,000 claim →
+  `ADJUDICATED` with copay $25 + deductible $1,500 + coinsurance 20%×$475 = $95 → member $1,620, **plan pays
+  $380**; an uncovered patient's claim → `DENIED_NO_ELIGIBILITY` (member owes the full $150.00, line NOT_COVERED);
+  re-adjudicate → 409; a coordinator adjudicate → 403. Raw JSON preserves money scale (`195.50`, `0.00`).
+- **Seeder unchanged** (the sample claim stays DRAFT so existing tests are undisturbed; the demo/tests drive
+  submit→accept→adjudicate). **Backend-only** — a claims/adjudication UI arrives with the frontend slice.
+- **Files:** +`V20__adjudication.sql`, +`adjudication/` package (11 files), +3 test classes; changed `CLAUDE.md`,
+  `docs/PROGRESS.md`.
 
 ### 2026-09-15 — Phase 4, slice 6 ✅ (patient eligibility — enrollment in a coverage plan)
 - **Why:** the last Phase-4 foundation. It records which patient is on which plan and when, so Phase 5 can ask

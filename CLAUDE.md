@@ -78,7 +78,7 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   Checks: `npm run typecheck`, `npm test` (Vitest), `npm run build`. Node runs from `openjdk@25`'s
   sibling `node@24` — use `export PATH="/opt/homebrew/opt/node@24/bin:$PATH"` in non-interactive shells.
 
-## Current implementation (Phase 1–4 COMPLETE; Phase 5 adjudication NEXT — see docs/PROGRESS.md for status)
+## Current implementation (Phase 1–4 COMPLETE; Phase 5 adjudication IN PROGRESS — slice 1 done — see docs/PROGRESS.md for status)
 - **Backend packages** under `com.healthcloud`: `organization` (Organization, Facility, FacilityMembership),
   `identity` (AppUser, Role, OrganizationMembership, UserRole), `auth` (SecurityConfig, DevLoginController,
   CurrentUserController/Service, CsrfCookieFilter), `context` (UserContext + UserContextAccessor/Filter),
@@ -214,6 +214,24 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   service → 409) so coverage-on-a-date is deterministic. `PatientEligibilityRepository.findCovering(org, patient,
   date)` (also surfaced as `GET .../eligibility?asOf=`) is the hook the Phase-5 adjudication engine calls. Not
   consent field-masked (claims/benefits data, not clinical context). The adjudication math is Phase 5),
+  `adjudication` (Phase 5 — the basic synthetic claims-adjudication engine: `POST /api/v1/claims/{id}/adjudicate`
+  + `GET /api/v1/claims/{id}/adjudication`. It turns an **ACCEPTED** claim into a deterministic, explainable
+  `adjudication` (header + `adjudication_line` breakdown): it finds the coverage in effect on the claim's
+  **service date** (`PatientEligibilityRepository.findCovering`), applies the covering plan's parameters via the
+  pure **`AdjudicationCalculator`** (allowed = charge → copay → deductible consumed across the claim's lines →
+  coinsurance; money `BigDecimal` scale 2 HALF_UP), and records, per line and in total, allowed / copay /
+  deductible-applied / coinsurance / **plan-paid** vs **member-responsibility** — the §60 proof (for any decision,
+  which plan applied and how every amount was computed). **Adjudication is a dedicated engine command, not a bare
+  status change** (like `ASSIGNED` on a request): the command advances ACCEPTED → ADJUDICATED and writes the
+  adjudication + a `claim_status_history` row in **one transaction** (§31.6); a second attempt fails the ACCEPTED
+  gate (the claim is now ADJUDICATED) → 409, the double-apply safety. A claim with **no coverage** on the service
+  date is `DENIED_NO_ELIGIBILITY` (plan pays 0, member responsible for the charge) — still a recorded, explainable
+  decision. Authorization is the usual pipeline (§21): tenant → role (**CLAIMS_REVIEWER/ORG_ADMIN**, the reviewer's
+  action) → object/relationship (`PatientAccessGuard`, via the claim's patient → secure 404). The record is
+  **immutable** and carries `adjudicationVersion` (1 this slice). **Honest MVP limitations (later Phase-5 slices):**
+  no cross-claim annual deductible/out-of-pocket accumulator (the deductible starts fresh per claim — the accumulator
+  needs row locks, §31), no out-of-pocket-max enforcement, no exclusions, no fee-schedule allowed amounts, no
+  re-adjudication, and no frontend. Not consent field-masked (claims/benefits data)),
   `devdata` (DevDataSeeder, local-only — also seeds the global `medical_code` catalog once, then a couple of
   synthetic `clinical_summary` rows per assigned patient, one sample DRAFT `claim` (header + two procedure
   lines + its null→DRAFT status-history row) for the first patient, and two `coverage_plan` rows per org (a PPO
