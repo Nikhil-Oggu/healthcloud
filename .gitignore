@@ -23,7 +23,7 @@ dist/
 dist-ssr/
 *.local
 .vite/
-coverage/
+frontend/coverage/
 npm-debug.log*
 yarn-error.log*
 pnpm-debug.log*

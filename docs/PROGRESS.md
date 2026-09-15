@@ -15,7 +15,10 @@
   created in DRAFT, no clinical narrative on a claim → the §60 reviewer half ·
   slice 4 ✅ claim submission/validation state machine — `ClaimTransitions` pure policy + `claim_status_history`;
   DRAFT→SUBMITTED→{ACCEPTED,REJECTED}/CANCELLED, submit-validation, optimistic-locked, one-tx history; the
-  CLAIMS_REVIEWER's accept/reject is their first write action)** ·
+  CLAIMS_REVIEWER's accept/reject is their first write action ·
+  slice 5 ✅ coverage plan foundation — the org's benefit plans (deductible/coinsurance/copay/OOP-max, plan type);
+  tenant-owned but NOT patient-scoped (admin-gated create, no relationship gate); the parameters Phase-5
+  adjudication will apply)** ·
   **Phase 3 COMPLETE ✅ (slice 1 ✅ consent lifecycle · 2 ✅ decision engine §22.5 · 3 ✅ field masking §23 ·
   4 ✅ provider↔patient record §14.3 · 5 ✅ object/relationship gate on patient reads §21 layer 6 ·
   6 ✅ gate applied to the patient-nested endpoints — single `PatientAccessGuard` choke point ·
@@ -37,13 +40,14 @@
   16 ✅ documents UI — a Documents card on the patient detail page: upload, list with scan-status chips, and
   download of CLEAN files; the §19 loop is now visible end-to-end in the browser)**
 - **Repo:** https://github.com/Nikhil-Oggu/healthcloud (private, branch `main`)
-- **Next up (Phase 4):** the claim state machine is in (slice 4). Remaining Phase-4 work: **plan / eligibility
-  foundations** (a coverage plan the claim adjudicates against) and then Phase 4 tapers into **Phase 5 — the
-  adjudication engine** (reads the ACCEPTED claim's lines → line/claim outcomes, `ADJUDICATED`, immutable
-  adjudication versions; `ADJUDICATED` is already reserved as engine-owned). Also still deferred: a
-  **frontend** for clinical summaries + claims (incl. a medical-code picker); consent masking of claim fields
-  (`CLAIMS_BENEFITS`) and the fuller CLAIMS_REVIEWER business-need scoping. **Phase 4 proof (§60):** a claims
-  reviewer sees
+- **Next up (Phase 4):** the coverage plan is in (slice 5). Remaining Phase-4 work: **patient eligibility**
+  (slice 6 — enroll a patient in a coverage plan for an effective-dated coverage period; patient-scoped, so it
+  reuses `PatientAccessGuard`, and FKs the plan via `coverage_plan(id, organization_id)`). Then Phase 4 tapers
+  into **Phase 5 — the adjudication engine** (reads eligibility → plan → the ACCEPTED claim's lines → line/claim
+  outcomes, `ADJUDICATED`, immutable adjudication versions; `ADJUDICATED` is already reserved as engine-owned).
+  Also still deferred: a **frontend** for clinical summaries + claims (incl. a medical-code picker); consent
+  masking of claim fields (`CLAIMS_BENEFITS`) and the fuller CLAIMS_REVIEWER business-need scoping.
+  **Phase 4 proof (§60):** a claims reviewer sees
   claim-relevant data *without* unrestricted medical context — so the CLAIMS_REVIEWER business-need scoping
   deferred through Phase 3 gets designed here. A **medical-codes UI** (a code picker) arrives when a slice first
   consumes codes. Plan each slice before building. (Older deferred items still open — Phase 3 was
@@ -63,6 +67,33 @@
   then `curl -b j.txt localhost:8080/api/v1/me`. Reset DB with `./scripts/db-reset.sh`.
 
 ## Log (newest first)
+
+### 2026-09-15 — Phase 4, slice 5 ✅ (coverage plan foundation — the benefit plan)
+- **Why:** Phase 5's adjudication engine needs benefit parameters to apply (deductible, copay, coinsurance) and
+  a way to know a patient is covered. By dependency order the **plan comes first** (eligibility references it),
+  so this slice builds the coverage plan; patient eligibility is slice 6; then Phase 5 does the math.
+- **A different shape — tenant-owned but NOT patient-scoped:** a coverage plan is administrative benefit config,
+  not PHI, so it uses the tenant pattern (org-scoped finders, cross-tenant → secure 404) with **no
+  `PatientAccessGuard`**. Reads are open to any same-tenant authenticated user; **create requires ORG_ADMIN**.
+- **Migration `V18__coverage_plan.sql`:** `coverage_plan` — `plan_code` (unique per tenant), `name`, `plan_type`
+  (HMO/PPO/EPO/HDHP, CHECK), `deductible_amount`, `coinsurance_rate` NUMERIC(5,4) (CHECK 0..1, member share
+  after deductible), `copay_amount`, nullable `out_of_pocket_max`, `active`, audit cols, `version`. `UNIQUE
+  (organization_id, plan_code)` and `UNIQUE(id, organization_id)` so eligibility can FK-with-org next slice.
+- **New `com.healthcloud.coverage` package:** `CoveragePlan` entity (money as `BigDecimal`), `PlanType` enum,
+  `CoveragePlanRepository` (org-scoped finders + `existsByOrganizationIdAndPlanCode`), `CoveragePlanDto`,
+  `CreateCoveragePlanRequest` (`@Valid`: coinsurance `@DecimalMin/@DecimalMax` 0..1, amounts `@PositiveOrZero`),
+  `CoveragePlanService` (create requires ORG_ADMIN, pre-checks the code for a clean 409), `CoveragePlanController`
+  (`POST` / `GET` list / `GET /{id}`).
+- **Seeder:** two synthetic plans per org — a Standard PPO ($1,500 deductible / 20% coinsurance / $25 copay /
+  $6,000 OOP) and an HDHP ($4,000 / 10% / $0 / $8,000).
+- **Verified — automated:** `./mvnw -B clean verify` → **203 pass** (+7: `CoveragePlanRepositoryTest` ×2 —
+  tenant-scoped lookup + per-tenant code uniqueness / cross-tenant reuse; `CoveragePlanApiIntegrationTest` ×5 —
+  401; ORG_ADMIN creates + reads + sees the seeded plan; a non-admin create → 403; duplicate code → 409;
+  cross-tenant get → secure 404).
+- **Verified — live:** `db-reset` → fresh backend → the seeded plans list for an admin; an admin created an EPO
+  plan (201); a coordinator was refused (403 ACCESS_DENIED); a duplicate code returned 409 CONFLICT.
+- **Files:** +`V18__coverage_plan.sql`, +`coverage/` package (6 files), +2 test classes; changed `DevDataSeeder`,
+  `CLAUDE.md`, `docs/PROGRESS.md`.
 
 ### 2026-09-15 — Phase 4, slice 4 ✅ (claim submission/validation state machine)
 - **Why:** slice 3 created claims in DRAFT; this adds the controlled lifecycle — the "submission/validation

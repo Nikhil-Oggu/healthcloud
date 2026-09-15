@@ -198,10 +198,19 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   Search is active-only, matches a code prefix OR a description substring, and is capped at 50. An unknown
   `system` → 400 via the existing type-mismatch handler. `CodeSystem` carries a display `label` + `category`
   (Diagnosis/Procedure). Codes are public reference vocabularies, not PHI — seeding real-format values is fine),
+  `coverage` (Phase 4 — coverage plans: `GET/POST /api/v1/coverage-plans`, `GET /api/v1/coverage-plans/{id}`.
+  A benefit plan the org administers, holding the parameters the Phase-5 adjudication engine will apply —
+  `deductibleAmount`, `coinsuranceRate` (member share after deductible, 0..1), `copayAmount`, optional
+  `outOfPocketMax` — plus `planType` (HMO/PPO/EPO/HDHP). **Tenant-owned but NOT patient-scoped** (administrative
+  benefit config, not PHI): org-scoped finders, cross-tenant → secure 404, but **no `PatientAccessGuard`**.
+  Reads open to any same-tenant authenticated user; **create requires ORG_ADMIN** (403 otherwise); `plan_code`
+  unique per tenant (duplicate → 409); `UNIQUE(id, organization_id)` so patient eligibility can FK-with-org next
+  slice. Money is `BigDecimal`/`NUMERIC`. Patient eligibility (patient↔plan for a coverage period) is the next
+  slice; the adjudication math is Phase 5),
   `devdata` (DevDataSeeder, local-only — also seeds the global `medical_code` catalog once, then a couple of
-  synthetic `clinical_summary` rows per assigned patient and one sample DRAFT `claim` (header + two procedure
-  lines + its null→DRAFT status-history row) for the first patient; reference codes are seeded before the orgs
-  so the clinical-summary/claim→catalog FKs are satisfied).
+  synthetic `clinical_summary` rows per assigned patient, one sample DRAFT `claim` (header + two procedure
+  lines + its null→DRAFT status-history row) for the first patient, and two `coverage_plan` rows per org (a PPO
+  + an HDHP); reference codes are seeded before the orgs so the clinical-summary/claim→catalog FKs are satisfied).
 - **Tenant-owned entity pattern (Phase 2+):** hold `organizationId` as the tenant key; repositories expose
   only org-scoped finders (`findByIdAndOrganizationId`, `findByOrganizationId…`) — no bare `findById` in
   business code; services derive the org from `UserContextAccessor.requireOrganizationId()`. `patient` is
