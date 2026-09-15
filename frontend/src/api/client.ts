@@ -11,7 +11,9 @@ import type {
   ClaimStatusHistory,
   ClaimSummary,
   ClaimStatus,
+  CreateClaimRequest,
   ConsentDirective,
+  MedicalCode,
   CoordinatorAssignment,
   CurrentUser,
   Patient,
@@ -275,7 +277,22 @@ export const api = {
     return request<ClaimSummary[]>(`/api/v1/claims${suffix}`)
   },
 
+  createClaim: (body: CreateClaimRequest) =>
+    request<Claim>('/api/v1/claims', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }),
+
   getClaim: (id: string) => request<Claim>(`/api/v1/claims/${id}`),
+
+  searchMedicalCodes: (params?: { system?: string; q?: string }) => {
+    const s = new URLSearchParams()
+    if (params?.system) s.set('system', params.system)
+    if (params?.q) s.set('q', params.q)
+    const suffix = s.toString() ? `?${s.toString()}` : ''
+    return request<MedicalCode[]>(`/api/v1/medical-codes${suffix}`)
+  },
 
   getClaimHistory: (id: string) => request<ClaimStatusHistory[]>(`/api/v1/claims/${id}/history`),
 

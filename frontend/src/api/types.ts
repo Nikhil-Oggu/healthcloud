@@ -358,3 +358,29 @@ export interface Adjudication {
   adjudicatedAt: string
   lines: AdjudicationLine[]
 }
+
+// --- Medical codes (§Phase 4) + claim creation ---------------------------
+
+/** A medical code from the global catalog (mirrors MedicalCodeDto). category is 'Diagnosis' or 'Procedure'. */
+export interface MedicalCode {
+  id: string
+  codeSystem: CodeSystem
+  systemLabel: string
+  category: string
+  code: string
+  description: string
+}
+
+/** One line to bill on a new claim. The backend resolves the code's system (CPT/HCPCS) and validates it. */
+export interface CreateClaimLine {
+  procedureCode: string
+  units?: number
+  chargeAmount: number
+}
+
+/** Payload to create a DRAFT claim. Tenant + claim number are set on the server; serviceDate is past-or-present. */
+export interface CreateClaimRequest {
+  patientId: string
+  serviceDate: string
+  lines: CreateClaimLine[]
+}

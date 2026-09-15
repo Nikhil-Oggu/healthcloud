@@ -78,7 +78,7 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   Checks: `npm run typecheck`, `npm test` (Vitest), `npm run build`. Node runs from `openjdk@25`'s
   sibling `node@24` — use `export PATH="/opt/homebrew/opt/node@24/bin:$PATH"` in non-interactive shells.
 
-## Current implementation (Phase 1–4 COMPLETE; Phase 5 adjudication IN PROGRESS — slices 1–5 done — see docs/PROGRESS.md for status)
+## Current implementation (Phase 1–4 COMPLETE; Phase 5 adjudication IN PROGRESS — slices 1–6 done — see docs/PROGRESS.md for status)
 - **Backend packages** under `com.healthcloud`: `organization` (Organization, Facility, FacilityMembership),
   `identity` (AppUser, Role, OrganizationMembership, UserRole), `auth` (SecurityConfig, DevLoginController,
   CurrentUserController/Service, CsrfCookieFilter), `context` (UserContext + UserContextAccessor/Filter),
@@ -375,7 +375,11 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
 - **Forms (Phase 2 slice 3+):** React Hook Form 7 + Zod 4 via `@hookform/resolvers/zod` (resolvers **v5**
   supports Zod 4). Pattern: a Zod schema that **mirrors the backend Jakarta validation**, `useForm({ resolver:
   zodResolver(schema) })`, and surface server errors from `ApiClientError` (show `message` + `correlationId`).
-  Feature code lives in a feature folder (e.g. `src/patients/`), mirroring `src/auth/`.
+  Feature code lives in a feature folder (e.g. `src/patients/`), mirroring `src/auth/`. **Dynamic line-item
+  forms** use `useFieldArray` (see `src/claims/CreateClaimForm.tsx`). **Gotcha:** when a Zod schema uses
+  `z.coerce`/`z.preprocess` (e.g. number inputs arrive as strings), the schema's *input* and *output* types
+  differ, so type `useForm<z.input<...>, unknown, z.output<...>>` (the 3-generic form) or `tsc` rejects the
+  resolver; `handleSubmit` then hands you the parsed output.
 - **Role-aware UI = convenience, not security.** Gate write UI by `useCurrentUser().roles` to match the
   backend rule (e.g. patient create shown only to CARE_COORDINATOR/ORG_ADMIN), but the backend still enforces it.
   The requests UI mirrors the §14.6 transition table in `src/requests/transitions.ts` purely to choose which
@@ -403,7 +407,11 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   CLAIMS_REVIEWER/admin — an **Adjudicate** button on an ACCEPTED claim (`canAdjudicate`, the dedicated engine
   command, not a status button, like Assign on a request), and an **Adjudication breakdown** card showing the
   covering plan + per-line allowed/copay/deductible/coinsurance/OOP-applied/plan-paid/member + totals (the §60
-  proof, visible). No claim-creation form or exclusions/coverage admin UI yet — later slices). All
+  proof, visible). Slice 6 added a **New claim form** on the list page (create roles only) — patient select,
+  service date (≤ today, mirroring the backend `@PastOrPresent`), and a `useFieldArray` of lines each with a
+  reusable **`MedicalCodePicker`** (an MUI Autocomplete, freeSolo + debounced, searching the catalog via
+  `GET /api/v1/medical-codes` filtered to PROCEDURE codes) + units + charge; on create it navigates to the new
+  claim. No exclusions/coverage-plan/eligibility admin UI yet — later slices). All
   follow the feature-folder + hooks + RHF/Zod pattern.
 - **Consent/field masking in the UI (Phase 3+):** the backend already withholds masked values, so the SPA only
   *displays* the state — render a "Restricted"/placeholder for a `null` consent-controlled field (named in

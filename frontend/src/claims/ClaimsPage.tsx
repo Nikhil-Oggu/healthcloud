@@ -13,10 +13,15 @@ import {
   Typography,
 } from '@mui/material'
 import { usePatients } from '../patients/usePatients'
+import { useCurrentUser } from '../auth/useAuth'
 import { LoadingScreen } from '../components/LoadingScreen'
 import { ErrorScreen } from '../components/ErrorScreen'
 import { claimStatusColor } from './statusColor'
+import { CreateClaimForm } from './CreateClaimForm'
 import { useClaims } from './useClaims'
+
+// Roles allowed to create a claim (mirrors the backend gate; the server still enforces it).
+const CREATE_ROLES = ['PROVIDER', 'CARE_COORDINATOR', 'ORG_ADMIN']
 
 /** Format a numeric amount as USD currency for display. */
 export function money(amount: number): string {
@@ -24,8 +29,10 @@ export function money(amount: number): string {
 }
 
 export function ClaimsPage() {
+  const { data: user } = useCurrentUser()
   const claims = useClaims()
   const patients = usePatients()
+  const canCreate = (user?.roles ?? []).some((r) => CREATE_ROLES.includes(r))
 
   if (claims.isPending) return <LoadingScreen />
   if (claims.isError) return <ErrorScreen error={claims.error} />
@@ -36,6 +43,8 @@ export function ClaimsPage() {
   return (
     <Stack spacing={3}>
       <Typography variant="h5">Claims</Typography>
+
+      {canCreate && <CreateClaimForm />}
 
       <TableContainer component={Paper} variant="outlined">
         <Table aria-label="Claims">

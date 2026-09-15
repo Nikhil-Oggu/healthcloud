@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api/client'
-import type { ClaimStatusChange } from '../api/types'
+import type { ClaimStatusChange, CreateClaimRequest } from '../api/types'
 
 export const CLAIMS_QUERY_KEY = ['claims'] as const
 export const claimKey = (id: string) => ['claims', id] as const
@@ -14,6 +14,15 @@ export function useClaims() {
 
 export function useClaim(id: string) {
   return useQuery({ queryKey: claimKey(id), queryFn: () => api.getClaim(id) })
+}
+
+/** Create a DRAFT claim, then refresh the list. */
+export function useCreateClaim() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (body: CreateClaimRequest) => api.createClaim(body),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: CLAIMS_QUERY_KEY }),
+  })
 }
 
 export function useClaimHistory(id: string) {

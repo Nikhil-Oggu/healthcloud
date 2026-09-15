@@ -66,9 +66,11 @@
   with the lines table, status timeline, lifecycle action buttons (submit/accept/reject/cancel), an **Adjudicate**
   button on an ACCEPTED claim, and the **adjudication breakdown** card — the whole money engine is now visible and
   drivable in the browser.
+  slice 6 ✅ — a **claim-creation form** + reusable **medical-code picker**: create a claim in the browser
+  (patient, service date, and a dynamic list of lines each with a catalog-searching procedure picker + units +
+  charge) → the claims UI is now self-sufficient.
   **Next Phase-5 slices:** a **fee-schedule** allowed amount (allowed = charge today), re-adjudication
-  versioning, and the remaining claims UI (a **claim-creation form** with a medical-code picker, and an
-  **exclusions/coverage-plan admin** UI). Also still deferred: a **frontend** for
+  versioning, and an **exclusions/coverage-plan admin** UI. Also still deferred: a **frontend** for
   clinical summaries + claims + coverage (incl. a medical-code picker); consent masking of claim fields
   (`CLAIMS_BENEFITS`) and the fuller CLAIMS_REVIEWER business-need scoping; a close/edit endpoint for an
   eligibility period. **Phase 4 proof (§60):** a claims reviewer sees
@@ -91,6 +93,36 @@
   then `curl -b j.txt localhost:8080/api/v1/me`. Reset DB with `./scripts/db-reset.sh`.
 
 ## Log (newest first)
+
+### 2026-09-15 — Phase 5, slice 6 ✅ (claim-creation form + medical-code picker — the claims UI is self-sufficient)
+- **Why:** slice 5 could drive a claim but not create one (only the seeded DRAFT claim existed). This adds a
+  create form so a claim can be made in the browser, and introduces a reusable procedure-code picker backed by
+  the Phase-4 catalog search. **Frontend-only** — no backend/migration change.
+- **`MedicalCodePicker`** (`src/claims/`): an MUI **Autocomplete** — freeSolo + debounced — that searches the
+  catalog (`GET /api/v1/medical-codes?q=`) as you type and lists **PROCEDURE** codes (CPT/HCPCS; diagnoses
+  filtered out). freeSolo means the value is always the code string (a user can type a raw code), and the
+  backend still validates it. Reusable by any future code field.
+- **`CreateClaimForm`** on `ClaimsPage` (create roles PROVIDER/CARE_COORDINATOR/ORG_ADMIN, mirroring the
+  requests UI): RHF + Zod + `useFieldArray` — patient select, service date (defaults to today; Zod enforces
+  ≤ today to mirror the backend `@PastOrPresent`), and 1+ lines (picker + units + charge, add/remove). On
+  create it navigates to the new claim's detail. **Gotcha recorded:** the coercing Zod schema makes input ≠
+  output types, so the form uses `useForm<z.input, unknown, z.output>` (added to CLAUDE.md).
+- **Plumbing:** `api/types.ts` gained `MedicalCode`, `CreateClaimLine`, `CreateClaimRequest`; `api/client.ts`
+  gained `createClaim` + `searchMedicalCodes`; `useClaims.ts` gained `useCreateClaim`.
+- **Scope boundary:** procedures only (no diagnosis picker); no exclusions/coverage-plan/eligibility admin UI —
+  later slices.
+- **Verified — automated:** frontend `npm run typecheck` clean, `npm test` → **45 pass** (+5:
+  `CreateClaimForm.test.tsx` ×2 — creates a claim with the entered patient/code/charge, and blocks submit with no
+  patient; `MedicalCodePicker.test.tsx` ×2 — searches the catalog + filters to procedures, reports the typed code
+  via freeSolo; `ClaimsPage.test.tsx` +1 — a create role sees the form, a reviewer does not). `npm run build` OK.
+  Backend untouched.
+- **Verified — live in browser** (coordinator@northcare, fresh `db-reset` + backend + Vite): opened Claims → the
+  New claim form → selected Sam Sample, typed `99213` in the picker → the catalog returned "99213 —
+  Office/outpatient visit… (CPT)", selected it, entered charge $150 → **Create claim** → landed on the new
+  **CLM-…** detail (DRAFT, one 99213 line ×1, total $150.00).
+- **Files:** +`src/claims/MedicalCodePicker.tsx`, +`src/claims/CreateClaimForm.tsx`, +3 test files; changed
+  `api/types.ts`, `api/client.ts`, `useClaims.ts`, `ClaimsPage.tsx`, `ClaimsPage.test.tsx`, `CLAUDE.md`,
+  `docs/PROGRESS.md`.
 
 ### 2026-09-15 — Phase 5, slice 5 ✅ (the claims & adjudication frontend — the money engine, visible)
 - **Why:** all of Phase 4/5 was backend-only. This surfaces the claims work queue, the claim lifecycle, and the
