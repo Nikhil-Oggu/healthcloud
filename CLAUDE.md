@@ -428,6 +428,17 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
 `synthetic-data/` `scripts/` `.github/workflows/` · plus `CLAUDE.md`, `docs/PLAN.md`,
 `docs/PROGRESS.md`, `docker-compose.yml`, `README.md`.
 
+## Version control (learned; avoid re-discovering)
+- **Never put a bare directory name in a `.gitignore`.** A rule like `coverage` (or `build`, `dist`, `target`)
+  matches a directory of that name **anywhere** in the tree, so it silently swallows a same-named *source* folder
+  and `git add -A` skips it with no error — the commit builds locally but breaks CI (missing files). This has
+  bitten twice: the backend `com.healthcloud.coverage` package (root `coverage/` → fixed to `frontend/coverage/`)
+  and the frontend `src/coverage/` feature folder (`frontend/.gitignore` `coverage` → fixed to `/coverage/`).
+  **Anchor location-specific rules** (leading `/`, or a path prefix like `frontend/coverage/`), and after adding a
+  new feature folder run `git status --short` (and `git check-ignore -v <path>` if unsure) to confirm its files
+  are actually staged before committing. When the ignore is meant for tooling output (Vitest `coverage/`, Maven
+  `target/`), anchor it so it can't collide with a feature folder of the same name.
+
 ## Custom tooling (see docs/PLAN.md Part C for the full plan)
 - **Exists today:** `.claude/launch.json` (the `frontend` dev-server config for the browser preview);
   slash command **`/learning-module`** (`.claude/commands/learning-module.md`) — appends a per-session
