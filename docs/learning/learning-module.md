@@ -1220,3 +1220,295 @@ the service would record it with the resulting claim id in a dedupe table inside
 insert, and a retry with the same key returns the original claim instead of creating a second one. We didn't
 build it this phase (not required for intake), but the aggregate-in-one-transaction shape means adding it later
 doesn't disturb the create logic.
+
+---
+
+## Phase 5 — Basic Synthetic Claims-Adjudication Engine (slices 1–12) — 2026-09-15
+
+### What we built
+The MVP's finale: a **deterministic, explainable claims-adjudication engine** and the full UI around it. Given an
+**ACCEPTED** claim, the engine finds the coverage in effect on the claim's service date, applies the plan's
+benefit rules, and produces an **immutable, per-line breakdown** of how every dollar splits between the plan and
+the member — the §60 "for any decision, show which plan applied and how every amount was computed" proof. Over
+twelve slices we built the math (allowed → copay → deductible → coinsurance → out-of-pocket max → exclusions →
+fee-schedule allowed amounts), the cross-claim **benefit accumulator** (deductible/OOP carried across a benefit
+year under a row lock), **re-adjudication with immutable versioning**, and the React UI for the whole story
+(claims work queue + detail, claim creation, coverage-plan admin, exclusions, fee schedule, eligibility
+enrollment, and the adjudication breakdown + version history). **Reaching the end of Phase 5 = the demonstrable
+MVP (Phase 0–5), engine and UI.**
+
+Slice map (each: plan → build → automated tests → live check → docs → commit → push):
+
+- **1** core engine — `AdjudicationCalculator` (pure), `adjudication` + `adjudication_line` tables, `POST
+  /api/v1/claims/{id}/adjudicate` + `GET .../adjudication`, ACCEPTED→ADJUDICATED in one tx, `DENIED_NO_ELIGIBILITY`.
+- **2** `benefit_accumulator` — deductible carried across claims under a `PESSIMISTIC_WRITE` row lock.
+- **3** out-of-pocket max — the member's cost-sharing is capped; the excess shifts to the plan.
+- **4** `plan_exclusion` — excluded procedures adjudicate `NOT_COVERED` without touching the deductible/OOP.
+- **5** claims frontend — work queue + detail, lifecycle buttons, Adjudicate, breakdown card.
+- **6** claim-creation form + reusable `MedicalCodePicker`.
+- **7** coverage admin UI — plans list/create + exclusions card.
+- **8** patient eligibility enrollment UI — a Coverage eligibility card on the patient page.
+- **9** fee schedule — `allowed = min(charge, fee-schedule amount)` instead of `allowed = charge`.
+- **10** fee-schedule admin UI.
+- **11** re-adjudication versioning — a new immutable version, with accumulator reversal.
+- **12** adjudication version history + Re-adjudicate button in the claims UI.
+
+### How it works
+
+**The pure calculator (the third pure-policy exemplar).** `backend/src/main/java/com/healthcloud/adjudication/
+AdjudicationCalculator.java` has no Spring, no DB, no I/O — just the math, so it's exhaustively unit-testable. It
+takes the plan's parameters, the remaining deductible and remaining OOP (carried in by the caller), and the
+per-line charges + allowed amounts, and returns a `Computation` (per-line splits + totals). Per line, in order:
+
+```
+allowed        = min(feeScheduleAmount ?? charge, charge)   // slice 9
+copay          = min(planCopay, allowed)
+deductible     = min(remainingDeductible, allowed - copay)  // consumed across lines
+coinsurance    = round((allowed - copay - deductible) * coinsuranceRate)   // HALF_UP, scale 2
+grossMember    = copay + deductible + coinsurance
+member         = min(grossMember, remainingOOP)             // slice 3; null OOP = no cap
+oopMaxApplied  = grossMember - member                       // the excess that shifted to the plan
+planPaid       = allowed - member
+```
+
+Money is `BigDecimal` at scale 2, `HALF_UP`; the coinsurance rate is `NUMERIC(5,4)` in `[0,1]`. The calculator is
+pure, so the *service* is what loads data and decides covered-vs-excluded, denial, and accumulator updates.
+
+**The service orchestration (`AdjudicationService.adjudicate`, one `@Transactional`).**
+`backend/src/main/java/com/healthcloud/adjudication/AdjudicationService.java`:
+
+1. authorize: role (`CLAIMS_REVIEWER`/`ORG_ADMIN`) → load claim in tenant → `PatientAccessGuard` (via the claim's
+   patient → secure 404). Same layered pipeline as everywhere else (§21).
+2. state gate: ACCEPTED → first adjudication (v1, advance to ADJUDICATED); ADJUDICATED → re-adjudicate (v+1,
+   status unchanged); anything else → 409 `INVALID_STATE_TRANSITION`.
+3. find coverage: `PatientEligibilityRepository.findCovering(org, patient, serviceDate)` → 0 or 1 row
+   (periods are non-overlapping). No row → `DENIED_NO_ELIGIBILITY` (plan pays 0, member owes the charge).
+4. partition lines into **covered** vs **excluded** (`plan_exclusion`); excluded → `NOT_COVERED`, skip the
+   cost-sharing math so they don't consume the deductible/OOP.
+5. lock the accumulator, compute the covered lines through the calculator (fee schedule resolves each line's
+   `allowed`), then update the accumulator, and persist the immutable header + per-line rows.
+6. on the first adjudication only, set the claim to ADJUDICATED and append a `claim_status_history` row.
+
+**The benefit accumulator (financial row lock, §31).**
+`benefit_accumulator` is one row per `(patient, coverage_plan, benefit_year)` holding `deductible_met` and
+`out_of_pocket_met`. The engine reads-and-updates it **inside the adjudication transaction under a
+`PESSIMISTIC_WRITE` lock** so concurrent adjudications for the same patient/plan/year can't lose an update. The
+row is guaranteed to exist before the locked read via an **insert-if-absent** (native `ON CONFLICT DO NOTHING`):
+
+```java
+accumulators.insertIfAbsent(org, patientId, planId, benefitYear);          // ON CONFLICT DO NOTHING
+BenefitAccumulator acc = accumulators.lockByKey(org, patientId, planId, benefitYear)  // @Lock(PESSIMISTIC_WRITE)
+        .orElseThrow(...);
+```
+
+The calculator is fed `deductibleRemaining = plan.deductible - acc.deductibleMet` and (if the plan caps it)
+`oopRemaining = plan.outOfPocketMax - acc.outOfPocketMet`. `benefit_year` is the claim's service-date calendar
+year (MVP: plan year = calendar year).
+
+**Fee schedule (slice 9).** `plan_fee_schedule` prices procedures per plan; the service builds a `code → allowed`
+map for the covering plan and passes each covered line its resolved allowed. `LineCharge` gained an
+`allowedAmount` (with a 2-arg convenience constructor `allowed = charge`, so the "no fee schedule" fallback and
+all existing call sites keep working). `charge − allowed` is a provider write-off nobody pays (the in-network
+model).
+
+**Re-adjudication + immutable versioning (slice 11).** The schema always supported versions
+(`adjudication_version`, `UNIQUE(org, claim_id, version)`), so no migration was needed. Re-adjudicating an
+ADJUDICATED claim writes `version = priorMax + 1` and keeps every prior version; latest-version-wins. The subtle
+part is the accumulator: the first adjudication already added this claim's deductible/OOP, so before recomputing
+we **back out the prior version's contribution** (read from that version's own immutable line snapshot) and then
+add the new one:
+
+```java
+// reversePriorContribution(): sum the prior version's COVERED lines
+priorDeductible  = Σ line.deductibleAppliedAmount   (COVERED lines)
+priorOutOfPocket = Σ line.memberResponsibility      (COVERED lines)
+lockAccumulator(...).subtract(priorDeductible, priorOutOfPocket);   // clamped at 0
+```
+
+So re-adjudicating an **unchanged** claim yields identical amounts (proving no double-count), and a real change
+(fee schedule, exclusion, or a retroactive enrollment flipping DENIED→covered) recomputes correctly. Reads:
+`GET .../adjudication` returns the latest version; `GET .../adjudication/versions` lists all, newest first.
+
+**The frontend (slices 5–8, 10, 12).** Feature folders `frontend/src/claims/` and `frontend/src/coverage/`,
+each following the established pattern: a typed `api/client.ts` method, a TanStack Query hook (`useX`), and a
+component. Highlights:
+
+- `ClaimsPage` (work queue) + `ClaimDetailPage` (lines, timeline, lifecycle buttons from a client mirror of
+  `ClaimTransitions`, the Adjudicate / Re-adjudicate engine commands, the breakdown card, and the version-history
+  card).
+- `MedicalCodePicker` — an MUI `Autocomplete` (freeSolo + debounced) searching the catalog, reused by claim
+  creation, exclusions, and the fee schedule.
+- `CoveragePlansPage` / `CoveragePlanDetailPage` (parameters + Exclusions card + Fee schedule card), and an
+  Eligibility card on the patient detail page.
+
+### Key points to remember
+
+- **The engine command is not a bare status change.** A claim reaches ADJUDICATED only through
+  `POST .../adjudicate` (which does the math + writes the record + advances status in one tx), exactly like
+  ASSIGNED on a request reaches its state only through the assignment command. A plain `PATCH /status` to
+  ADJUDICATED is refused. This keeps a status from ever being set without its accompanying record.
+- **Pure policy class + thin service.** `AdjudicationCalculator` is the third exemplar after `ClaimTransitions`
+  and `ConsentPolicy`. Keeping the math DB-free made the OOP/deductible/fee-schedule edge cases cheap to test
+  (11+ calculator unit tests, no Spring context).
+- **Two kinds of locking, on purpose.** Optimistic locking (`@Version` / `expectedVersion`) guards
+  request/claim/consent edits; a **pessimistic row lock** guards the *financial accumulator*, because two
+  adjudications racing on the same patient/plan/year must serialize, not just detect-and-retry. The source-of-truth
+  calls this out explicitly ("row locks for financial accumulators").
+- **Immutability + latest-wins** beats mutate-in-place for adjudications: every version is an auditable snapshot,
+  and re-adjudication is just "append a new version," which is why the schema reserved `adjudication_version` from
+  slice 1. `getByClaim` had to switch to `findFirst…OrderByAdjudicationVersionDesc` once >1 version can exist (a
+  single-row finder throws `IncorrectResultSize` on the second version).
+- **The accumulator reversal is the one genuinely tricky invariant.** Re-adjudication must not double-count; we
+  reverse *this claim's* prior contribution and recompute. Honest limitation: it does **not** retroactively
+  re-adjudicate *other* claims in the same benefit year (documented, not hidden).
+- **Seed data must not fight the tests.** The accumulator integration test asserts exact 99213 amounts on the
+  seeded PPO, so we deliberately seeded the demo fee-schedule entry on **80053** (not 99213). Lesson: shared
+  seed data is a test fixture — changing it can break amount-asserting tests in other suites.
+- **Frontend gates are convenience only.** Every Adjudicate/Re-adjudicate/Enroll/price button is role-gated in
+  the UI to match the backend, but the backend re-authorizes every call — client mirrors (`transitions.ts`) are a
+  UX nicety, never a security control.
+- **`.gitignore` bare directory names are a trap** (re-confirmed this phase). A bare `coverage` line matched the
+  new `frontend/src/coverage/` feature folder and silently excluded 5 source files from a commit. Anchor
+  location-specific ignores (`/coverage/`) and run `git status --short` after adding a feature folder. Now a rule
+  in CLAUDE.md.
+- **RHF + coercing Zod needs three generics.** A schema using `z.coerce`/`z.preprocess` has different input and
+  output types, so forms must be typed `useForm<Input, unknown, Output>` or `tsc` rejects the resolver.
+- **Measured results (no unmeasured claims):** at the end of Phase 5, `./mvnw -B clean verify` → **258 backend
+  tests pass**; frontend `npm run typecheck` + `npm test` → **60 tests pass** + `npm run build` OK. Live checks
+  (db-reset + backend + curl/Vite) confirmed each slice end to end.
+
+### Failures and how we fixed them
+
+- **`.gitignore` swallowed the new feature folder (slice 7).** *Symptom:* `git status --short` showed only `M`
+  files, no `A` for `src/coverage/`; the first commit would have broken CI (App.tsx imports uncommitted files).
+  *Root cause:* a bare `coverage` line in `frontend/.gitignore` (meant for Vitest output) matched the source
+  folder anywhere in the tree. *Fix:* anchored it to `/coverage/`, re-staged, amended the commit; recorded the
+  durable rule in CLAUDE.md.
+- **RHF resolver type error (slice 6).** *Symptom:* TS2322/TS2345 on `zodResolver`. *Root cause:* the coercing
+  Zod schema's input ≠ output types. *Fix:* the 3-generic `useForm<Input, unknown, Output>` form; documented.
+- **Async query races in frontend tests (slices 5, 7).** *Symptom:* `getByText(...)` ran before an async query
+  resolved. *Fix:* `await screen.findByText(...)`.
+- **`getByLabelText` ambiguity in the eligibility test (slice 8).** *Symptom:* "Found multiple elements" for
+  "From"/"Effective from" — the care-team and consent forms on the same patient page also have date fields with
+  those labels. *Fix:* gave the eligibility form distinct labels ("Coverage start"/"Coverage end").
+- **Seeding a fee schedule on 99213 would have broken the accumulator test (slice 9).** *Caught before running:*
+  the accumulator integration test asserts exact 99213 amounts on the seeded PPO. *Fix:* seeded the demo entry on
+  80053 instead, which no amount-asserting test uses.
+- **The "adjudicated only once → 409" test became wrong when re-adjudication landed (slice 11).** *Symptom:* it
+  would fail because a second adjudicate now returns 200 (a new version). *Fix:* rewrote it to
+  `re_adjudicating_an_adjudicated_claim_creates_a_new_version`, asserting v1 then v2 and status still ADJUDICATED;
+  also switched a repository test off the removed single-row finder.
+- **Transient Maven `MojoExecutionException`** on a subset test run (slice 4). *Fix:* re-ran; a clean
+  `./mvnw -B clean verify` was green — a hiccup, not a real failure.
+
+### Interview Q&A
+
+#### 1. Beginner
+
+**Q: What does "adjudicating a claim" mean here?**
+A: Taking an accepted claim and computing, for each billed line, how much the insurance plan pays versus how much
+the patient owes — applying the plan's copay, deductible, coinsurance, out-of-pocket max, exclusions, and
+fee-schedule allowed amounts — and recording an explainable breakdown of every amount.
+
+**Q: What are the possible outcomes of adjudication?**
+A: `ADJUDICATED` (coverage was in effect on the service date and the split was computed) or
+`DENIED_NO_ELIGIBILITY` (no coverage on that date, so the plan pays 0 and the member owes the full charge). Both
+are recorded, explainable decisions. Individual lines are `COVERED` or `NOT_COVERED`.
+
+**Q: Why is `AdjudicationCalculator` a "pure" class?**
+A: It has no Spring, database, or I/O — it takes plain inputs and returns plain outputs. That makes the money math
+deterministic and trivial to unit-test (every edge case without a database), and keeps the decision logic
+separate from data loading, which lives in the service.
+
+**Q: What's the difference between the Adjudicate and Re-adjudicate buttons?**
+A: Adjudicate appears on an ACCEPTED claim (first run → version 1). Re-adjudicate appears on an already-ADJUDICATED
+claim and runs the engine again, appending a new immutable version (2, 3, …) — useful after a fee-schedule,
+exclusion, or coverage change. Both call the same backend command.
+
+**Q: How does the deductible carry from one claim to the next?**
+A: A `benefit_accumulator` row per patient/plan/year tracks how much deductible has been met. Each adjudication
+reads how much remains, applies what it can, and adds its contribution back — so a later claim in the same year
+sees less deductible remaining and the plan pays more.
+
+#### 2. Intermediate
+
+**Q: Why a pessimistic row lock for the accumulator when everything else uses optimistic locking?**
+A: Optimistic locking detects a conflicting concurrent edit and makes one side retry — fine for a user editing a
+request. But two claims for the same patient/plan/year adjudicating at once both read-modify-write the *same*
+running total; with optimistic locking one would fail and need re-driving. A `PESSIMISTIC_WRITE` lock serializes
+them so the second simply waits and reads the first's committed value — correct accumulation with no lost update
+and no retry loop. The source-of-truth prescribes row locks specifically for financial accumulators.
+
+**Q: Why is `insert-if-absent` (ON CONFLICT DO NOTHING) needed before the locked read?**
+A: You can't lock a row that doesn't exist. On the first claim of a year there's no accumulator row yet; two
+concurrent adjudications could both try to create it and one would hit the unique constraint. `ON CONFLICT DO
+NOTHING` guarantees the row exists (idempotently, race-safe) so the subsequent `SELECT … FOR UPDATE` always finds
+and locks exactly one row.
+
+**Q: Why model the allowed amount as `min(charge, fee-schedule amount)` and where does the difference go?**
+A: A plan never pays on more than was billed, and it caps recognition at its contracted fee-schedule amount. The
+difference (`charge − allowed`) is a provider write-off that nobody pays — the standard in-network model. Every
+downstream amount (copay/deductible/coinsurance/OOP/split) is computed off `allowed`, so once `allowed` is right
+the whole computation is realistic. A procedure with no fee-schedule entry falls back to `allowed = charge`.
+
+**Q: How does re-adjudication avoid double-counting the deductible?**
+A: Before recomputing, the engine reverses the prior version's accumulator contribution — it sums that version's
+own COVERED lines' `deductibleAppliedAmount` and `memberResponsibility` from the immutable line snapshot and
+subtracts them from the accumulator (clamped at 0). Then it recomputes against the corrected remaining amounts and
+adds the new contribution. Re-running an unchanged claim therefore produces identical numbers.
+
+**Q: Why is the adjudication a dedicated command rather than a status transition to ADJUDICATED?**
+A: Reaching ADJUDICATED requires doing real work — finding coverage, computing, writing the immutable record — all
+atomically with the status change and history row. A bare `PATCH /status` couldn't produce the record, so we
+forbid it and route the state change through the engine command (the same pattern as ASSIGNED via the assignment
+command). This guarantees a status is never set without its accompanying record.
+
+**Q: How is the §60 "explainability" requirement actually satisfied?**
+A: The `adjudication` header records which plan and eligibility applied and the totals; each `adjudication_line`
+records allowed/copay/deductible/coinsurance/oop-applied/plan-paid/member for that line. The values are an
+immutable snapshot (codes and charges copied in), so the decision reads back self-contained and the UI shows the
+full per-line breakdown — for any decision you can see which plan applied and how every amount was computed.
+
+#### 3. Advanced
+
+**Q: What are the honest limitations of the re-adjudication reversal, and how would you address them?**
+A: The reversal only corrects *this* claim's contribution; other claims adjudicated later in the same benefit year
+were computed against the old running total and are not retroactively recomputed. A fuller design would either
+re-adjudicate every subsequent claim in the year in service-date order (expensive, and it changes historical
+records) or model the accumulator as an event log of per-claim deltas so a claim's delta can be replaced and
+downstream effects recomputed deterministically. For an MVP we chose the simpler, documented behavior.
+
+**Q: Re-adjudication currently creates a new version on every call. What are the risks and how would you harden it?**
+A: An accidental double-submit would create spurious versions. The source-of-truth reserves an `Idempotency-Key`
+for retriable commands (create request / submit claim / start adjudication); adjudication is a natural fit — the
+controller would accept the key, the service would record it with the resulting version inside the same
+transaction, and a retry with the same key returns the existing version instead of appending another. We didn't
+build it this phase.
+
+**Q: Two reviewers re-adjudicate the same claim at the same time. What happens?**
+A: Both compute `nextVersion = priorMax + 1` and try to insert that version; `UNIQUE(org, claim_id,
+adjudication_version)` lets only one commit — the other fails the constraint and rolls back. The accumulator's row
+lock also serializes their read-modify-write. So concurrency yields one new version, not two conflicting ones, and
+no lost accumulator update. The loser can retry (which would then compute the next version).
+
+**Q: If a plan is deleted or its parameters change after a claim was adjudicated, is the old adjudication still
+correct to read back?**
+A: Yes — the adjudication and its lines are an immutable snapshot; charges, codes, and computed amounts are copied
+into `adjudication_line`, so reading version N reflects exactly what was decided then, independent of later plan
+edits. Re-adjudication is the explicit, versioned way to apply new plan state, leaving the prior version intact
+for audit.
+
+**Q: Why compute the header `totalChargeAmount` and the split on the backend rather than trusting the claim's
+stored total or the client?**
+A: The backend is the only trusted source for money. Line charges are summed server-side (the client can't assert
+a total), the allowed amount is resolved from server-side plan config (fee schedule), and the split is computed by
+the server's calculator. Nothing financial is client-supplied — the frontend only displays what the backend
+computed and stored.
+
+**Q: How would you extend the engine to support diagnosis-driven rules or prior authorization without disturbing
+this design?**
+A: The pure-policy + thin-service split localizes change. Diagnosis rules would extend the service's line
+partition (a line requiring prior auth without an approved authorization becomes a distinct non-covered outcome)
+and possibly the calculator's inputs, while the calculator stays a pure function of its inputs. Prior auth itself
+is a separate aggregate (a Phase 6 concern) the engine would *read*, exactly as it reads eligibility, exclusions,
+and the fee schedule today.
