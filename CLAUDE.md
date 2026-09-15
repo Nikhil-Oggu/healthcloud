@@ -163,8 +163,16 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   `claim_number` is unique per tenant (server-allocated `CLM-XXXXXXXX`). **§60 proof:** a claim carries only
   coded, claim-relevant data (procedure codes + amounts + dates) — **no clinical narrative** — so a reviewer
   works claims without unrestricted medical context; the narrative lives (consent-masked) in `clinical_summary`.
-  Not consent field-masked. **Status transitions + `claim_status_history` + submission/validation are the NEXT
-  slice** (only DRAFT exists now, though the status CHECK lists the forward lifecycle). Backend-only so far),
+  Not consent field-masked. **State machine (§Phase 4 submission/validation):** `PATCH /api/v1/claims/{id}/status`
+  + `GET /api/v1/claims/{id}/history`, driven by the pure `ClaimTransitions` policy class (mirrors
+  `RequestTransitions`): DRAFT→SUBMITTED→{ACCEPTED,REJECTED}, plus CANCELLED; the submitter roles
+  (PROVIDER-assigned/CARE_COORDINATOR/ORG_ADMIN) submit + cancel, and the **CLAIMS_REVIEWER** (+ORG_ADMIN)
+  accept/reject — the reviewer's write action. Same check order as the request machine (exists → reserved →
+  legal move → role → reason → validation → optimistic `expectedVersion`), status change + a `claim_status_history`
+  row in one tx (null→DRAFT on creation). Submitting **validates** the claim (≥1 line, total > 0 → else 400).
+  `ADJUDICATED` is structurally reachable from ACCEPTED but **engine-owned** — a bare status change to it is
+  refused (reserved for the Phase-5 adjudication engine, like `ASSIGNED` on requests). Reason required to
+  reject/cancel. Backend-only so far),
   `clinical` (Phase 4 — clinical summaries: `GET/POST /api/v1/patients/{patientId}/clinical-summaries`,
   `GET .../clinical-summaries/{id}`. A short clinical note about a patient encounter, pointing at an ICD-10-CM
   diagnosis from the global `medical_code` catalog. **Tenant-owned + patient-scoped**, so it reuses the whole
@@ -191,9 +199,9 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   `system` → 400 via the existing type-mismatch handler. `CodeSystem` carries a display `label` + `category`
   (Diagnosis/Procedure). Codes are public reference vocabularies, not PHI — seeding real-format values is fine),
   `devdata` (DevDataSeeder, local-only — also seeds the global `medical_code` catalog once, then a couple of
-  synthetic `clinical_summary` rows per assigned patient and one sample `claim` (header + two procedure lines)
-  for the first patient; reference codes are seeded before the orgs so the clinical-summary/claim→catalog FKs
-  are satisfied).
+  synthetic `clinical_summary` rows per assigned patient and one sample DRAFT `claim` (header + two procedure
+  lines + its null→DRAFT status-history row) for the first patient; reference codes are seeded before the orgs
+  so the clinical-summary/claim→catalog FKs are satisfied).
 - **Tenant-owned entity pattern (Phase 2+):** hold `organizationId` as the tenant key; repositories expose
   only org-scoped finders (`findByIdAndOrganizationId`, `findByOrganizationId…`) — no bare `findById` in
   business code; services derive the org from `UserContextAccessor.requireOrganizationId()`. `patient` is

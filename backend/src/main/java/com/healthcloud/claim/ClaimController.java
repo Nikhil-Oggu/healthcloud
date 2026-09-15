@@ -7,6 +7,7 @@ import java.util.Optional;
 import java.util.UUID;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -49,5 +50,18 @@ public class ClaimController {
     public ResponseEntity<ClaimDto> create(@Valid @RequestBody CreateClaimRequest request) {
         ClaimDto created = service.create(request);
         return ResponseEntity.created(URI.create("/api/v1/claims/" + created.id())).body(created);
+    }
+
+    /** Apply a controlled status transition (submit/accept/reject/cancel) — backend-validated, optimistic-locked. */
+    @PatchMapping("/{claimId}/status")
+    public ClaimDto changeStatus(
+            @PathVariable UUID claimId, @Valid @RequestBody ClaimStatusChangeRequest change) {
+        return service.changeStatus(claimId, change);
+    }
+
+    /** The claim's status timeline (append-only history). */
+    @GetMapping("/{claimId}/history")
+    public List<ClaimStatusHistoryDto> history(@PathVariable UUID claimId) {
+        return service.getHistory(claimId);
     }
 }

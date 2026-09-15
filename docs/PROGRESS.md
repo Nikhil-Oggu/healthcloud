@@ -12,7 +12,10 @@
   → the first half of the §60 proof ·
   slice 3 ✅ claims intake — the claim header + claim lines aggregate (lines bill CPT/HCPCS procedure codes from
   the catalog; backend-computed total; top-level `/api/v1/claims` gated by patient → reviewer work queue);
-  created in DRAFT, no clinical narrative on a claim → the §60 reviewer half)** ·
+  created in DRAFT, no clinical narrative on a claim → the §60 reviewer half ·
+  slice 4 ✅ claim submission/validation state machine — `ClaimTransitions` pure policy + `claim_status_history`;
+  DRAFT→SUBMITTED→{ACCEPTED,REJECTED}/CANCELLED, submit-validation, optimistic-locked, one-tx history; the
+  CLAIMS_REVIEWER's accept/reject is their first write action)** ·
   **Phase 3 COMPLETE ✅ (slice 1 ✅ consent lifecycle · 2 ✅ decision engine §22.5 · 3 ✅ field masking §23 ·
   4 ✅ provider↔patient record §14.3 · 5 ✅ object/relationship gate on patient reads §21 layer 6 ·
   6 ✅ gate applied to the patient-nested endpoints — single `PatientAccessGuard` choke point ·
@@ -34,13 +37,13 @@
   16 ✅ documents UI — a Documents card on the patient detail page: upload, list with scan-status chips, and
   download of CLEAN files; the §19 loop is now visible end-to-end in the browser)**
 - **Repo:** https://github.com/Nikhil-Oggu/healthcloud (private, branch `main`)
-- **Next up (Phase 4):** claims intake is in (slice 3). The natural next slice is the **claim submission +
-  validation workflow** — the `claim_status_history` table + controlled DRAFT→SUBMITTED (and accept/reject/
-  cancel) transitions with validation rules (at least one line, positive amounts, etc.), mirroring the
-  `service_request` state machine (pure `ClaimTransitions` policy class + status history in one tx). Then
-  plan/eligibility foundations, and — at the front of Phase 5 — the adjudication engine that reads these lines.
-  A **medical-codes UI** (a code picker) + a **claims/clinical UI** arrive with the first frontend slice that
-  consumes codes. **Phase 4 proof (§60):** a claims reviewer sees
+- **Next up (Phase 4):** the claim state machine is in (slice 4). Remaining Phase-4 work: **plan / eligibility
+  foundations** (a coverage plan the claim adjudicates against) and then Phase 4 tapers into **Phase 5 — the
+  adjudication engine** (reads the ACCEPTED claim's lines → line/claim outcomes, `ADJUDICATED`, immutable
+  adjudication versions; `ADJUDICATED` is already reserved as engine-owned). Also still deferred: a
+  **frontend** for clinical summaries + claims (incl. a medical-code picker); consent masking of claim fields
+  (`CLAIMS_BENEFITS`) and the fuller CLAIMS_REVIEWER business-need scoping. **Phase 4 proof (§60):** a claims
+  reviewer sees
   claim-relevant data *without* unrestricted medical context — so the CLAIMS_REVIEWER business-need scoping
   deferred through Phase 3 gets designed here. A **medical-codes UI** (a code picker) arrives when a slice first
   consumes codes. Plan each slice before building. (Older deferred items still open — Phase 3 was
@@ -60,6 +63,36 @@
   then `curl -b j.txt localhost:8080/api/v1/me`. Reset DB with `./scripts/db-reset.sh`.
 
 ## Log (newest first)
+
+### 2026-09-15 — Phase 4, slice 4 ✅ (claim submission/validation state machine)
+- **Why:** slice 3 created claims in DRAFT; this adds the controlled lifecycle — the "submission/validation
+  workflow" — so a claim can be submitted, then accepted or rejected by a reviewer. Mirrors the `service_request`
+  state machine exactly, and gives the **CLAIMS_REVIEWER their first write action** (accept/reject).
+- **State machine:** DRAFT→SUBMITTED→{ACCEPTED,REJECTED}, plus CANCELLED (from DRAFT/SUBMITTED), and ADJUDICATED
+  reserved for Phase 5. Roles: submitter side (PROVIDER-assigned/CARE_COORDINATOR/ORG_ADMIN) submits + cancels;
+  **CLAIMS_REVIEWER** (+ORG_ADMIN) accepts/rejects. Logic in the pure `ClaimTransitions` policy class (legal
+  moves, role rules, reason-required) — no Spring/DB — the second exemplar of the pure-policy pattern.
+- **Endpoints:** `PATCH /api/v1/claims/{id}/status` (targetStatus + expectedVersion + optional reason) and
+  `GET /api/v1/claims/{id}/history`. Check order in the service (mirrors the request machine): exists + patient
+  gate → **reserved** (ADJUDICATED via a bare change → 409) → legal move → role → reason → **submit-validation**
+  → optimistic version — then status change + a `claim_status_history` row in **one transaction**. Submitting
+  **validates** the claim: ≥1 line and total charge > 0 (a $0 claim → 400). A reason is required to reject/cancel.
+  `ClaimService.create` now also writes the null→DRAFT creation history row so the timeline is complete.
+- **Migration `V17__claim_status_history.sql`:** append-only history (from/to status, actor, reason,
+  correlation id), FK `(claim_id, organization_id)` → claim; mirrors `request_status_history`.
+- **New in `com.healthcloud.claim`:** `ClaimTransitions`, `ClaimStatusHistory` entity + repository + DTO,
+  `ClaimStatusChangeRequest`. Modified `ClaimService` (+history repo, `changeStatus`, `getHistory`, creation
+  row), `ClaimController` (+PATCH/status, +GET/history), `DevDataSeeder` (creation history row for the sample).
+- **Verified — automated:** `./mvnw -B clean verify` → **196 pass** (+12: `ClaimTransitionsTest` ×4 pure;
+  `ClaimStateMachineApiIntegrationTest` ×8 — submit→accept records the 3-row history; reject requires a reason;
+  illegal DRAFT→ACCEPTED → 409; a reviewer can't submit + a provider can't accept → 403; stale version → 409;
+  ADJUDICATED via the bare endpoint → 409; a zero-total claim can't be submitted → 400; cross-tenant → 404).
+- **Verified — live:** `db-reset` → fresh backend → coordinator submitted the seeded claim, reviewer accepted
+  it, and `GET /history` showed `None→DRAFT (created) → DRAFT→SUBMITTED → SUBMITTED→ACCEPTED` with actors. (The
+  role-negative curls returned 404 only because of a greedy `sed` grabbing a line id — the automated tests are
+  the authoritative 403 proof.)
+- **Files:** +`V17__claim_status_history.sql`, +4 `claim/` classes, +2 test classes; changed `ClaimService`,
+  `ClaimController`, `DevDataSeeder`, `CLAUDE.md`, `docs/PROGRESS.md`.
 
 ### 2026-09-15 — Phase 4, slice 3 ✅ (claims intake — the claim header + claim lines aggregate)
 - **Why:** the money side of Phase 4. A claim is a header + one or more lines, each line billing a *procedure*

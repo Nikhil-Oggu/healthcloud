@@ -7,7 +7,9 @@ import com.healthcloud.context.UserContext;
 import com.healthcloud.context.UserContextAccessor;
 import com.healthcloud.error.ApiException;
 import com.healthcloud.error.ConflictException;
+import com.healthcloud.error.CorrelationId;
 import com.healthcloud.error.ErrorCode;
+import com.healthcloud.error.InvalidStateTransitionException;
 import com.healthcloud.error.NotFoundException;
 import com.healthcloud.patient.Patient;
 import com.healthcloud.patient.PatientAccessGuard;
@@ -46,15 +48,17 @@ public class ClaimService {
 
     private final ClaimRepository claims;
     private final ClaimLineRepository claimLines;
+    private final ClaimStatusHistoryRepository statusHistory;
     private final MedicalCodeRepository medicalCodes;
     private final PatientAccessGuard accessGuard;
     private final UserContextAccessor userContext;
 
     public ClaimService(ClaimRepository claims, ClaimLineRepository claimLines,
-                        MedicalCodeRepository medicalCodes, PatientAccessGuard accessGuard,
-                        UserContextAccessor userContext) {
+                        ClaimStatusHistoryRepository statusHistory, MedicalCodeRepository medicalCodes,
+                        PatientAccessGuard accessGuard, UserContextAccessor userContext) {
         this.claims = claims;
         this.claimLines = claimLines;
+        this.statusHistory = statusHistory;
         this.medicalCodes = medicalCodes;
         this.accessGuard = accessGuard;
         this.userContext = userContext;
@@ -100,7 +104,87 @@ public class ClaimService {
                     code.getCodeSystem(), code.getCode(), units, line.chargeAmount())));
         }
 
+        // §31.6: domain change + status history in one transaction. from=null marks creation.
+        statusHistory.save(new ClaimStatusHistory(
+                organizationId, saved.getId(), null, ClaimStatus.DRAFT,
+                caller.userId(), "Claim created", CorrelationId.current()));
+
         return ClaimDto.from(saved, lines);
+    }
+
+    /**
+     * Apply a controlled claim status transition (§Phase 4 submission/validation). In one transaction: gate by
+     * tenant + patient, then validate — order of checks: exists → reserved-status → legal move → role → reason
+     * → (submit) claim validation → optimistic version — then update the status and append a history row.
+     */
+    @Transactional
+    public ClaimDto changeStatus(UUID claimId, ClaimStatusChangeRequest change) {
+        UserContext caller = userContext.requireUser();
+        // Tenant + object/relationship gate: an unreachable claim is a secure 404 before any state is revealed.
+        Claim claim = requireAccessibleClaim(claimId);
+
+        ClaimStatus from = claim.getStatus();
+        ClaimStatus to = change.targetStatus();
+
+        // ADJUDICATED is reached only by the Phase-5 adjudication engine, never a bare status change.
+        if (to == ClaimStatus.ADJUDICATED) {
+            throw new InvalidStateTransitionException(
+                    "A claim is adjudicated by the adjudication engine, not a status change.");
+        }
+        // 1. Is this a legal move at all?
+        if (!ClaimTransitions.isAllowed(from, to)) {
+            throw new InvalidStateTransitionException(
+                    "Cannot change claim status from " + from + " to " + to + ".");
+        }
+        // 2. May this caller perform it? (§12.1 function permission)
+        if (!ClaimTransitions.isRoleAllowed(from, to, caller.roles())) {
+            throw new ApiException(ErrorCode.ACCESS_DENIED, ErrorCode.ACCESS_DENIED.defaultMessage());
+        }
+        // 3. Reason required for some transitions (reject/cancel).
+        if (ClaimTransitions.reasonRequired(to) && (change.reason() == null || change.reason().isBlank())) {
+            throw new ApiException(ErrorCode.VALIDATION_FAILED, "A reason is required to " + to + " this claim.");
+        }
+        // 4. Submission validation: a claim must be well-formed to be submitted.
+        if (to == ClaimStatus.SUBMITTED) {
+            validateSubmittable(claim);
+        }
+        // 5. Optimistic locking: reject a stale caller (someone else moved the claim first).
+        if (claim.getVersion() != change.expectedVersion()) {
+            throw new ConflictException("This claim was modified by someone else; reload and try again.");
+        }
+
+        claim.setStatus(to);
+        Claim saved = claims.saveAndFlush(claim); // bump @Version; response carries the new one
+
+        statusHistory.save(new ClaimStatusHistory(
+                claim.getOrganizationId(), claim.getId(), from, to, caller.userId(),
+                change.reason(), CorrelationId.current()));
+
+        return ClaimDto.from(saved, claimLines
+                .findByOrganizationIdAndClaimIdOrderByLineNumberAsc(claim.getOrganizationId(), claim.getId()));
+    }
+
+    /** The claim's status timeline (append-only history), tenant + relationship gated (secure 404). */
+    public List<ClaimStatusHistoryDto> getHistory(UUID claimId) {
+        Claim claim = requireAccessibleClaim(claimId);
+        return statusHistory
+                .findByOrganizationIdAndClaimIdOrderByCreatedAtAsc(claim.getOrganizationId(), claimId)
+                .stream()
+                .map(ClaimStatusHistoryDto::from)
+                .toList();
+    }
+
+    /** A claim must have at least one line and a positive total to be submitted (§Phase 4 validation). */
+    private void validateSubmittable(Claim claim) {
+        List<ClaimLine> lines = claimLines
+                .findByOrganizationIdAndClaimIdOrderByLineNumberAsc(claim.getOrganizationId(), claim.getId());
+        if (lines.isEmpty()) {
+            throw new ApiException(ErrorCode.VALIDATION_FAILED, "A claim must have at least one line to submit.");
+        }
+        if (claim.getTotalChargeAmount().signum() <= 0) {
+            throw new ApiException(ErrorCode.VALIDATION_FAILED,
+                    "A claim's total charge must be greater than zero to submit.");
+        }
     }
 
     /** One claim (header + lines) in the caller's tenant, gated by its patient (§21 layer 6), or a secure 404. */

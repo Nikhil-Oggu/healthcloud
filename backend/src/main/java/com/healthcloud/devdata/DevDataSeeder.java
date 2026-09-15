@@ -11,6 +11,9 @@ import com.healthcloud.claim.Claim;
 import com.healthcloud.claim.ClaimLine;
 import com.healthcloud.claim.ClaimLineRepository;
 import com.healthcloud.claim.ClaimRepository;
+import com.healthcloud.claim.ClaimStatus;
+import com.healthcloud.claim.ClaimStatusHistory;
+import com.healthcloud.claim.ClaimStatusHistoryRepository;
 import com.healthcloud.clinical.ClinicalSummary;
 import com.healthcloud.clinical.ClinicalSummaryRepository;
 import com.healthcloud.clinical.ClinicalSummaryType;
@@ -72,6 +75,7 @@ public class DevDataSeeder implements ApplicationRunner {
     private final ClinicalSummaryRepository clinicalSummaryRepository;
     private final ClaimRepository claimRepository;
     private final ClaimLineRepository claimLineRepository;
+    private final ClaimStatusHistoryRepository claimStatusHistoryRepository;
 
     public DevDataSeeder(OrganizationRepository organizationRepository,
                          AppUserRepository appUserRepository,
@@ -86,7 +90,8 @@ public class DevDataSeeder implements ApplicationRunner {
                          MedicalCodeRepository medicalCodeRepository,
                          ClinicalSummaryRepository clinicalSummaryRepository,
                          ClaimRepository claimRepository,
-                         ClaimLineRepository claimLineRepository) {
+                         ClaimLineRepository claimLineRepository,
+                         ClaimStatusHistoryRepository claimStatusHistoryRepository) {
         this.organizationRepository = organizationRepository;
         this.appUserRepository = appUserRepository;
         this.roleRepository = roleRepository;
@@ -101,6 +106,7 @@ public class DevDataSeeder implements ApplicationRunner {
         this.clinicalSummaryRepository = clinicalSummaryRepository;
         this.claimRepository = claimRepository;
         this.claimLineRepository = claimLineRepository;
+        this.claimStatusHistoryRepository = claimStatusHistoryRepository;
     }
 
     @Override
@@ -214,6 +220,9 @@ public class DevDataSeeder implements ApplicationRunner {
                 org.getId(), claim.getId(), 1, CodeSystem.CPT, "99213", 1, officeVisit));
         claimLineRepository.save(new ClaimLine(
                 org.getId(), claim.getId(), 2, CodeSystem.CPT, "80053", 1, metabolicPanel));
+        // The creation history row (null → DRAFT), consistent with the claim state machine (§31.6).
+        claimStatusHistoryRepository.save(new ClaimStatusHistory(
+                org.getId(), claim.getId(), null, ClaimStatus.DRAFT, author.getId(), "Claim created", null));
     }
 
     /** A couple of synthetic clinical summaries for a patient, each pointing at a real ICD-10-CM diagnosis. */
