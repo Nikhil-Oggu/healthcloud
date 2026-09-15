@@ -7,6 +7,9 @@ import com.healthcloud.identity.OrganizationMembership;
 import com.healthcloud.identity.OrganizationMembershipRepository;
 import com.healthcloud.identity.Role;
 import com.healthcloud.identity.RoleRepository;
+import com.healthcloud.clinical.ClinicalSummary;
+import com.healthcloud.clinical.ClinicalSummaryRepository;
+import com.healthcloud.clinical.ClinicalSummaryType;
 import com.healthcloud.coding.CodeSystem;
 import com.healthcloud.coding.MedicalCode;
 import com.healthcloud.coding.MedicalCodeRepository;
@@ -61,6 +64,7 @@ public class DevDataSeeder implements ApplicationRunner {
     private final ProviderPatientAssignmentRepository providerPatientAssignmentRepository;
     private final CareCoordinatorAssignmentRepository careCoordinatorAssignmentRepository;
     private final MedicalCodeRepository medicalCodeRepository;
+    private final ClinicalSummaryRepository clinicalSummaryRepository;
 
     public DevDataSeeder(OrganizationRepository organizationRepository,
                          AppUserRepository appUserRepository,
@@ -72,7 +76,8 @@ public class DevDataSeeder implements ApplicationRunner {
                          PatientRepository patientRepository,
                          ProviderPatientAssignmentRepository providerPatientAssignmentRepository,
                          CareCoordinatorAssignmentRepository careCoordinatorAssignmentRepository,
-                         MedicalCodeRepository medicalCodeRepository) {
+                         MedicalCodeRepository medicalCodeRepository,
+                         ClinicalSummaryRepository clinicalSummaryRepository) {
         this.organizationRepository = organizationRepository;
         this.appUserRepository = appUserRepository;
         this.roleRepository = roleRepository;
@@ -84,6 +89,7 @@ public class DevDataSeeder implements ApplicationRunner {
         this.providerPatientAssignmentRepository = providerPatientAssignmentRepository;
         this.careCoordinatorAssignmentRepository = careCoordinatorAssignmentRepository;
         this.medicalCodeRepository = medicalCodeRepository;
+        this.clinicalSummaryRepository = clinicalSummaryRepository;
     }
 
     @Override
@@ -94,9 +100,10 @@ public class DevDataSeeder implements ApplicationRunner {
             return;
         }
         log.info("Seeding synthetic demo data ({} and {})...", NORTHCARE, GREEN_VALLEY);
+        // Global reference data first: clinical summaries FK their diagnosis to the medical code catalog.
+        seedMedicalCodes();
         seedOrganization(NORTHCARE, "NorthCare Main Clinic", "northcare.example.org", "NC");
         seedOrganization(GREEN_VALLEY, "Green Valley Family Center", "greenvalley.example.org", "GV");
-        seedMedicalCodes();
         log.info("Demo data seeded.");
     }
 
@@ -172,6 +179,28 @@ public class DevDataSeeder implements ApplicationRunner {
         // with the provider assignments above).
         assignCoordinator(org, patients.get(0), coordinator, admin);
         assignCoordinator(org, patients.get(2), coordinator, admin);
+
+        // A little clinical context (Phase 4) for the two patients the provider is assigned to, so a demo read
+        // returns something. The narrative is consent-controlled (§23) — with no consent directive seeded, a
+        // read masks it by default; recording a CLINICAL_CONTEXT grant on the patient makes it visible.
+        seedClinicalSummaries(org, patients.get(0), provider);
+        seedClinicalSummaries(org, patients.get(1), provider);
+    }
+
+    /** A couple of synthetic clinical summaries for a patient, each pointing at a real ICD-10-CM diagnosis. */
+    private void seedClinicalSummaries(Organization org, Patient patient, AppUser author) {
+        clinicalSummaryRepository.save(new ClinicalSummary(
+                org.getId(), patient.getId(), ClinicalSummaryType.ENCOUNTER,
+                LocalDate.now().minusMonths(2), "Routine follow-up visit",
+                CodeSystem.ICD10CM, "E11.9",
+                "Established patient seen for diabetes management; labs reviewed, medication continued.",
+                author.getId()));
+        clinicalSummaryRepository.save(new ClinicalSummary(
+                org.getId(), patient.getId(), ClinicalSummaryType.DIAGNOSIS,
+                LocalDate.now().minusWeeks(3), "Elevated blood pressure",
+                CodeSystem.ICD10CM, "I10",
+                "Blood pressure elevated on repeat readings; lifestyle counseling provided.",
+                author.getId()));
     }
 
     /** A few clearly-synthetic patient profiles per tenant (Phase 2). MRNs are unique within the org. */

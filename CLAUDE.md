@@ -148,6 +148,22 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   QUARANTINED/PENDING document is a 409 `DOCUMENT_NOT_AVAILABLE` (not a secure 404 — the caller already sees it in
   the listing with its status). Scanning is synchronous now; the async event-driven scanner (PENDING → worker
   flips it) is Phase 8),
+  `clinical` (Phase 4 — clinical summaries: `GET/POST /api/v1/patients/{patientId}/clinical-summaries`,
+  `GET .../clinical-summaries/{id}`. A short clinical note about a patient encounter, pointing at an ICD-10-CM
+  diagnosis from the global `medical_code` catalog. **Tenant-owned + patient-scoped**, so it reuses the whole
+  Phase-3 stack rather than adding new machinery: reads/writes route through the shared `PatientAccessGuard`
+  (unreachable patient → secure 404), the org is taken from the loaded patient (never the client), and the
+  child row FK-with-orgs back to `patient(id, organization_id)` (§32.10). The diagnosis also **FKs the global
+  catalog** `(code_system, code)` and is service-validated as an active ICD-10-CM code (unknown/non-diagnosis
+  code → 400 `VALIDATION_FAILED`, the canonical spelling is stored). **Consent field masking (§22.5/§23):** the
+  free-text `narrative` is the one consent-controlled field (`CLINICAL_CONTEXT`, read purpose fixed to
+  `CARE_COORDINATION`), masked deny-by-default via `ConsentPolicyService.decideForActor` — `ClinicalSummaryFieldPolicy`
+  is its `PatientFieldPolicy`-shaped map; the DTO blanks it to `null` + lists it in `maskedFields`. The
+  structured diagnosis **code stays visible** so a caller sees the coded, claim-relevant diagnosis without the
+  unrestricted narrative — the first half of the Phase-4 §60 proof. Writes require PROVIDER (must be actively
+  assigned)/CARE_COORDINATOR/ORG_ADMIN; write responses are unmasked. Backend-only so far — a UI arrives with the
+  clinical/claims frontend slice. The broader "a CLAIMS_REVIEWER sees claims data *regardless* of consent"
+  business-need rule is still the deferred permission-matrix work),
   `coding` (Phase 4 — the medical code catalog: `GET /api/v1/medical-codes?system=&q=` search +
   `GET /api/v1/medical-codes/{system}/{code}` single lookup. ICD-10-CM diagnoses + HCPCS/CPT procedures — the
   shared vocabulary clinical summaries and claim lines reference. **DELIBERATELY GLOBAL reference data, NOT
@@ -157,7 +173,9 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   Search is active-only, matches a code prefix OR a description substring, and is capped at 50. An unknown
   `system` → 400 via the existing type-mismatch handler. `CodeSystem` carries a display `label` + `category`
   (Diagnosis/Procedure). Codes are public reference vocabularies, not PHI — seeding real-format values is fine),
-  `devdata` (DevDataSeeder, local-only — also seeds the global `medical_code` catalog once).
+  `devdata` (DevDataSeeder, local-only — also seeds the global `medical_code` catalog once, then a couple of
+  synthetic `clinical_summary` rows per assigned patient; reference codes are seeded before the orgs so the
+  clinical-summary→catalog FK is satisfied).
 - **Tenant-owned entity pattern (Phase 2+):** hold `organizationId` as the tenant key; repositories expose
   only org-scoped finders (`findByIdAndOrganizationId`, `findByOrganizationId…`) — no bare `findById` in
   business code; services derive the org from `UserContextAccessor.requireOrganizationId()`. `patient` is

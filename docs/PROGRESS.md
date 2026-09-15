@@ -6,7 +6,10 @@
 ## Current position
 - **Phase:** 0 ✅ · Environment ✅ · Phase 1 COMPLETE ✅ · Phase 2 COMPLETE ✅ (slices 1–8) ·
   **Phase 4 IN PROGRESS 🚧 (slice 1 ✅ medical code catalog — the global ICD-10/HCPCS/CPT vocabulary that
-  clinical summaries & claim lines will reference; read-only, authenticated, not tenant-scoped)** ·
+  clinical summaries & claim lines reference; read-only, authenticated, not tenant-scoped ·
+  slice 2 ✅ clinical summaries — patient-scoped clinical notes pointing at an ICD-10-CM diagnosis; reuses the
+  `PatientAccessGuard` gate + consent field masking on the free-text narrative, coded diagnosis stays visible
+  → the first half of the §60 proof)** ·
   **Phase 3 COMPLETE ✅ (slice 1 ✅ consent lifecycle · 2 ✅ decision engine §22.5 · 3 ✅ field masking §23 ·
   4 ✅ provider↔patient record §14.3 · 5 ✅ object/relationship gate on patient reads §21 layer 6 ·
   6 ✅ gate applied to the patient-nested endpoints — single `PatientAccessGuard` choke point ·
@@ -28,10 +31,11 @@
   16 ✅ documents UI — a Documents card on the patient detail page: upload, list with scan-status chips, and
   download of CLEAN files; the §19 loop is now visible end-to-end in the browser)**
 - **Repo:** https://github.com/Nikhil-Oggu/healthcloud (private, branch `main`)
-- **Next up (Phase 4):** with the code catalog in place, the natural next slices are **clinical summaries**
-  (encounter/diagnosis referencing an ICD-10 code, patient-scoped → reuses `PatientAccessGuard` + field masking)
-  and then the **claim header + claim lines** (a claim line references a procedure code), plan/eligibility
-  foundations, and the submission/validation workflow. **Phase 4 proof (§60):** a claims reviewer sees
+- **Next up (Phase 4):** clinical summaries are in (slice 2). The natural next slices are the **claim header +
+  claim lines** (a claim line references a procedure code from the catalog; tenant-owned + patient-scoped, same
+  pattern), then plan/eligibility foundations, and the submission/validation workflow. A **medical-codes UI**
+  (a code picker) arrives with the first frontend slice that consumes codes — likely the claim-line or a
+  clinical-summary create form. **Phase 4 proof (§60):** a claims reviewer sees
   claim-relevant data *without* unrestricted medical context — so the CLAIMS_REVIEWER business-need scoping
   deferred through Phase 3 gets designed here. A **medical-codes UI** (a code picker) arrives when a slice first
   consumes codes. Plan each slice before building. (Older deferred items still open — Phase 3 was
@@ -51,6 +55,51 @@
   then `curl -b j.txt localhost:8080/api/v1/me`. Reset DB with `./scripts/db-reset.sh`.
 
 ## Log (newest first)
+
+### 2026-09-15 — Phase 4, slice 2 ✅ (clinical summaries — patient clinical context, consent-masked)
+- **Why:** with the code vocabulary in place (slice 1), the next Phase-4 building block is a clinical summary —
+  a short clinical note about a patient encounter that records a *diagnosis code*. It is the first Phase-4
+  resource that is **about a patient**, so it deliberately reuses the whole Phase-3 stack (tenant scoping, the
+  `PatientAccessGuard` object/relationship gate, consent field masking) rather than adding new machinery. This
+  is also where the **Phase-4 §60 proof begins**: the coded, claim-relevant diagnosis stays visible while the
+  free-text clinical narrative is consent-controlled. Backend-only.
+- **Migration `V15__clinical_summary.sql`:** `clinical_summary` — tenant key `organization_id`, `patient_id`,
+  `summary_type` (ENCOUNTER/DIAGNOSIS/TREATMENT/LAB_RESULT, CHECK-constrained), `encounter_date`, `title`,
+  `diagnosis_code_system`+`diagnosis_code`, `narrative` (consent-controlled), author, timestamps, `lock_version`
+  (`@Version`). Two FKs enforce integrity structurally: a **composite FK `(patient_id, organization_id)` →
+  patient** (a summary can't attach to another tenant's patient, §32.10) and a **FK `(diagnosis_code_system,
+  diagnosis_code)` → the global `medical_code`** catalog (the diagnosis must be a real code). Index on
+  `(organization_id, patient_id)` for the list read.
+- **New `com.healthcloud.clinical` package:** `ClinicalSummary` entity, `ClinicalSummaryType` enum,
+  `ClinicalSummaryRepository` (org+patient-scoped finders only — newest-encounter-first listing, no bare
+  `findById`), `ClinicalSummaryDto` (field-safe: masks `narrative`), `ClinicalSummaryFieldPolicy`
+  (`narrative` → `CLINICAL_CONTEXT`/`SENSITIVE_HEALTH_DATA` — the `PatientFieldPolicy`-shaped map),
+  `ClinicalSummaryCreateRequest` (`@Valid`), `ClinicalSummaryService`, `ClinicalSummaryController`.
+- **Endpoints (nested under the patient):** `GET/POST /api/v1/patients/{patientId}/clinical-summaries` and
+  `GET .../{summaryId}`. Every op routes through `PatientAccessGuard.requireAccessibleInTenant` first (org taken
+  from the loaded patient, never the client) → unreachable patient / cross-tenant is a **secure 404**. Writes
+  require PROVIDER (must be actively assigned)/CARE_COORDINATOR/ORG_ADMIN (403 otherwise); the diagnosis is
+  validated as an **active ICD-10-CM** code (unknown/non-diagnosis → **400 VALIDATION_FAILED**, and the catalog's
+  canonical spelling is stored). **Consent masking (§22.5/§23):** the read fixes purpose = CARE_COORDINATION and
+  masks `narrative` deny-by-default via `ConsentPolicyService.decideForActor`; the coded diagnosis stays visible.
+  Write responses are unmasked.
+- **Seeder:** reordered `run()` to seed the global codes **before** the orgs (the new catalog FK needs them),
+  then seeds a couple of synthetic clinical summaries per assigned patient (E11.9, I10). With no consent
+  directive seeded, a demo read masks the narrative by default; recording a `CLINICAL_CONTEXT` grant reveals it.
+- **Verified — automated:** `./mvnw -B clean verify` → **173 pass** (+8: `ClinicalSummaryRepositoryTest` ×2 —
+  tenant/patient scoping + newest-first, and the catalog FK; `ClinicalSummaryApiIntegrationTest` ×6 — 401
+  unauth; unmasked write vs masked read (deny-by-default); a CLINICAL_CONTEXT grant reveals the narrative; a
+  reviewer sees the coded diagnosis but not the narrative on an ungranted patient; unknown/procedure code → 400;
+  cross-tenant → secure 404).
+- **Verified — live:** `db-reset` → fresh backend → the seeded summaries read newest-first with `narrative`
+  masked for the coordinator; an org-wide `CLINICAL_CONTEXT` grant flips the narrative visible; a bad code POST
+  returns a clean `400 VALIDATION_FAILED` ("Unknown ICD-10-CM diagnosis code: NOPE.0").
+- **Honest limitation:** the reviewer restriction here is **deny-by-default consent**, so an org-wide grant
+  reveals the narrative to everyone including a reviewer. The stronger "a CLAIMS_REVIEWER sees claims data
+  *regardless* of consent, but never unrestricted clinical context" business-need rule is the deferred
+  permission-matrix work — it lands with the claims slices.
+- **Files:** +`V15__clinical_summary.sql`, +`clinical/` package (8 files), +2 test classes; changed
+  `DevDataSeeder`, `CLAUDE.md`, `docs/PROGRESS.md`.
 
 ### 2026-09-14 — Phase 4, slice 1 ✅ (medical code catalog — the shared clinical/claims vocabulary)
 - **Why:** Phase 4 (clinical context & claims intake) opens here. Its building blocks have a dependency order —
