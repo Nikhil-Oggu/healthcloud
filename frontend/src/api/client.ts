@@ -10,6 +10,7 @@ import type {
   CurrentUser,
   Patient,
   PatientCreateRequest,
+  PatientDocument,
   ProviderAssignment,
   RecordConsentRequest,
   RequestAssignment,
@@ -237,4 +238,40 @@ export const api = {
         body: JSON.stringify({ expectedVersion }),
       },
     ),
+
+  // --- Documents (§19) ----------------------------------------------------
+
+  listDocuments: (patientId: string) =>
+    request<PatientDocument[]>(`/api/v1/patients/${patientId}/documents`),
+
+  // Multipart upload: send FormData WITHOUT a Content-Type header so the browser sets the
+  // multipart boundary; the CSRF header is still injected by `request` (it's a POST).
+  uploadDocument: (patientId: string, file: File) => {
+    const form = new FormData()
+    form.append('file', file)
+    return request<PatientDocument>(`/api/v1/patients/${patientId}/documents`, {
+      method: 'POST',
+      body: form,
+    })
+  },
+
+  // Download the bytes as a Blob. Non-2xx (e.g. a quarantined 409) throws ApiClientError, so the
+  // caller shows the backend message instead of navigating to a JSON error page.
+  downloadDocument: (patientId: string, documentId: string) =>
+    downloadBlob(`/api/v1/patients/${patientId}/documents/${documentId}/content`),
+}
+
+/** GET a URL and return its response body as a Blob, throwing {@link ApiClientError} on a non-2xx. */
+async function downloadBlob(path: string): Promise<Blob> {
+  const response = await fetch(path, { credentials: 'same-origin' })
+  if (!response.ok) {
+    let body: ApiError | null = null
+    try {
+      body = (await response.json()) as ApiError
+    } catch {
+      // non-JSON error body; leave as null
+    }
+    throw new ApiClientError(response.status, body)
+  }
+  return response.blob()
 }

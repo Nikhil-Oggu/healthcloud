@@ -22,14 +22,16 @@
   14 ✅ secure documents part 1 — patient-scoped document metadata + a storage abstraction (local-FS stand-in for
   private S3) + gated upload/download; access inherits the `PatientAccessGuard` gate ·
   15 ✅ document malware scan + quarantine — a fake scanner (EICAR) flags uploads QUARANTINED and the download
-  gate withholds anything not CLEAN)**
+  gate withholds anything not CLEAN ·
+  16 ✅ documents UI — a Documents card on the patient detail page: upload, list with scan-status chips, and
+  download of CLEAN files; the §19 loop is now visible end-to-end in the browser)**
 - **Repo:** https://github.com/Nikhil-Oggu/healthcloud (private, branch `main`)
-- **Next up:** **Phase 3, slice 16 (pick one when planning):** **documents UI** — surface upload/list/download
-  (and the scan status / quarantined state) on the patient detail page, closing the §19 loop in the browser; or
-  extend field-masking to more resources. Then consent-lifecycle **audit** (§22.6 → Phase 7). **Strong moment for
-  `/security-review`** — the authorization stack is now broad (tenant + role + relationship on patients, requests
-  & documents + PATIENT-self + patient-self consent writes + masking + malware quarantine). Plan each slice before
-  building. (Deferred: CLAIMS_REVIEWER business-need scoping — premature until
+- **Next up:** **Phase 3 is essentially complete** — the remaining candidates are optional polish before the MVP
+  clinical/claims work (Phase 4): **extend field-masking** to more resources; **consent-lifecycle audit** (§22.6,
+  naturally lands with the Phase 7 audit chain); or a **decision "explain" view**. **Strong moment to run
+  `/security-review`** on the now-broad authorization stack (tenant + role + relationship on patients, requests &
+  documents + PATIENT-self + patient-self consent writes + field masking + malware quarantine) before moving to
+  Phase 4. Plan each slice before building. (Deferred: CLAIMS_REVIEWER business-need scoping — premature until
   claims exist, Phase 4; provider/coordinator assignment PENDING→ACTIVE/→EXPIRED time sweeps — scheduler,
   Phase 8; **asynchronous document scanning** — the scan is synchronous at upload now (deterministic); the
   event-driven worker that writes PENDING then flips to CLEAN/QUARANTINED is Phase 8; **admin/break-glass
@@ -45,6 +47,33 @@
   then `curl -b j.txt localhost:8080/api/v1/me`. Reset DB with `./scripts/db-reset.sh`.
 
 ## Log (newest first)
+
+### 2026-09-14 — Phase 3, slice 16 ✅ (documents UI — the §19 loop is now visible in the browser)
+- **Why:** slices 14–15 built secure documents entirely on the backend (store, gate, scan, quarantine); this
+  surfaces them so you can upload, see the scan verdict, download a clean file, and watch a malicious one get
+  quarantined. **Frontend-only — no backend change, no migration.**
+- **Plumbing:** `api/types.ts` gained `DocumentScanStatus` + `PatientDocument`; `api/client.ts` gained
+  `listDocuments`, `uploadDocument` (multipart `FormData` — no explicit `Content-Type` so the browser sets the
+  boundary; the CSRF header still injects on POST) and `downloadDocument` (a dedicated `fetch` returning the
+  `Blob`, throwing `ApiClientError` on a non-2xx so a quarantined 409 surfaces its message). New
+  `src/documents/useDocuments.ts` — `useDocuments` (list) + `useUploadDocument` (invalidates the list on success).
+- **UI:** a **Documents card** on `PatientDetailPage` (after Care team, before Consent) — a table of filename /
+  type / human-readable size / a **scan-status chip** (CLEAN green, PENDING amber, QUARANTINED red) / actions. A
+  **Download** button shows only for CLEAN documents (it fetches the blob and triggers a browser save via an
+  object URL); a QUARANTINED/PENDING row shows its status and no download. An **Upload** control (file picker +
+  button) is shown to `DOCUMENT_WRITE_ROLES` = PATIENT (own record) + CARE_COORDINATOR/ORG_ADMIN (role-aware UI;
+  the backend enforces). Errors (disallowed type → 400, too large, a racing 409) surface via `ApiClientError`.
+- **Verified — automated:** frontend `npm run typecheck` clean, `npm test` → **33 pass** (+4
+  `PatientDetailPage.test.tsx`: renders a CLEAN doc with Download; a QUARANTINED doc shows the status and no
+  Download; a coordinator uploads a file (asserts `uploadDocument` called); a PROVIDER sees the list but no upload
+  control). `npm run build` OK (pre-existing chunk-size advisory only). Backend untouched.
+- **Verified — live in browser** (patient@northcare on their own record Sam Sample): the Documents card listed
+  the seeded `eicar.txt` as **QUARANTINED** (shown "Quarantined", no download) and `clean.txt`/`original.txt` as
+  **CLEAN** with **Download**; the upload control was present (a patient may upload to their own record). Full
+  stack, end to end, visibly. (The multipart upload + CLEAN/QUARANTINED download paths themselves were proven by
+  the slice-14/15 integration tests + curl.)
+- **Next:** Phase 3 is essentially complete — optional polish (more field-masking; a decision "explain" view) or
+  move to Phase 4 (clinical context & claims intake). Strong moment for `/security-review` first.
 
 ### 2026-09-14 — Phase 3, slice 15 ✅ (document malware scan + quarantine — flagged files can't be downloaded)
 - **Why:** slice 14 stored documents but left `scan_status` defaulting to CLEAN. This adds the other half of §19:

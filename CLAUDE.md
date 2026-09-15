@@ -284,8 +284,14 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   — and a **Care team card** — assign/revoke providers and coordinators via `src/relationship/useAssignments.ts`
   (candidate picker + optional effective dates), staff-only (`CARE_TEAM_WRITE_ROLES` = coordinator/admin);
   a care-team change invalidates the assignment lists, the candidate lists, and the patient query, so a masked
-  field driven by a PROVIDER/CARE_TEAM directive can flip live) and `src/requests/` (list + create + detail with
-  status timeline, transition buttons, comments, assignment). Both follow the feature-folder + hooks + RHF/Zod pattern.
+  field driven by a PROVIDER/CARE_TEAM directive can flip live — and a **Documents card** (§19) — upload / list /
+  download via `src/documents/useDocuments.ts`: a table with a scan-status chip (CLEAN/PENDING/QUARANTINED), a
+  Download button only for CLEAN files (fetches the blob via `api.downloadDocument` → object-URL save; a
+  quarantined/pending file shows its status, no download), and an upload control shown to `DOCUMENT_WRITE_ROLES`
+  = PATIENT-own-record + coordinator/admin. Uploads go through `api.uploadDocument` as multipart `FormData` — no
+  explicit `Content-Type` header so the browser sets the boundary; the client's CSRF header still injects) and
+  `src/requests/` (list + create + detail with status timeline, transition buttons, comments, assignment). Both
+  follow the feature-folder + hooks + RHF/Zod pattern.
 - **Consent/field masking in the UI (Phase 3+):** the backend already withholds masked values, so the SPA only
   *displays* the state — render a "Restricted"/placeholder for a `null` consent-controlled field (named in
   `maskedFields`); never assume a field is present. This is display-only, not a security control.

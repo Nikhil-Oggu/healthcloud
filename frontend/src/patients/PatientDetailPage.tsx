@@ -22,7 +22,7 @@ import {
   TextField,
   Typography,
 } from '@mui/material'
-import { ApiClientError } from '../api/client'
+import { api, ApiClientError } from '../api/client'
 import { useCurrentUser } from '../auth/useAuth'
 import { LoadingScreen } from '../components/LoadingScreen'
 import { ErrorScreen } from '../components/ErrorScreen'
@@ -32,8 +32,11 @@ import type {
   AssignmentStatus,
   ConsentDirective,
   ConsentStatus,
+  DocumentScanStatus,
+  PatientDocument,
   RecordConsentRequest,
 } from '../api/types'
+import { useDocuments, useUploadDocument } from '../documents/useDocuments'
 import {
   useConsentDirectives,
   usePatient,
@@ -56,6 +59,8 @@ import {
 //  - care team: staff only (a patient never manages the care team).
 const CONSENT_WRITE_ROLES = ['PATIENT', 'CARE_COORDINATOR', 'ORG_ADMIN']
 const CARE_TEAM_WRITE_ROLES = ['CARE_COORDINATOR', 'ORG_ADMIN']
+//  - documents: staff OR a PATIENT for their OWN record may upload (same rule the backend enforces).
+const DOCUMENT_WRITE_ROLES = ['PATIENT', 'CARE_COORDINATOR', 'ORG_ADMIN']
 
 const PURPOSES = [
   'CARE_COORDINATION',
@@ -107,6 +112,7 @@ export function PatientDetailPage() {
   const roles = user?.roles ?? []
   const canManageConsent = roles.some((r) => CONSENT_WRITE_ROLES.includes(r))
   const canManageCareTeam = roles.some((r) => CARE_TEAM_WRITE_ROLES.includes(r))
+  const canUploadDocuments = roles.some((r) => DOCUMENT_WRITE_ROLES.includes(r))
 
   if (patient.isPending) {
     return <LoadingScreen />
@@ -148,6 +154,8 @@ export function PatientDetailPage() {
       </Card>
 
       <CareTeamCard patientId={id} canWrite={canManageCareTeam} />
+
+      <DocumentsCard patientId={id} canWrite={canUploadDocuments} />
 
       <Box>
         <Typography variant="h6" gutterBottom>
@@ -418,6 +426,161 @@ function AssignmentGroup({
         )}
       </CardContent>
     </Card>
+  )
+}
+
+const scanStatusColor = (s: DocumentScanStatus): 'success' | 'warning' | 'error' =>
+  s === 'CLEAN' ? 'success' : s === 'PENDING' ? 'warning' : 'error'
+
+/** Human-readable byte size (synthetic files are small, so B/KB/MB is enough). */
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) {
+    return `${bytes} B`
+  }
+  if (bytes < 1024 * 1024) {
+    return `${(bytes / 1024).toFixed(1)} KB`
+  }
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
+/**
+ * The patient's documents (§19). Any same-tenant user who can reach the patient may view the list and
+ * download a CLEAN file; only document write roles (staff, or a patient on their own record) see the upload
+ * control — role-aware UI, the backend enforces it. A QUARANTINED or still-PENDING document shows its status
+ * and offers no download (the backend would withhold it with a 409 anyway).
+ */
+function DocumentsCard({ patientId, canWrite }: { patientId: string; canWrite: boolean }) {
+  const documents = useDocuments(patientId)
+  const upload = useUploadDocument(patientId)
+  const [file, setFile] = useState<File | null>(null)
+  const [inputKey, setInputKey] = useState(0)
+  const [error, setError] = useState<string | null>(null)
+  const [downloadingId, setDownloadingId] = useState<string | null>(null)
+
+  async function onUpload() {
+    if (!file) {
+      return
+    }
+    setError(null)
+    try {
+      await upload.mutateAsync(file)
+      setFile(null)
+      setInputKey((k) => k + 1) // remount the file input to clear the chosen file
+    } catch (err) {
+      setError(err instanceof ApiClientError ? err.message : 'Could not upload the document.')
+    }
+  }
+
+  async function onDownload(doc: PatientDocument) {
+    setError(null)
+    setDownloadingId(doc.id)
+    try {
+      const blob = await api.downloadDocument(patientId, doc.id)
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = doc.fileName
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(url)
+    } catch (err) {
+      setError(err instanceof ApiClientError ? err.message : 'Could not download the document.')
+    } finally {
+      setDownloadingId(null)
+    }
+  }
+
+  const rows = documents.data ?? []
+
+  return (
+    <Box>
+      <Typography variant="h6" gutterBottom>
+        Documents
+      </Typography>
+
+      {error && (
+        <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>
+          {error}
+        </Alert>
+      )}
+
+      {canWrite && (
+        <Card variant="outlined" sx={{ mb: 2 }}>
+          <CardContent>
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ alignItems: 'center' }}>
+              <input
+                key={inputKey}
+                type="file"
+                aria-label="Choose a document"
+                onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+              />
+              <Button variant="contained" onClick={onUpload} disabled={!file || upload.isPending}>
+                {upload.isPending ? 'Uploading…' : 'Upload'}
+              </Button>
+            </Stack>
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
+              Allowed: PDF, PNG, JPEG, GIF, text, CSV. Uploads are malware-scanned before they can be downloaded.
+            </Typography>
+          </CardContent>
+        </Card>
+      )}
+
+      {documents.isError ? (
+        <ErrorScreen error={documents.error} />
+      ) : (
+        <TableContainer component={Paper} variant="outlined">
+          <Table aria-label="Documents">
+            <TableHead>
+              <TableRow>
+                <TableCell>File</TableCell>
+                <TableCell>Type</TableCell>
+                <TableCell>Size</TableCell>
+                <TableCell>Scan</TableCell>
+                <TableCell align="right">Actions</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {rows.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={5}>
+                    <Typography variant="body2" color="text.secondary">
+                      No documents yet.
+                    </Typography>
+                  </TableCell>
+                </TableRow>
+              ) : (
+                rows.map((doc) => (
+                  <TableRow key={doc.id}>
+                    <TableCell>{doc.fileName}</TableCell>
+                    <TableCell>{doc.contentType}</TableCell>
+                    <TableCell>{formatBytes(doc.sizeBytes)}</TableCell>
+                    <TableCell>
+                      <Chip label={doc.scanStatus} size="small" color={scanStatusColor(doc.scanStatus)} />
+                    </TableCell>
+                    <TableCell align="right">
+                      {doc.scanStatus === 'CLEAN' ? (
+                        <Button
+                          size="small"
+                          onClick={() => onDownload(doc)}
+                          disabled={downloadingId === doc.id}
+                        >
+                          {downloadingId === doc.id ? 'Downloading…' : 'Download'}
+                        </Button>
+                      ) : (
+                        <Typography variant="caption" color="text.secondary">
+                          {doc.scanStatus === 'QUARANTINED' ? 'Quarantined' : 'Scanning…'}
+                        </Typography>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </TableContainer>
+      )}
+    </Box>
   )
 }
 

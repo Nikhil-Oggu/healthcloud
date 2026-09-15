@@ -238,3 +238,20 @@ export interface AssignMemberRequest {
   effectiveFrom?: string
   effectiveTo?: string
 }
+
+// --- Documents (§19) ------------------------------------------------------
+
+/** The malware-scan lifecycle of a document. Only CLEAN documents can be downloaded. */
+export type DocumentScanStatus = 'PENDING' | 'CLEAN' | 'QUARANTINED'
+
+/** Metadata for a patient document (mirrors DocumentDto) — the bytes are fetched separately. */
+export interface PatientDocument {
+  id: string
+  patientId: string
+  fileName: string
+  contentType: string
+  sizeBytes: number
+  scanStatus: DocumentScanStatus
+  uploadedByUserId: string
+  uploadedAt: string
+}

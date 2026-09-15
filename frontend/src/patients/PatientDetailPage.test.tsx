@@ -12,6 +12,7 @@ import type {
   CoordinatorAssignment,
   CurrentUser,
   Patient,
+  PatientDocument,
   ProviderAssignment,
 } from '../api/types'
 
@@ -33,6 +34,9 @@ vi.mock('../api/client', async (importOriginal) => {
       revokeProviderAssignment: vi.fn(),
       assignCoordinator: vi.fn(),
       revokeCoordinatorAssignment: vi.fn(),
+      listDocuments: vi.fn(),
+      uploadDocument: vi.fn(),
+      downloadDocument: vi.fn(),
     },
   }
 })
@@ -47,6 +51,8 @@ const listCoordinatorCandidates = vi.mocked(api.listCoordinatorCandidates)
 const recordConsent = vi.mocked(api.recordConsent)
 const assignProvider = vi.mocked(api.assignProvider)
 const revokeProviderAssignment = vi.mocked(api.revokeProviderAssignment)
+const listDocuments = vi.mocked(api.listDocuments)
+const uploadDocument = vi.mocked(api.uploadDocument)
 const useCurrentUserMock = vi.mocked(useCurrentUser)
 
 const PROVIDER_ASSIGNMENT: ProviderAssignment = {
@@ -84,6 +90,24 @@ const PATIENT: Patient = {
   dateOfBirth: '1985-03-14',
   status: 'ACTIVE',
   version: 0,
+}
+
+const CLEAN_DOC: PatientDocument = {
+  id: 'doc1',
+  patientId: 'p1',
+  fileName: 'summary.txt',
+  contentType: 'text/plain',
+  sizeBytes: 42,
+  scanStatus: 'CLEAN',
+  uploadedByUserId: 'u1',
+  uploadedAt: '2026-02-02T00:00:00Z',
+}
+
+const QUARANTINED_DOC: PatientDocument = {
+  ...CLEAN_DOC,
+  id: 'doc2',
+  fileName: 'infected.txt',
+  scanStatus: 'QUARANTINED',
 }
 
 const DIRECTIVE: ConsentDirective = {
@@ -137,6 +161,7 @@ describe('PatientDetailPage', () => {
     listCoordinatorAssignments.mockResolvedValue([])
     listProviderCandidates.mockResolvedValue([])
     listCoordinatorCandidates.mockResolvedValue([])
+    listDocuments.mockResolvedValue([])
   })
 
   it('renders the patient summary and a consent directive row', async () => {
@@ -285,5 +310,63 @@ describe('PatientDetailPage', () => {
     expect(screen.queryByLabelText('Add provider')).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Assign' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Revoke' })).not.toBeInTheDocument()
+  })
+
+  it('renders a clean document with a download button', async () => {
+    mockUserWithRoles(['CARE_COORDINATOR'])
+    getPatient.mockResolvedValue(PATIENT)
+    listConsentDirectives.mockResolvedValue([])
+    listDocuments.mockResolvedValue([CLEAN_DOC])
+
+    renderPage(<PatientDetailPage />)
+
+    expect(await screen.findByText('summary.txt')).toBeInTheDocument()
+    expect(screen.getByText('CLEAN')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Download' })).toBeInTheDocument()
+  })
+
+  it('shows a quarantined document with no download', async () => {
+    mockUserWithRoles(['CARE_COORDINATOR'])
+    getPatient.mockResolvedValue(PATIENT)
+    listConsentDirectives.mockResolvedValue([])
+    listDocuments.mockResolvedValue([QUARANTINED_DOC])
+
+    renderPage(<PatientDetailPage />)
+
+    expect(await screen.findByText('infected.txt')).toBeInTheDocument()
+    expect(screen.getByText('QUARANTINED')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Download' })).not.toBeInTheDocument()
+    expect(screen.getByText('Quarantined')).toBeInTheDocument()
+  })
+
+  it('lets a coordinator upload a document', async () => {
+    mockUserWithRoles(['CARE_COORDINATOR'])
+    getPatient.mockResolvedValue(PATIENT)
+    listConsentDirectives.mockResolvedValue([])
+    listDocuments.mockResolvedValue([])
+    uploadDocument.mockResolvedValue(CLEAN_DOC)
+
+    renderPage(<PatientDetailPage />)
+    await screen.findByText('Sam Sample')
+
+    const file = new File(['hello'], 'summary.txt', { type: 'text/plain' })
+    await userEvent.upload(screen.getByLabelText('Choose a document'), file)
+    await userEvent.click(screen.getByRole('button', { name: 'Upload' }))
+
+    await waitFor(() => expect(uploadDocument).toHaveBeenCalledWith('p1', file))
+  })
+
+  it('hides the document upload control for non-write roles', async () => {
+    mockUserWithRoles(['PROVIDER'])
+    getPatient.mockResolvedValue(PATIENT)
+    listConsentDirectives.mockResolvedValue([])
+    listDocuments.mockResolvedValue([CLEAN_DOC])
+    listProviderAssignments.mockResolvedValue([PROVIDER_ASSIGNMENT])
+
+    renderPage(<PatientDetailPage />)
+
+    await screen.findByText('summary.txt') // the list is visible read-only
+    expect(screen.queryByLabelText('Choose a document')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Upload' })).not.toBeInTheDocument()
   })
 })
