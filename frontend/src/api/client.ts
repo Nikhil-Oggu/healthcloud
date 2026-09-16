@@ -10,6 +10,8 @@ import type {
   AddPlanExclusionRequest,
   AddFeeScheduleRequest,
   AddPriorAuthRequirementRequest,
+  AuditChainVerification,
+  AuditEvent,
   Claim,
   ClaimStatusChange,
   ClaimStatusHistory,
@@ -488,6 +490,11 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     }),
+
+  // --- Security audit trail (§Phase 7) ---
+  listAuditEvents: () => request<AuditEvent[]>('/api/v1/audit-events'),
+
+  verifyAuditChain: () => request<AuditChainVerification>('/api/v1/audit-events/verify'),
 
   // --- Coverage plans + exclusions (§Phase 4/5) ---
   listCoveragePlans: () => request<CoveragePlan[]>('/api/v1/coverage-plans'),

@@ -96,6 +96,11 @@ export function AppLayout() {
                 Reprocessing
               </Button>
             )}
+            {roles.some((r) => ['AUDITOR', 'ORG_ADMIN'].includes(r)) && (
+              <Button color="inherit" onClick={() => navigate('/audit')}>
+                Audit
+              </Button>
+            )}
             {roles.includes('ORG_ADMIN') && (
               <Button color="inherit" disabled>
                 Administration

@@ -799,3 +799,38 @@ export interface ReprocessingBatch {
 export interface CreateReprocessingBatchRequest {
   coveragePlanId: string
 }
+
+// --- Security audit trail (§Phase 7) ---
+
+/** The coded audit actions (mirrors the backend AuditAction enum). */
+export type AuditAction = 'CLAIM_ADJUDICATED' | 'CONSENT_REVOKED'
+
+/** The outcome of an audited action (mirrors AuditOutcome). */
+export type AuditOutcome = 'SUCCESS' | 'DENIED'
+
+/**
+ * One security audit event (mirrors AuditEventDto). PHI-free metadata plus the tamper-evidence fields — the
+ * chain position (sequenceNo) and fingerprints (prevHash/entryHash). Not consent-masked.
+ */
+export interface AuditEvent {
+  id: string
+  occurredAt: string
+  actorUserId: string | null
+  action: AuditAction
+  resourceType: string
+  resourceId: string | null
+  outcome: AuditOutcome
+  correlationId: string | null
+  detail: string
+  sequenceNo: number
+  prevHash: string
+  entryHash: string
+}
+
+/** The result of verifying the tenant's audit chain (mirrors AuditChainVerificationDto). */
+export interface AuditChainVerification {
+  valid: boolean
+  entriesChecked: number
+  brokenAtSequence: number | null
+  reason: string | null
+}

@@ -51,7 +51,10 @@
   hash chain** (`sequence_no` + `prev_hash` + `entry_hash`, appended under a `PESSIMISTIC_WRITE`-locked
   `audit_chain_head`), keyed by a per-org key derived from a master secret held in config (not the DB); a
   `GET /api/v1/audit-events/verify` recomputes the chain and detects any modified/deleted/reordered/inserted/truncated
-  row. Next: slice 3 = the auditor-facing UI. Then break-glass, access reviews, retention.
+  row. slice 3 ✅ — **audit-trail UI**: an auditor-facing **Audit** page (`/audit`, nav gated to AUDITOR/ORG_ADMIN)
+  — a recent-events table (with a visible truncated fingerprint per row + a client-side action filter) and a
+  **Verify integrity** button that surfaces the slice-2 verdict as a green "chain intact" / red "tampering detected
+  at sequence X" banner. Next: break-glass, access reviews, retention.
 - **Phase 6 COMPLETE ✅ (advanced claims, slices 1–21):** all seven roadmap areas done — prior auth, referrals,
   appeals, anomaly signals, manual review, reprocessing, provider network. slice 1 ✅ — **prior authorization**: a top-level,
   patient-gated `prior_authorization` aggregate (request a planned procedure be pre-approved under a coverage
@@ -261,6 +264,30 @@
   then `curl -b j.txt localhost:8080/api/v1/me`. Reset DB with `./scripts/db-reset.sh`.
 
 ## Log (newest first)
+
+### 2026-09-16 — Phase 7, slice 3 ✅ (audit-trail UI — log viewer + Verify integrity button, frontend)
+- **Why:** slices 1–2 built the backend audit trail + tamper-evidence. This slice puts it in front of a human so an
+  auditor/admin can browse the trail and verify its integrity with one click. Frontend-only — no backend change.
+- **New `src/audit/` feature folder** (the established pattern): `useAudit.ts` (`useAuditEvents` list query +
+  `useVerifyAuditChain` mutation over the verify GET), `statusColor.ts` (`auditOutcomeColor`/`auditActionColor`
+  chip colours), and **`AuditEventsPage.tsx`** (route `/audit`).
+- **The page:** a heading + a **Verify integrity** button that calls `GET /api/v1/audit-events/verify` and shows the
+  verdict as a banner — green *"Chain intact — N entries verified"* or red *"Tampering detected at sequence X — <reason>"*
+  (the tangible payoff of slices 1–2). A table of recent events (newest first): When · Seq · Action (chip) · Resource
+  (type + short id) · Outcome (chip) · Actor (short id, full in tooltip) · Detail · **Fingerprint** (truncated
+  `entryHash`, full in tooltip — so the hash chain is *visible*). A small client-side **Action** filter dropdown over
+  the loaded page.
+- **Wiring:** `api.listAuditEvents` + `api.verifyAuditChain` + `AuditEvent`/`AuditChainVerification`/`AuditAction`/
+  `AuditOutcome` types; the `/audit` route in `App.tsx`; an **Audit** nav button in `AppLayout` gated to
+  AUDITOR/ORG_ADMIN (surfacing the previously-invisible AUDITOR role in the UI).
+- **Honest limitations:** the Actor column shows the user id (no auditor-accessible user directory to resolve names
+  yet — a later enhancement); role-gating in the nav/route is convenience, the backend is the boundary; verification
+  is UI over the slice-2 endpoint (no crypto in the browser).
+- **Verify:** `npm run typecheck` clean, `npm test` green (135 → **139**; new `AuditEventsPage.test.tsx`, 4 cases —
+  lists events with action/detail/fingerprint, intact banner on a valid verdict, tampering banner on a broken
+  verdict, action filter narrows the rows), `npm run build` succeeds. Live browser check skipped (the in-app browser
+  can't reach localhost here); RTL exercises the components against the mocked API.
+- **Next:** Phase 7 — break-glass emergency access (or access reviews / retention).
 
 ### 2026-09-16 — Phase 7, slice 2 ✅ (tamper-evident audit chain — per-org HMAC hash chain + verify, backend)
 - **Why:** slice 1's audit trail was honest but unprotected — someone with DB access could edit or delete a row and
