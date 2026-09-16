@@ -78,7 +78,7 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   Checks: `npm run typecheck`, `npm test` (Vitest), `npm run build`. Node runs from `openjdk@25`'s
   sibling `node@24` — use `export PATH="/opt/homebrew/opt/node@24/bin:$PATH"` in non-interactive shells.
 
-## Current implementation (Phase 1–4 COMPLETE; Phase 5 COMPLETE — slices 1–12 done; MVP (Phase 0–5) feature-complete, engine AND UI. Phase 6 (advanced claims) IN PROGRESS — slices 1–6 done: prior authorization, wired into adjudication, + prior-auth UI (queue/detail/decisions + request form) + plan-prior-auth-requirement admin card, + referrals (backend: care-coordination aggregate + decision lifecycle) — see docs/PROGRESS.md for status)
+## Current implementation (Phase 1–4 COMPLETE; Phase 5 COMPLETE — slices 1–12 done; MVP (Phase 0–5) feature-complete, engine AND UI. Phase 6 (advanced claims) IN PROGRESS — slices 1–7 done: prior authorization, wired into adjudication, + prior-auth UI (queue/detail/decisions + request form) + plan-prior-auth-requirement admin card, + referrals (backend: care-coordination aggregate + decision lifecycle; + UI: queue/detail/decisions + request form) — see docs/PROGRESS.md for status)
 - **Backend packages** under `com.healthcloud`: `organization` (Organization, Facility, FacilityMembership),
   `identity` (AppUser, Role, OrganizationMembership, UserRole), `auth` (SecurityConfig, DevLoginController,
   CurrentUserController/Service, CsrfCookieFilter), `context` (UserContext + UserContextAccessor/Filter),
@@ -315,7 +315,8 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   as the prior-auth machine (exists → legal move → role → reason → optimistic `expectedVersion`), status change + a
   `referral_status_history` row in one tx (§31.6, null → REQUESTED on creation). Requesting validates the reason
   (unknown/non-diagnosis → 400). **Honest MVP limitation:** no named target-provider (`to_provider_id`), no
-  SCHEDULED/COMPLETED steps, no expiry. Backend-only so far — the referral UI is a later slice),
+  SCHEDULED/COMPLETED steps, no expiry. The referral UI (queue/detail/decisions + request form) shipped in
+  slice 7 (see `src/referral/` under Frontend below)),
   `devdata` (DevDataSeeder, local-only — also seeds the global `medical_code` catalog once, then a couple of
   synthetic `clinical_summary` rows per assigned patient, one sample DRAFT `claim` (header + two procedure
   lines + its null→DRAFT status-history row) for the first patient, and two `coverage_plan` rows per org (a PPO
@@ -520,6 +521,17 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   the new auth. Slice 5 added the **plan-prior-auth-requirement admin card** on the coverage-plan detail page (see
   the `src/coverage/` Prior-auth requirements card above), so an admin sets which procedures require prior auth in
   the browser.
+  Plus **`src/referral/`** (Phase 6 slice 7 — the referral UI, mirroring the prior-auth UI): a work queue
+  `referrals` (Ref # · patient · specialty · reason code · status) and a **detail** `referrals/:id` with the header
+  (specialty · reason code · decision reason when present), a status timeline, and **decision action buttons**
+  driven by a client mirror of `ReferralTransitions` in `src/referral/transitions.ts` — **Approve/Deny** for
+  **CARE_COORDINATOR/ORG_ADMIN** (not CLAIMS_REVIEWER — referral routing is coordination's call, reason prompt on
+  Deny) and **Cancel** for the requester roles (reason prompt), optimistic-locked via the loaded `version` through
+  `useChangeReferralStatus`. A **New request** form on the queue (`CreateReferralForm`, requester roles) — patient
+  select, a **specialty** text field, and the reusable `MedicalCodePicker` in **`category="Diagnosis"`** mode
+  (ICD-10-CM, the coded reason); RHF+Zod, on create navigates to the new referral. A **Referrals** nav button
+  (staff roles, no reviewer). The reusable `MedicalCodePicker` gained an optional `category?: 'Procedure' |
+  'Diagnosis'` prop (default Procedure, so claims/prior-auth callers are untouched).
 - **Consent/field masking in the UI (Phase 3+):** the backend already withholds masked values, so the SPA only
   *displays* the state — render a "Restricted"/placeholder for a `null` consent-controlled field (named in
   `maskedFields`); never assume a field is present. This is display-only, not a security control.

@@ -37,6 +37,12 @@ import type {
   PatientDocument,
   ProviderAssignment,
   RecordConsentRequest,
+  Referral,
+  ReferralStatus,
+  ReferralSummary,
+  ReferralStatusChange,
+  ReferralStatusHistory,
+  CreateReferralRequest,
   RequestAssignment,
   RequestComment,
   RequestStatusHistory,
@@ -351,6 +357,34 @@ export const api = {
 
   changePriorAuthStatus: (id: string, body: PriorAuthStatusChange) =>
     request<PriorAuthorization>(`/api/v1/prior-authorizations/${id}/status`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }),
+
+  // --- Referrals (§Phase 6) ---
+  listReferrals: (params?: { patientId?: string; status?: ReferralStatus }) => {
+    const q = new URLSearchParams()
+    if (params?.patientId) q.set('patientId', params.patientId)
+    if (params?.status) q.set('status', params.status)
+    const suffix = q.toString() ? `?${q.toString()}` : ''
+    return request<ReferralSummary[]>(`/api/v1/referrals${suffix}`)
+  },
+
+  createReferral: (body: CreateReferralRequest) =>
+    request<Referral>('/api/v1/referrals', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }),
+
+  getReferral: (id: string) => request<Referral>(`/api/v1/referrals/${id}`),
+
+  getReferralHistory: (id: string) =>
+    request<ReferralStatusHistory[]>(`/api/v1/referrals/${id}/history`),
+
+  changeReferralStatus: (id: string, body: ReferralStatusChange) =>
+    request<Referral>(`/api/v1/referrals/${id}/status`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),

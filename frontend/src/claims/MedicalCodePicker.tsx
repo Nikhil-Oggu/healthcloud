@@ -10,14 +10,24 @@ interface Props {
   label?: string
   error?: boolean
   helperText?: string
+  /** Which catalog category to show. Defaults to Procedure (claim lines / prior auth); Diagnosis for referrals. */
+  category?: 'Procedure' | 'Diagnosis'
 }
 
 /**
- * A procedure-code picker backed by the global catalog search (GET /api/v1/medical-codes). Searches as the user
- * types (debounced), filtered to PROCEDURE codes (CPT/HCPCS — a claim line bills a procedure). freeSolo, so the
- * field value is always the code string and a user may type a raw code; the backend still validates it.
+ * A medical-code picker backed by the global catalog search (GET /api/v1/medical-codes). Searches as the user
+ * types (debounced), filtered to one catalog category — PROCEDURE codes (CPT/HCPCS) by default, or DIAGNOSIS
+ * codes (ICD-10-CM) when `category="Diagnosis"` (e.g. a referral's coded reason). freeSolo, so the field value
+ * is always the code string and a user may type a raw code; the backend still validates it.
  */
-export function MedicalCodePicker({ value, onChange, label = 'Procedure code', error, helperText }: Props) {
+export function MedicalCodePicker({
+  value,
+  onChange,
+  label = 'Procedure code',
+  error,
+  helperText,
+  category = 'Procedure',
+}: Props) {
   const [input, setInput] = useState(value ?? '')
   const [debounced, setDebounced] = useState(input)
 
@@ -27,14 +37,14 @@ export function MedicalCodePicker({ value, onChange, label = 'Procedure code', e
   }, [input])
 
   const search = useQuery({
-    queryKey: ['medical-codes', 'procedure', debounced],
+    queryKey: ['medical-codes', category, debounced],
     queryFn: () => api.searchMedicalCodes({ q: debounced }),
     enabled: debounced.trim().length >= 2,
   })
 
   const options = useMemo(
-    () => (search.data ?? []).filter((c) => c.category === 'Procedure'),
-    [search.data],
+    () => (search.data ?? []).filter((c) => c.category === category),
+    [search.data, category],
   )
 
   return (

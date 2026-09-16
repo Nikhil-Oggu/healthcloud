@@ -76,6 +76,11 @@ export function AppLayout() {
                 Prior auth
               </Button>
             )}
+            {roles.some((r) => ['PROVIDER', 'CARE_COORDINATOR', 'ORG_ADMIN'].includes(r)) && (
+              <Button color="inherit" onClick={() => navigate('/referrals')}>
+                Referrals
+              </Button>
+            )}
             {roles.includes('ORG_ADMIN') && (
               <Button color="inherit" disabled>
                 Administration

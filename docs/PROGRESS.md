@@ -71,9 +71,15 @@
   ORG_ADMIN — deliberately a different decision role than prior auth's reviewer — or CANCELLED by the requester;
   reason to deny/cancel), one-tx status + history, `GET/POST /api/v1/referrals` + `.../{id}` + `.../{id}/status` +
   `.../{id}/history`, server-allocated `REF-XXXXXXXX`. A near-mirror of the prior-auth aggregate; not consent
-  field-masked (coded data only). Backend-only. **Next Phase-6 slices (not yet built, plan each first):** the
-  referral UI (queue/detail/decisions + request form), then provider network, anomaly signals, manual review,
-  appeals, reprocessing.
+  field-masked (coded data only). Backend-only.
+  slice 7 ✅ — **referral UI**: a new `src/referral/` feature folder mirroring `src/priorauth/` — a work queue
+  (`/referrals`) + detail with a status timeline and **Approve/Deny/Cancel** decision buttons (client mirror of
+  `ReferralTransitions`, optimistic-locked; Approve/Deny gated to CARE_COORDINATOR/ORG_ADMIN, Cancel to the
+  requester), a **New request** form (patient + specialty + a **diagnosis** `MedicalCodePicker`), a **Referrals**
+  nav button (staff, no reviewer), and `api`/`types` methods. The reusable `MedicalCodePicker` gained an optional
+  `category` prop (default Procedure; `Diagnosis` for the referral reason). Referrals are now complete end-to-end
+  in the browser. Frontend-only. **Next Phase-6 slices (not yet built, plan each first):** provider network,
+  anomaly signals, manual review, appeals, reprocessing.
 - **Tooling:** HealthCloud-specific **`code-reviewer`** + **`security-reviewer`** subagents now live in
   `.claude/agents/` (read-only; project-aware checklists — tenant isolation, `PatientAccessGuard`, consent/masking,
   one-tx history, financial accumulators). Invoke by name in a fresh session (agent files load at startup).
@@ -153,6 +159,34 @@
   then `curl -b j.txt localhost:8080/api/v1/me`. Reset DB with `./scripts/db-reset.sh`.
 
 ## Log (newest first)
+
+### 2026-09-16 — Phase 6, slice 7 ✅ (referral UI — queue + detail + decisions + request form)
+- **Why:** slice 6 shipped the referral backend; this puts it in the browser, mirroring the prior-auth frontend
+  (`src/priorauth/`) exactly. **Frontend-only** — the backend endpoints already exist and are tested.
+- **New feature folder `src/referral/`** (mirrors `src/priorauth/`): `statusColor.ts` (`referralStatusColor`),
+  `transitions.ts` (client mirror of `ReferralTransitions` for button-gating — Approve/Deny gated to
+  **CARE_COORDINATOR/ORG_ADMIN** (not CLAIMS_REVIEWER, matching the backend), Cancel to the requester;
+  reason required to deny/cancel), `useReferral.ts` (`useReferrals`/`useReferral`/`useReferralHistory`/
+  `useCreateReferral`/`useChangeReferralStatus`), `ReferralsPage.tsx` (work queue: Ref # · patient · specialty ·
+  reason · status, + the New-request form for requester roles), `ReferralDetailPage.tsx` (header + timeline +
+  optimistic-locked decision buttons with a reason prompt on Deny/Cancel), `CreateReferralForm.tsx` (RHF+Zod;
+  patient select + specialty text + a **diagnosis** `MedicalCodePicker`).
+- **Reusable picker generalized:** `MedicalCodePicker` gained an optional `category?: 'Procedure' | 'Diagnosis'`
+  prop (default `'Procedure'`, so all existing callers are untouched); the referral form passes `'Diagnosis'` so
+  the reason picker searches ICD-10-CM codes.
+- **API + wiring:** `api/types.ts` (+`ReferralStatus`/`ReferralSummary`/`Referral`/`ReferralStatusHistory`/
+  `ReferralStatusChange`/`CreateReferralRequest`), `api/client.ts` (+`listReferrals`/`getReferral`/
+  `getReferralHistory`/`changeReferralStatus`/`createReferral`), `App.tsx` (+2 routes), `AppLayout.tsx`
+  (+a **Referrals** nav button, gated to PROVIDER/CARE_COORDINATOR/ORG_ADMIN — no reviewer, matching the decision
+  model).
+- **Verified — automated:** `npm run typecheck` clean, `npm test` → **91 tests pass** (+14: `transitions.test`
+  ×4, `ReferralsPage.test` ×3, `ReferralDetailPage.test` ×5, `CreateReferralForm.test` ×2), `npm run build` green.
+- **Verified — live** (coordinator in the browser): the Referrals queue showed the seeded `REF-…` (Cardiology,
+  I10); the New-request form created a fresh referral (Fern Fixture, Dermatology, reason **J45.909** chosen from
+  the diagnosis-filtered picker) → navigated to its detail as REQUESTED; Approve → APPROVED live with the timeline
+  appending `REQUESTED → APPROVED`.
+- **Files:** +`frontend/src/referral/` (7 files incl. 4 tests); changed `api/types.ts`, `api/client.ts`,
+  `App.tsx`, `layout/AppLayout.tsx`, `claims/MedicalCodePicker.tsx`, `CLAUDE.md`, `docs/PROGRESS.md`.
 
 ### 2026-09-16 — Phase 6, slice 6 ✅ (referrals — a care-coordination advanced-claims aggregate, backend)
 - **Why:** prior authorization is complete end-to-end; referrals are the next Phase-6 area (PLAN.md Part B, Phase

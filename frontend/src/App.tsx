@@ -13,6 +13,8 @@ import { CoveragePlansPage } from './coverage/CoveragePlansPage'
 import { CoveragePlanDetailPage } from './coverage/CoveragePlanDetailPage'
 import { PriorAuthorizationsPage } from './priorauth/PriorAuthorizationsPage'
 import { PriorAuthorizationDetailPage } from './priorauth/PriorAuthorizationDetailPage'
+import { ReferralsPage } from './referral/ReferralsPage'
+import { ReferralDetailPage } from './referral/ReferralDetailPage'
 import { DeniedPage } from './pages/DeniedPage'
 import { NotFoundPage } from './pages/NotFoundPage'
 
@@ -37,6 +39,8 @@ const router = createBrowserRouter([
       { path: 'coverage-plans/:id', element: <CoveragePlanDetailPage /> },
       { path: 'prior-authorizations', element: <PriorAuthorizationsPage /> },
       { path: 'prior-authorizations/:id', element: <PriorAuthorizationDetailPage /> },
+      { path: 'referrals', element: <ReferralsPage /> },
+      { path: 'referrals/:id', element: <ReferralDetailPage /> },
       { path: 'denied', element: <DeniedPage /> },
     ],
   },

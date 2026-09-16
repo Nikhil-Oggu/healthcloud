@@ -544,3 +544,61 @@ export interface CreatePriorAuthorizationRequest {
   requestedServiceFrom: string // ISO date
   requestedServiceTo?: string // ISO date, optional
 }
+
+// --- Referrals (§Phase 6) ------------------------------------------------
+
+/** The referral lifecycle states (mirrors ReferralStatus). */
+export type ReferralStatus = 'REQUESTED' | 'APPROVED' | 'DENIED' | 'CANCELLED'
+
+/** A referral header row for the work queue (mirrors ReferralSummaryDto). */
+export interface ReferralSummary {
+  id: string
+  patientId: string
+  referralNumber: string
+  specialty: string
+  reasonCodeSystem: CodeSystem
+  reasonCode: string
+  status: ReferralStatus
+  createdAt: string
+}
+
+/** A referral (mirrors ReferralDto). Coded, coordination-relevant data — not consent-masked. */
+export interface Referral {
+  id: string
+  patientId: string
+  referralNumber: string
+  specialty: string
+  reasonCodeSystem: CodeSystem
+  reasonCode: string
+  status: ReferralStatus
+  decisionReason: string | null
+  decidedBy: string | null
+  decidedAt: string | null
+  requestedBy: string
+  createdAt: string
+  version: number
+}
+
+/** One referral status-history entry (mirrors ReferralStatusHistoryDto). */
+export interface ReferralStatusHistory {
+  id: string
+  fromStatus: ReferralStatus | null
+  toStatus: ReferralStatus
+  actorUserId: string
+  reason: string | null
+  createdAt: string
+}
+
+/** Payload to apply a controlled referral transition (approve/deny/cancel), optimistic-locked. */
+export interface ReferralStatusChange {
+  targetStatus: ReferralStatus
+  expectedVersion: number
+  reason?: string
+}
+
+/** Payload to request a referral (mirrors CreateReferralRequest). */
+export interface CreateReferralRequest {
+  patientId: string
+  specialty: string
+  reasonCode: string
+}
