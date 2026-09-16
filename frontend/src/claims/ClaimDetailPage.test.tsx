@@ -143,6 +143,19 @@ describe('ClaimDetailPage', () => {
     expect(await screen.findByText(/rendered by Morgan Provider/)).toBeInTheDocument()
   })
 
+  it('does not call the gated provider directory for a reviewer, and falls back to a placeholder name', async () => {
+    // A CLAIMS_REVIEWER cannot read GET /api/v1/providers (claim-create roles only), so the directory query must
+    // not fire — the header shows the placeholder rather than a resolved name.
+    mockUser(['CLAIMS_REVIEWER'])
+    getClaim.mockResolvedValue({ ...DRAFT, renderingProviderId: 'prov-morgan' })
+
+    renderDetail(<ClaimDetailPage />)
+    await screen.findByText('Claim CLM-ABC12345')
+
+    expect(await screen.findByText(/rendered by a provider/)).toBeInTheDocument()
+    expect(listProviders).not.toHaveBeenCalled()
+  })
+
   it('a wrong-role user sees no lifecycle actions on a DRAFT', async () => {
     mockUser(['CLAIMS_REVIEWER'])
     getClaim.mockResolvedValue(DRAFT)

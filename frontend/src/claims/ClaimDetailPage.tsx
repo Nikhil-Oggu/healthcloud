@@ -36,7 +36,7 @@ import {
   useClaimHistory,
   useScanAnomalies,
 } from './useClaims'
-import { useProviders } from './useProviders'
+import { DIRECTORY_ROLES, useProviders } from './useProviders'
 
 export function ClaimDetailPage() {
   const { id = '' } = useParams()
@@ -47,7 +47,10 @@ export function ClaimDetailPage() {
   const adjudicate = useAdjudicate(id)
   const anomalies = useAnomalies(id)
   const scan = useScanAnomalies(id)
-  const providers = useProviders()
+  // The provider directory is gated to the claim-create roles; only fetch it for a caller who may read it, so a
+  // PATIENT or CLAIMS_REVIEWER viewing a claim doesn't fire a doomed (403) request just to resolve a name.
+  const canReadDirectory = DIRECTORY_ROLES.some((r) => (user?.roles ?? []).includes(r))
+  const providers = useProviders(canReadDirectory)
 
   const [pending, setPending] = useState<ClaimStatus | null>(null)
   const [reason, setReason] = useState('')
