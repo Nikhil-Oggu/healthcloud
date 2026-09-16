@@ -52,6 +52,10 @@ public class Claim {
     @Column(name = "total_charge_amount", nullable = false, precision = 12, scale = 2)
     private BigDecimal totalChargeAmount;
 
+    /** The PROVIDER who rendered the service (nullable; §Phase 6 provider network). Set at creation. */
+    @Column(name = "rendering_provider_id", columnDefinition = "uuid", updatable = false)
+    private UUID renderingProviderId;
+
     @Column(name = "created_by", nullable = false, columnDefinition = "uuid", updatable = false)
     private UUID createdBy;
 
@@ -68,13 +72,20 @@ public class Claim {
         // for JPA
     }
 
+    /** Create a claim without a rendering provider (the common case; the field is optional, §Phase 6). */
     public Claim(UUID organizationId, UUID patientId, String claimNumber, LocalDate serviceDate,
                  BigDecimal totalChargeAmount, UUID createdBy) {
+        this(organizationId, patientId, claimNumber, serviceDate, totalChargeAmount, null, createdBy);
+    }
+
+    public Claim(UUID organizationId, UUID patientId, String claimNumber, LocalDate serviceDate,
+                 BigDecimal totalChargeAmount, UUID renderingProviderId, UUID createdBy) {
         this.organizationId = organizationId;
         this.patientId = patientId;
         this.claimNumber = claimNumber;
         this.serviceDate = serviceDate;
         this.totalChargeAmount = totalChargeAmount;
+        this.renderingProviderId = renderingProviderId;
         this.createdBy = createdBy;
     }
 
@@ -120,6 +131,10 @@ public class Claim {
 
     public BigDecimal getTotalChargeAmount() {
         return totalChargeAmount;
+    }
+
+    public UUID getRenderingProviderId() {
+        return renderingProviderId;
     }
 
     public UUID getCreatedBy() {

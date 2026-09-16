@@ -163,7 +163,14 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   `claim_number` is unique per tenant (server-allocated `CLM-XXXXXXXX`). **§60 proof:** a claim carries only
   coded, claim-relevant data (procedure codes + amounts + dates) — **no clinical narrative** — so a reviewer
   works claims without unrestricted medical context; the narrative lives (consent-masked) in `clinical_summary`.
-  Not consent field-masked. **State machine (§Phase 4 submission/validation):** `PATCH /api/v1/claims/{id}/status`
+  Not consent field-masked. **Rendering provider (Phase 6 slice 18, provider network):** a claim carries an
+  optional header-level `renderingProviderId` (the PROVIDER who rendered the service) — nullable, set at creation,
+  and when supplied validated as an **active same-tenant PROVIDER** (else 400) via the identity repos, exactly as
+  the assignment/network tables do (this is the 3rd copy of that check — a future cleanup can extract a shared
+  provider validator). Exposed as a raw id on `ClaimDto`/`ClaimSummaryDto` (like `createdBy`; the UI resolves the
+  name). The adjudication engine reads it against the covering plan's network to mark OUT_OF_NETWORK lines (a
+  later slice); one rendering provider per claim (per-line is a later refinement). **State machine
+  (§Phase 4 submission/validation):** `PATCH /api/v1/claims/{id}/status`
   + `GET /api/v1/claims/{id}/history`, driven by the pure `ClaimTransitions` policy class (mirrors
   `RequestTransitions`): DRAFT→SUBMITTED→{ACCEPTED,REJECTED}, plus CANCELLED; the submitter roles
   (PROVIDER-assigned/CARE_COORDINATOR/ORG_ADMIN) submit + cancel, and the **CLAIMS_REVIEWER** (+ORG_ADMIN)

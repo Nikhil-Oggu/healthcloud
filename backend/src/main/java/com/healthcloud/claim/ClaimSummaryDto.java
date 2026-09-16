@@ -16,6 +16,7 @@ public record ClaimSummaryDto(
         ClaimStatus status,
         LocalDate serviceDate,
         BigDecimal totalChargeAmount,
+        UUID renderingProviderId,
         OffsetDateTime createdAt) {
 
     public static ClaimSummaryDto from(Claim claim) {
@@ -26,6 +27,7 @@ public record ClaimSummaryDto(
                 claim.getStatus(),
                 claim.getServiceDate(),
                 claim.getTotalChargeAmount(),
+                claim.getRenderingProviderId(),
                 claim.getCreatedAt());
     }
 }

@@ -11,6 +11,11 @@ import com.healthcloud.error.CorrelationId;
 import com.healthcloud.error.ErrorCode;
 import com.healthcloud.error.InvalidStateTransitionException;
 import com.healthcloud.error.NotFoundException;
+import com.healthcloud.identity.MembershipStatus;
+import com.healthcloud.identity.OrganizationMembership;
+import com.healthcloud.identity.OrganizationMembershipRepository;
+import com.healthcloud.identity.UserRole;
+import com.healthcloud.identity.UserRoleRepository;
 import com.healthcloud.patient.Patient;
 import com.healthcloud.patient.PatientAccessGuard;
 import java.math.BigDecimal;
@@ -44,22 +49,30 @@ public class ClaimService {
     /** The catalog systems that classify procedures (a claim line bills a procedure, not a diagnosis). */
     private static final List<CodeSystem> PROCEDURE_SYSTEMS = List.of(CodeSystem.CPT, CodeSystem.HCPCS);
 
+    /** The role a rendering provider must hold (§Phase 6 provider network). */
+    private static final String PROVIDER_ROLE = "PROVIDER";
+
     private static final int MAX_NUMBER_ATTEMPTS = 5;
 
     private final ClaimRepository claims;
     private final ClaimLineRepository claimLines;
     private final ClaimStatusHistoryRepository statusHistory;
     private final MedicalCodeRepository medicalCodes;
+    private final OrganizationMembershipRepository memberships;
+    private final UserRoleRepository userRoles;
     private final PatientAccessGuard accessGuard;
     private final UserContextAccessor userContext;
 
     public ClaimService(ClaimRepository claims, ClaimLineRepository claimLines,
                         ClaimStatusHistoryRepository statusHistory, MedicalCodeRepository medicalCodes,
+                        OrganizationMembershipRepository memberships, UserRoleRepository userRoles,
                         PatientAccessGuard accessGuard, UserContextAccessor userContext) {
         this.claims = claims;
         this.claimLines = claimLines;
         this.statusHistory = statusHistory;
         this.medicalCodes = medicalCodes;
+        this.memberships = memberships;
+        this.userRoles = userRoles;
         this.accessGuard = accessGuard;
         this.userContext = userContext;
     }
@@ -77,6 +90,11 @@ public class ClaimService {
         Patient patient = accessGuard.requireAccessibleInTenant(request.patientId());
         UUID organizationId = patient.getOrganizationId();
 
+        // A rendering provider, when supplied, must be an active same-tenant PROVIDER (§Phase 6) — else 400.
+        if (request.renderingProviderId() != null) {
+            requireSameTenantProvider(organizationId, request.renderingProviderId());
+        }
+
         // Resolve + validate every procedure code first, so a bad line fails the whole create cleanly (400).
         List<MedicalCode> resolved = new ArrayList<>();
         BigDecimal total = BigDecimal.ZERO;
@@ -91,6 +109,7 @@ public class ClaimService {
                 allocateClaimNumber(organizationId),
                 request.serviceDate(),
                 total,
+                request.renderingProviderId(),
                 caller.userId()));
 
         List<ClaimLine> lines = new ArrayList<>();
@@ -247,6 +266,26 @@ public class ClaimService {
             }
         }
         throw new ApiException(ErrorCode.VALIDATION_FAILED, "Unknown procedure code (CPT/HCPCS): " + code);
+    }
+
+    /**
+     * A rendering provider must be an active same-tenant PROVIDER, else 400 (no existence leak of users).
+     * (Same pattern as {@code ProviderPatientAssignmentService} / {@code PlanNetworkProviderService}; a future
+     * cleanup can extract this into a shared provider validator.)
+     */
+    private void requireSameTenantProvider(UUID organizationId, UUID providerUserId) {
+        OrganizationMembership membership = memberships
+                .findByOrganization_IdAndAppUser_Id(organizationId, providerUserId)
+                .filter(m -> m.getStatus() == MembershipStatus.ACTIVE)
+                .orElseThrow(() -> new ApiException(ErrorCode.VALIDATION_FAILED,
+                        "The selected rendering provider is not valid for this claim."));
+        boolean isProvider = userRoles.findByMembership_Id(membership.getId()).stream()
+                .map(UserRole::getRole)
+                .anyMatch(r -> PROVIDER_ROLE.equals(r.getCode()));
+        if (!isProvider) {
+            throw new ApiException(ErrorCode.VALIDATION_FAILED,
+                    "The selected rendering provider is not valid for this claim.");
+        }
     }
 
     /** Allocate a claim number unique within the tenant (the unique index is the backstop). */

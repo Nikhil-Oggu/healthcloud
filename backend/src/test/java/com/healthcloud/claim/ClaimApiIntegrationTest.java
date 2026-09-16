@@ -154,9 +154,69 @@ class ClaimApiIntegrationTest {
         assertTrue(cross.body().contains("NOT_FOUND"));
     }
 
+    @Test
+    void a_claim_records_an_optional_rendering_provider() throws Exception {
+        Session coordinator = loginWithCsrf("coordinator@northcare.example.org");
+        String patientId = firstId(createPatient(coordinator).body());
+        // A real same-tenant PROVIDER's user id (from their own /me).
+        String providerId = meUserId(loginWithCsrf("provider@northcare.example.org").session);
+
+        String withProvider = """
+                {"patientId":"%s","serviceDate":"2026-01-10","renderingProviderId":"%s","lines":[
+                  {"procedureCode":"99213","units":1,"chargeAmount":150.00}]}"""
+                .formatted(patientId, providerId);
+        HttpResponse<String> created = post(coordinator, "/api/v1/claims", withProvider);
+        assertEquals(201, created.statusCode(), created.body());
+        assertTrue(created.body().contains("\"renderingProviderId\":\"" + providerId + "\""),
+                "the rendering provider is recorded on the claim");
+
+        // It reads back on the single read and in the list summary.
+        String claimId = firstId(created.body());
+        assertTrue(get(coordinator.session, "/api/v1/claims/" + claimId).body()
+                .contains("\"renderingProviderId\":\"" + providerId + "\""));
+        assertTrue(get(coordinator.session, "/api/v1/claims?patientId=" + patientId).body()
+                .contains("\"renderingProviderId\":\"" + providerId + "\""), "the summary carries it too");
+    }
+
+    @Test
+    void a_claim_without_a_rendering_provider_is_allowed() throws Exception {
+        Session coordinator = loginWithCsrf("coordinator@northcare.example.org");
+        String patientId = firstId(createPatient(coordinator).body());
+
+        HttpResponse<String> created = post(coordinator, "/api/v1/claims", claimJson(patientId));
+        assertEquals(201, created.statusCode(), created.body());
+        assertTrue(created.body().contains("\"renderingProviderId\":null"),
+                "a claim without a rendering provider is fine (backward-compatible)");
+    }
+
+    @Test
+    void a_non_provider_rendering_provider_is_a_400() throws Exception {
+        Session coordinator = loginWithCsrf("coordinator@northcare.example.org");
+        String patientId = firstId(createPatient(coordinator).body());
+        // The coordinator is a real same-tenant user but NOT a PROVIDER → 400 (no existence leak).
+        String coordinatorId = meUserId(coordinator.session);
+
+        String badProvider = """
+                {"patientId":"%s","serviceDate":"2026-01-10","renderingProviderId":"%s","lines":[
+                  {"procedureCode":"99213","units":1,"chargeAmount":150.00}]}"""
+                .formatted(patientId, coordinatorId);
+        HttpResponse<String> created = post(coordinator, "/api/v1/claims", badProvider);
+        assertEquals(400, created.statusCode(), created.body());
+        assertTrue(created.body().contains("VALIDATION_FAILED"));
+    }
+
     // --- helpers -------------------------------------------------------------
 
     private record Session(String session, String xsrf) {}
+
+    private String meUserId(String session) throws Exception {
+        HttpResponse<String> me = http.send(
+                HttpRequest.newBuilder(uri("/api/v1/me")).header("Cookie", "SESSION=" + session).GET().build(),
+                HttpResponse.BodyHandlers.ofString());
+        Matcher m = Pattern.compile("\"userId\":\"([0-9a-fA-F-]{36})\"").matcher(me.body());
+        assertTrue(m.find(), "expected a userId in /me: " + me.body());
+        return m.group(1);
+    }
 
     private HttpResponse<String> createPatient(Session s) throws Exception {
         return post(s, "/api/v1/patients", """

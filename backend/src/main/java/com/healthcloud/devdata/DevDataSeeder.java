@@ -309,7 +309,7 @@ public class DevDataSeeder implements ApplicationRunner {
         Claim claim = claimRepository.save(new Claim(
                 org.getId(), patient.getId(),
                 "CLM-" + org.getId().toString().substring(0, 4).toUpperCase() + "02",
-                LocalDate.now().minusWeeks(6), officeVisit, author.getId()));
+                LocalDate.now().minusWeeks(6), officeVisit, null, author.getId()));
         claimLineRepository.save(new ClaimLine(
                 org.getId(), claim.getId(), 1, CodeSystem.CPT, "99213", 1, officeVisit));
         claim.setStatus(ClaimStatus.REJECTED);
@@ -417,7 +417,7 @@ public class DevDataSeeder implements ApplicationRunner {
         Claim claim = claimRepository.save(new Claim(
                 org.getId(), patient.getId(),
                 "CLM-" + org.getId().toString().substring(0, 4).toUpperCase() + "01",
-                LocalDate.now().minusWeeks(3), officeVisit.add(metabolicPanel), author.getId()));
+                LocalDate.now().minusWeeks(3), officeVisit.add(metabolicPanel), null, author.getId()));
         claimLineRepository.save(new ClaimLine(
                 org.getId(), claim.getId(), 1, CodeSystem.CPT, "99213", 1, officeVisit));
         claimLineRepository.save(new ClaimLine(

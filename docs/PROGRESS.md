@@ -151,8 +151,12 @@
   identity repos (like `ProviderPatientAssignmentService`); candidate picker reuses `AssignmentCandidateDto`.
   Migration V33. **Inert config** — the claim gains a rendering provider (slice 18) and the engine marks
   out-of-network lines (slice 19) next. Backend-only.
-  **Next provider-network slices (not yet built, plan each first):** rendering provider on the claim (18) →
-  wire into adjudication as OUT_OF_NETWORK (19) → UI (20).
+  slice 18 ✅ — **rendering provider on the claim (backend)**: an optional header-level `renderingProviderId` on a
+  claim (migration V34, nullable FK → app_user). `CreateClaimRequest` accepts it; `ClaimService.create` validates
+  it is an active same-tenant PROVIDER (else 400) and stamps it; `ClaimDto`/`ClaimSummaryDto` expose it as a raw
+  id. Backward-compatible (null when omitted). Backend-only.
+  **Next provider-network slices (not yet built, plan each first):** wire into adjudication as OUT_OF_NETWORK (19)
+  → UI (20).
 - **Tooling:** HealthCloud-specific **`code-reviewer`** + **`security-reviewer`** subagents now live in
   `.claude/agents/` (read-only; project-aware checklists — tenant isolation, `PatientAccessGuard`, consent/masking,
   one-tx history, financial accumulators). Invoke by name in a fresh session (agent files load at startup).
@@ -232,6 +236,30 @@
   then `curl -b j.txt localhost:8080/api/v1/me`. Reset DB with `./scripts/db-reset.sh`.
 
 ## Log (newest first)
+
+### 2026-09-16 — Phase 6, slice 18 ✅ (rendering provider on the claim, backend)
+- **Why:** the claim-side data provider network needs — who rendered the service — so slice 19's engine rule can
+  tell in- from out-of-network. The 2nd of the ~4 provider-network slices. **Backend-only.**
+- **Migration `V34__claim_rendering_provider.sql`:** `ALTER TABLE claim ADD COLUMN rendering_provider_id UUID`
+  (nullable), plain FK → `app_user(id)` (app_user isn't tenant-keyed, so the role/tenant check is in-service).
+- **`Claim` entity:** a nullable, `updatable = false` `renderingProviderId` set at creation, with a getter. A
+  delegating 6-arg constructor (no provider) keeps every existing caller — the seeder + repository tests —
+  compiling unchanged; the new 7-arg constructor takes the provider.
+- **`CreateClaimRequest`:** an **optional** `renderingProviderId` (nullable, not `@NotNull`).
+- **`ClaimService.create`:** when supplied, validates the provider is an **active same-tenant PROVIDER** (else 400,
+  no existence leak) via `OrganizationMembershipRepository` + `UserRoleRepository` (same pattern as
+  `ProviderPatientAssignmentService` / `PlanNetworkProviderService` — the 3rd copy; a shared `ProviderValidator`
+  extract is a noted future cleanup), then stamps it on the claim.
+- **`ClaimDto` + `ClaimSummaryDto`:** expose `renderingProviderId` as a raw id (like `createdBy`; the UI resolves
+  the name in slice 20).
+- **Design (as agreed):** header-level, one rendering provider per claim (per-line is a later refinement);
+  optional/backward-compatible (existing + no-provider claims are null); slice 19 treats a null rendering provider
+  as no out-of-network penalty. No seeding yet (a rendering provider is seeded in slice 19 when it changes a result).
+- **Tests (+3 → 375 backend, all green; `./mvnw -B clean verify` green):** in `ClaimApiIntegrationTest` — a claim
+  records a rendering provider (echoed on create + single read + list summary); a claim without one is allowed
+  (`renderingProviderId: null`); a non-PROVIDER same-tenant user → 400.
+- **Next:** slice 19 — wire the rendering provider + a plan's network into adjudication: a covered line rendered by
+  a provider not in the covering plan's network → a new `OUT_OF_NETWORK` line outcome.
 
 ### 2026-09-16 — Phase 6, slice 17 ✅ (provider network config — which providers are in a plan's network, backend)
 - **Why:** the "provider network" item on Phase 6's advanced-claims list — the last area. It's ~4 slices (a plan
