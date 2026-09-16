@@ -344,8 +344,9 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   `UNIQUE(id, organization_id)` so tenancy is structurally enforced. History is append-only; stamp the
   actor and `CorrelationId.current()` on each row. State-machine transitions are validated on the backend.
 - **Pure policy classes:** keep decision logic (state-machine transition tables, the consent evaluator) in a
-  pure, unit-testable class with no Spring/DB deps — `RequestTransitions` (§14.6 moves) and `ConsentPolicy`
-  (§22.5 consent+purpose) are the two exemplars; a thin service loads data and applies the policy.
+  pure, unit-testable class with no Spring/DB deps — the exemplars are `RequestTransitions` (§14.6 moves),
+  `ClaimTransitions`, `PriorAuthTransitions`, `ReferralTransitions` (the four state machines) and `ConsentPolicy`
+  (§22.5 consent+purpose); a thin service loads data and applies the policy.
 - **State machines:** with the transition table in a pure policy class (`RequestTransitions`, above), the
   service checks, in order, **exists → legal move → role → reason → version**, then
   updates status + appends history in one tx. An illegal move is `INVALID_STATE_TRANSITION` (409), distinct
