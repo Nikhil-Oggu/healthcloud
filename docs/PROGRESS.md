@@ -43,6 +43,14 @@
   16 ✅ documents UI — a Documents card on the patient detail page: upload, list with scan-status chips, and
   download of CLEAN files; the §19 loop is now visible end-to-end in the browser)**
 - **Repo:** https://github.com/Nikhil-Oggu/healthcloud (private, branch `main`)
+- **Phase 6 IN PROGRESS 🚧 (advanced claims):** slice 1 ✅ — **prior authorization**: a top-level,
+  patient-gated `prior_authorization` aggregate (request a planned procedure be pre-approved under a coverage
+  plan) with a pure `PriorAuthTransitions` state machine — REQUESTED → APPROVED/DENIED (reviewer, stamps the
+  decision) / CANCELLED (requester), reason to deny/cancel — one-tx status + history, `GET/POST
+  /api/v1/prior-authorizations` + `PATCH .../{id}/status` + `.../{id}/history`, backend-only. **Next Phase-6
+  slices (not yet built, plan each first):** wire an APPROVED auth into adjudication (a claim line requiring
+  prior auth); a prior-auth **frontend**; then referrals, provider network, anomaly signals, manual review,
+  appeals, reprocessing.
 - **Tooling:** HealthCloud-specific **`code-reviewer`** + **`security-reviewer`** subagents now live in
   `.claude/agents/` (read-only; project-aware checklists — tenant isolation, `PatientAccessGuard`, consent/masking,
   one-tx history, financial accumulators). Invoke by name in a fresh session (agent files load at startup).
@@ -122,6 +130,54 @@
   then `curl -b j.txt localhost:8080/api/v1/me`. Reset DB with `./scripts/db-reset.sh`.
 
 ## Log (newest first)
+
+### 2026-09-15 — Phase 6, slice 1 ✅ (prior authorization — request intake + decision lifecycle)
+- **Why:** Phase 6 (advanced claims) begins. Of its seven areas (provider network, prior auth, referrals,
+  anomaly signals, manual review, appeals, reprocessing), **prior authorization** is the most self-contained —
+  it needs nothing new from Phase 6, only patients + procedure codes + coverage plans (all present), and reuses
+  every mastered pattern. It's the canonical entry: before a costly service, a provider requests pre-approval and
+  a reviewer approves/denies. **Backend-only.**
+- **The aggregate:** a `prior_authorization` — **top-level, gated by its patient** (like `claim`, not nested) —
+  carrying only coded, claim-relevant data (a single procedure code + a service window + the coverage plan), so
+  like a claim it is **not consent field-masked**. Server-allocated `auth_number` (`PA-XXXXXXXX`, unique per
+  tenant). Plus an append-only `prior_authorization_status_history` child (null → REQUESTED on creation).
+- **State machine** — new pure policy `PriorAuthTransitions` (the 4th pure-policy exemplar after
+  `RequestTransitions`/`ClaimTransitions`/`ConsentPolicy`): REQUESTED → APPROVED/DENIED (**CLAIMS_REVIEWER**/
+  ORG_ADMIN — a decision stamps `decidedBy`/`decidedAt`) or CANCELLED (requester roles PROVIDER-assigned/
+  CARE_COORDINATOR/ORG_ADMIN); APPROVED/DENIED/CANCELLED terminal, reason required to deny/cancel. Same check
+  order as the claim machine (exists → legal move → role → reason → optimistic `expectedVersion`), status change
+  + history row in one `@Transactional` (§31.6).
+- **Authorization (§21):** tenant → role → object/relationship (`PatientAccessGuard` via the auth's patient) →
+  secure 404. Requesting also validates the procedure (unknown/non-procedure → 400) and the coverage plan (not
+  in-tenant → 400). List scoping reuses `accessiblePatientIdsIfGated` (provider → assigned; broad roles → tenant
+  work queue).
+- **Endpoints (new `com.healthcloud.priorauth` package):** `GET/POST /api/v1/prior-authorizations`,
+  `GET .../{id}`, `PATCH .../{id}/status`, `GET .../{id}/history`. Thin controller; logic in
+  `PriorAuthorizationService`.
+- **Migration `V25__prior_authorization.sql`:** two tables, FK-with-org to `patient` and `coverage_plan`, FK to
+  `medical_code`, `UNIQUE(org, auth_number)` + `UNIQUE(id, org)` (for the child FK-with-org), a status CHECK and
+  a service-window CHECK.
+- **Seeder:** requests one REQUESTED prior auth (99213 under the PPO) for the first patient per org, mirroring
+  the sample DRAFT claim.
+- **Scope boundary (later Phase-6 slices):** wiring an APPROVED auth into adjudication (a claim line that requires
+  prior auth); NEEDS_INFO step; multi-procedure lines; a consent-masked clinical justification; expiry/effective
+  enforcement; a **frontend** UI; and the other Phase-6 areas (referrals, provider network, anomaly signals,
+  manual review, appeals, reprocessing).
+- **Verified — automated:** `./mvnw -B clean verify` → **279 pass** (+21: `PriorAuthTransitionsTest` ×5 pure
+  policy; `PriorAuthorizationRepositoryTest` ×4 — tenant scoping, auth-number uniqueness per tenant + reuse
+  across tenants, history order, procedure FK; `PriorAuthorizationApiIntegrationTest` ×12 — 401; request creates
+  REQUESTED; reviewer approves (stamps decidedBy); deny-without-reason 400 then deny with reason; non-reviewer
+  decide 403; requester cancels; unknown code 400; unknown plan 400; illegal transition 409; stale version 409;
+  provider sees only assigned patients' auths + secure 404; cross-tenant secure 404). `DevDataSeederTest` still
+  green (seeder change safe).
+- **Verified — live** (fresh `db-reset` + backend, curl): the seeded `PA-…01` showed REQUESTED in the reviewer's
+  queue; a coordinator created `PA-8F1B2017` (plan name resolved) → coordinator APPROVE **403 ACCESS_DENIED** →
+  reviewer DENY-without-reason **400 VALIDATION_FAILED** → reviewer APPROVE **200 APPROVED** (decidedBy stamped)
+  → re-approve **409 INVALID_STATE_TRANSITION** → history listed null→REQUESTED then REQUESTED→APPROVED
+  chronologically → Green Valley admin read **404 NOT_FOUND**.
+- **Files:** +`V25__prior_authorization.sql`, +`priorauth/` package (11: status enum, entity, history entity,
+  `PriorAuthTransitions`, 2 repositories, 3 DTOs, 2 request records, service, controller — 13 classes), +3 test
+  classes; changed `devdata/DevDataSeeder.java`, `CLAUDE.md`, `docs/PROGRESS.md`.
 
 ### 2026-09-15 — Tooling: HealthCloud-specific code-reviewer + security-reviewer subagents ✅
 - **Why:** `docs/PLAN.md` Part C.1 (#5) / C.3 called for **project-specific** review subagents at Phase 3 —

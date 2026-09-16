@@ -78,7 +78,7 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   Checks: `npm run typecheck`, `npm test` (Vitest), `npm run build`. Node runs from `openjdk@25`'s
   sibling `node@24` — use `export PATH="/opt/homebrew/opt/node@24/bin:$PATH"` in non-interactive shells.
 
-## Current implementation (Phase 1–4 COMPLETE; Phase 5 COMPLETE — slices 1–12 done; MVP (Phase 0–5) feature-complete, engine AND UI — see docs/PROGRESS.md for status)
+## Current implementation (Phase 1–4 COMPLETE; Phase 5 COMPLETE — slices 1–12 done; MVP (Phase 0–5) feature-complete, engine AND UI. Phase 6 (advanced claims) IN PROGRESS — slice 1 done: prior authorization — see docs/PROGRESS.md for status)
 - **Backend packages** under `com.healthcloud`: `organization` (Organization, Facility, FacilityMembership),
   `identity` (AppUser, Role, OrganizationMembership, UserRole), `auth` (SecurityConfig, DevLoginController,
   CurrentUserController/Service, CsrfCookieFilter), `context` (UserContext + UserContextAccessor/Filter),
@@ -266,12 +266,33 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   limitations:** re-adjudication reverses/recomputes *this claim only* (not other claims in the same benefit
   year); no Idempotency-Key (each call is an intentional new version). The version history is surfaced in the
   claims UI (slice 12). Not consent field-masked (claims/benefits data)),
+  `priorauth` (Phase 6 — the first advanced-claims aggregate: prior authorization. `GET/POST
+  /api/v1/prior-authorizations`, `GET /api/v1/prior-authorizations/{id}`, `PATCH .../{id}/status`,
+  `GET .../{id}/history`. A request that a **planned** procedure be pre-approved under a patient's coverage
+  before the service is rendered — a single procedure code (FK to the global `medical_code`, must be a PROCEDURE)
+  under a `coveragePlan` (FK-with-org, must be in-tenant) for a service window, with a server-allocated
+  `auth_number` (`PA-XXXXXXXX`, unique per tenant). **Top-level but gated by its patient** (like `claim`, not
+  nested): every read routes through `PatientAccessGuard` and the list scopes via `accessiblePatientIdsIfGated`
+  — a provider sees only assigned patients' authorizations, a broad role (coordinator/admin/**claims reviewer**)
+  sees the tenant's as a work queue; another tenant's is a secure 404. Carries only coded, claim-relevant data
+  (no clinical narrative), so **not consent field-masked** (like a claim). **State machine** driven by the pure
+  `PriorAuthTransitions` policy (the 4th pure-policy exemplar after `RequestTransitions`/`ClaimTransitions`/
+  `ConsentPolicy`): REQUESTED → APPROVED/DENIED (the **CLAIMS_REVIEWER**/ORG_ADMIN decision — a decision stamps
+  `decidedBy`/`decidedAt`) or CANCELLED (the requester roles PROVIDER-assigned/CARE_COORDINATOR/ORG_ADMIN);
+  APPROVED/DENIED/CANCELLED terminal, reason required to deny/cancel. Same check order as the claim machine
+  (exists → legal move → role → reason → optimistic `expectedVersion`), status change + a
+  `prior_authorization_status_history` row in one tx (§31.6, null → REQUESTED on creation). Requesting validates
+  the procedure (unknown/non-procedure → 400) and the plan (not in-tenant → 400). **Honest MVP limitation:**
+  slice 1 does not yet wire an APPROVED auth into adjudication (a claim line that requires prior auth) — a later
+  Phase-6 slice; also no NEEDS_INFO step, multi-procedure lines, or expiry enforcement. Backend-only (a UI
+  arrives in a later slice)),
   `devdata` (DevDataSeeder, local-only — also seeds the global `medical_code` catalog once, then a couple of
   synthetic `clinical_summary` rows per assigned patient, one sample DRAFT `claim` (header + two procedure
   lines + its null→DRAFT status-history row) for the first patient, and two `coverage_plan` rows per org (a PPO
   + an HDHP), enrolls the first patient in the PPO (`patient_eligibility`, open-ended), and prices 80053 on the
-  PPO (`plan_fee_schedule`, allowed $40 < the seeded $45.50 charge) so a demo adjudication shows a write-off;
-  reference codes are
+  PPO (`plan_fee_schedule`, allowed $40 < the seeded $45.50 charge) so a demo adjudication shows a write-off,
+  and requests one sample REQUESTED `prior_authorization` (99213 under the PPO, + its null→REQUESTED
+  status-history row) for the first patient so a demo prior-auth queue returns something; reference codes are
   seeded before the orgs so the clinical-summary/claim→catalog FKs are satisfied).
 - **Tenant-owned entity pattern (Phase 2+):** hold `organizationId` as the tenant key; repositories expose
   only org-scoped finders (`findByIdAndOrganizationId`, `findByOrganizationId…`) — no bare `findById` in

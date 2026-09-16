@@ -37,6 +37,11 @@ import com.healthcloud.organization.Organization;
 import com.healthcloud.organization.OrganizationRepository;
 import com.healthcloud.patient.Patient;
 import com.healthcloud.patient.PatientRepository;
+import com.healthcloud.priorauth.PriorAuthorization;
+import com.healthcloud.priorauth.PriorAuthorizationRepository;
+import com.healthcloud.priorauth.PriorAuthorizationStatus;
+import com.healthcloud.priorauth.PriorAuthorizationStatusHistory;
+import com.healthcloud.priorauth.PriorAuthorizationStatusHistoryRepository;
 import com.healthcloud.relationship.CareCoordinatorAssignment;
 import com.healthcloud.relationship.CareCoordinatorAssignmentRepository;
 import com.healthcloud.relationship.CareCoordinatorAssignmentStatus;
@@ -86,6 +91,8 @@ public class DevDataSeeder implements ApplicationRunner {
     private final CoveragePlanRepository coveragePlanRepository;
     private final PatientEligibilityRepository patientEligibilityRepository;
     private final PlanFeeScheduleRepository planFeeScheduleRepository;
+    private final PriorAuthorizationRepository priorAuthorizationRepository;
+    private final PriorAuthorizationStatusHistoryRepository priorAuthorizationStatusHistoryRepository;
 
     public DevDataSeeder(OrganizationRepository organizationRepository,
                          AppUserRepository appUserRepository,
@@ -104,7 +111,9 @@ public class DevDataSeeder implements ApplicationRunner {
                          ClaimStatusHistoryRepository claimStatusHistoryRepository,
                          CoveragePlanRepository coveragePlanRepository,
                          PatientEligibilityRepository patientEligibilityRepository,
-                         PlanFeeScheduleRepository planFeeScheduleRepository) {
+                         PlanFeeScheduleRepository planFeeScheduleRepository,
+                         PriorAuthorizationRepository priorAuthorizationRepository,
+                         PriorAuthorizationStatusHistoryRepository priorAuthorizationStatusHistoryRepository) {
         this.organizationRepository = organizationRepository;
         this.appUserRepository = appUserRepository;
         this.roleRepository = roleRepository;
@@ -123,6 +132,8 @@ public class DevDataSeeder implements ApplicationRunner {
         this.coveragePlanRepository = coveragePlanRepository;
         this.patientEligibilityRepository = patientEligibilityRepository;
         this.planFeeScheduleRepository = planFeeScheduleRepository;
+        this.priorAuthorizationRepository = priorAuthorizationRepository;
+        this.priorAuthorizationStatusHistoryRepository = priorAuthorizationStatusHistoryRepository;
     }
 
     @Override
@@ -228,6 +239,25 @@ public class DevDataSeeder implements ApplicationRunner {
         CoveragePlan ppo = seedCoveragePlans(org, mrnPrefix);
         seedEligibility(org, patients.get(0), ppo, mrnPrefix, coordinator);
         seedFeeSchedule(org, ppo, admin);
+
+        // A sample REQUESTED prior authorization (Phase 6) for the first patient under the PPO, so a demo
+        // prior-auth queue returns something a reviewer can approve/deny. Synthetic; coded data only.
+        seedPriorAuth(org, patients.get(0), ppo, provider);
+    }
+
+    /**
+     * A synthetic REQUESTED prior authorization for a planned procedure (99213) under the PPO, with its
+     * creation history row (null → REQUESTED), consistent with the prior-auth state machine (§31.6).
+     */
+    private void seedPriorAuth(Organization org, Patient patient, CoveragePlan plan, AppUser requestedBy) {
+        PriorAuthorization auth = priorAuthorizationRepository.save(new PriorAuthorization(
+                org.getId(), patient.getId(),
+                "PA-" + org.getId().toString().substring(0, 4).toUpperCase() + "01",
+                plan.getId(), CodeSystem.CPT.name(), "99213",
+                LocalDate.now().plusWeeks(2), LocalDate.now().plusWeeks(6), requestedBy.getId()));
+        priorAuthorizationStatusHistoryRepository.save(new PriorAuthorizationStatusHistory(
+                org.getId(), auth.getId(), null, PriorAuthorizationStatus.REQUESTED, requestedBy.getId(),
+                "Prior authorization requested", null));
     }
 
     /**
