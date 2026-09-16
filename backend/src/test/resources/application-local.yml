@@ -1,0 +1,9 @@
+# Test-only override (Phase 8 slice 2). Integration tests run under @ActiveProfiles("local"); this file lives on
+# the TEST classpath only (there is no application-local.yml in main), so it augments — never shadows — the main
+# application.yml. It disables the scheduled outbox relay for the whole suite: the general tests have no Kafka
+# broker, and the relay test drives OutboxRelay.publishPending() directly (against a Testcontainers broker) rather
+# than waiting on the timer.
+healthcloud:
+  outbox:
+    relay:
+      enabled: false

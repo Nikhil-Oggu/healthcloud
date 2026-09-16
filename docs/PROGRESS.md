@@ -82,8 +82,16 @@
   claim id/number, version, outcome, money split — no patient identifiers/clinical data) — so the §31.6 one-tx
   quartet (domain change + status history + audit event + **outbox event**) is now fully real in one place. A row
   is written `published_at IS NULL` (pending); a partial index backs the future relay's poll
-  (`findByPublishedAtIsNullOrderByOccurredAtAsc`). **Next:** the relay + Kafka (KRaft in docker-compose) that
-  publishes pending rows after commit and stamps `published_at`.
+  (`findByPublishedAtIsNullOrderByOccurredAtAsc`). slice 2 ✅ — **the outbox relay + Kafka**: a single-node Kafka
+  broker (KRaft) added to `docker-compose`, `spring-boot-starter-kafka` wired in, and an **`OutboxRelay`** —
+  a `@Scheduled` poller (`OutboxRelayScheduler`, gated by `healthcloud.outbox.relay.enabled`) that reads a bounded
+  batch of pending rows oldest-first, publishes each to Kafka (topic = `event_type`, key = `aggregate_id`, payload
+  as value, metadata in headers) **after** its domain tx has committed, then stamps `published_at`. Delivery is
+  at-least-once (consumers must be idempotent — a later slice); single-instance for now (multi-instance needs
+  `SELECT … FOR UPDATE SKIP LOCKED`); retry/backoff + DLQ + replay are later slices. Verified end-to-end against a
+  real Testcontainers broker (`OutboxRelayKafkaIntegrationTest`: adjudicate → relay publishes → message lands on
+  `claim.adjudicated` → row marked published); the general test suite stays broker-free via a test-only
+  `application-local.yml` that disables the scheduler. **Next:** consumer(s) + idempotency, then retry/DLQ.
 - **Phase 6 COMPLETE ✅ (advanced claims, slices 1–21):** all seven roadmap areas done — prior auth, referrals,
   appeals, anomaly signals, manual review, reprocessing, provider network. slice 1 ✅ — **prior authorization**: a top-level,
   patient-gated `prior_authorization` aggregate (request a planned procedure be pre-approved under a coverage

@@ -1,11 +1,13 @@
 # HealthCloud — local development stack
 #
-# Phase 1 slice 1: PostgreSQL only. The Spring Boot app is run locally with
-# `./mvnw spring-boot:run` during development (fast restarts). Later phases add
-# kafka (KRaft), mailpit (email testing), and a fake malware scanner; the backend
-# is containerized in Phase 10 (cloud).
+# PostgreSQL (Phase 1) + Kafka in KRaft mode (Phase 8 — the transactional-outbox
+# relay publishes integration events here). The Spring Boot app is run locally
+# with `./mvnw spring-boot:run` during development (fast restarts). Later phases
+# add mailpit (email testing) and a fake malware scanner; the backend is
+# containerized in Phase 10 (cloud). Integration tests use Testcontainers, not
+# this compose stack, so tests do not need these services running.
 #
-# Usage:  docker compose up -d postgres
+# Usage:  docker compose up -d postgres kafka
 #         docker compose ps
 #         docker compose down          (add -v to also delete the data volume)
 
@@ -25,6 +27,32 @@ services:
       test: ["CMD-SHELL", "pg_isready -U ${HEALTHCLOUD_DB_USER:-healthcloud} -d healthcloud"]
       interval: 5s
       timeout: 5s
+      retries: 10
+
+  # Single-node Kafka in KRaft mode (no ZooKeeper) — the outbox relay's broker.
+  kafka:
+    image: apache/kafka:3.9.0
+    container_name: healthcloud-kafka
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@localhost:9093
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      # Single-node dev defaults (safe to keep low locally).
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list || exit 1"]
+      interval: 10s
+      timeout: 10s
       retries: 10
 
 volumes:

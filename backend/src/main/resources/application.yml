@@ -25,6 +25,14 @@ spring:
   session:
     jdbc:
       initialize-schema: never    # schema is owned by Flyway (V4), not auto-created by Spring Session
+  kafka:
+    # The broker the outbox relay publishes to (§Phase 8). Local dev uses the docker-compose KRaft node;
+    # integration tests use a Testcontainers broker (wired via @ServiceConnection). No @KafkaListener/KafkaAdmin
+    # topic beans yet, so the app makes NO broker connection at startup — only the relay connects, when it sends.
+    bootstrap-servers: ${SPRING_KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
 
 server:
   port: 8080
@@ -57,6 +65,15 @@ healthcloud:
     # reason no longer needs to live in the database. The audit trail is NEVER purged (its BREAK_GLASS_INVOKED /
     # REVOKED events are permanent) — only this operational row is. Override with HEALTHCLOUD_RETENTION_BREAK_GLASS_DAYS.
     break-glass-days: ${HEALTHCLOUD_RETENTION_BREAK_GLASS_DAYS:90}
+  outbox:
+    relay:
+      # The transactional-outbox relay (§Phase 8): a scheduled poller that publishes pending outbox_event rows to
+      # Kafka AFTER their domain transaction has committed, then stamps published_at. Enabled for local dev + prod;
+      # the test suite disables it (src/test/resources/application-local.yml) and drives the relay directly.
+      enabled: ${HEALTHCLOUD_OUTBOX_RELAY_ENABLED:true}
+      poll-interval-ms: ${HEALTHCLOUD_OUTBOX_RELAY_POLL_INTERVAL_MS:2000}
+      batch-size: ${HEALTHCLOUD_OUTBOX_RELAY_BATCH_SIZE:100}
+      send-timeout-ms: ${HEALTHCLOUD_OUTBOX_RELAY_SEND_TIMEOUT_MS:5000}
 
 logging:
   pattern:

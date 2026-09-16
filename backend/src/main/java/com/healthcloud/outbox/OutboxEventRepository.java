@@ -2,6 +2,7 @@ package com.healthcloud.outbox;
 
 import java.util.List;
 import java.util.UUID;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 /**
@@ -12,8 +13,11 @@ import org.springframework.data.jpa.repository.JpaRepository;
  */
 public interface OutboxEventRepository extends JpaRepository<OutboxEvent, UUID> {
 
-    /** The pending backlog, oldest first — the relay's poll (a later slice). Cross-tenant by design. */
+    /** The pending backlog, oldest first — the relay's poll. Cross-tenant by design (publishing is a platform job). */
     List<OutboxEvent> findByPublishedAtIsNullOrderByOccurredAtAsc();
+
+    /** One capped batch of the pending backlog, oldest first — the relay polls a bounded page per tick. */
+    List<OutboxEvent> findByPublishedAtIsNullOrderByOccurredAtAsc(Pageable pageable);
 
     /** This tenant's events for one aggregate, newest first (used by tests and future reads). */
     List<OutboxEvent> findByOrganizationIdAndAggregateTypeAndAggregateIdOrderByOccurredAtDesc(
