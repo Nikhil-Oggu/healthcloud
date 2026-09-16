@@ -43,7 +43,8 @@
   16 ✅ documents UI — a Documents card on the patient detail page: upload, list with scan-status chips, and
   download of CLEAN files; the §19 loop is now visible end-to-end in the browser)**
 - **Repo:** https://github.com/Nikhil-Oggu/healthcloud (private, branch `main`)
-- **Phase 6 IN PROGRESS 🚧 (advanced claims):** slice 1 ✅ — **prior authorization**: a top-level,
+- **Phase 6 COMPLETE ✅ (advanced claims, slices 1–21):** all seven roadmap areas done — prior auth, referrals,
+  appeals, anomaly signals, manual review, reprocessing, provider network. slice 1 ✅ — **prior authorization**: a top-level,
   patient-gated `prior_authorization` aggregate (request a planned procedure be pre-approved under a coverage
   plan) with a pure `PriorAuthTransitions` state machine — REQUESTED → APPROVED/DENIED (reviewer, stamps the
   decision) / CANCELLED (requester), reason to deny/cancel — one-tx status + history, `GET/POST
@@ -175,7 +176,7 @@
 - **Tooling:** HealthCloud-specific **`code-reviewer`** + **`security-reviewer`** subagents now live in
   `.claude/agents/` (read-only; project-aware checklists — tenant isolation, `PatientAccessGuard`, consent/masking,
   one-tx history, financial accumulators). Invoke by name in a fresh session (agent files load at startup).
-- **Phase 5 IN PROGRESS 🚧 (adjudication engine, completes the MVP):** slice 1 ✅ — the core deterministic
+- **Phase 5 COMPLETE ✅ (adjudication engine, completes the MVP — slices 1–12):** slice 1 ✅ — the core deterministic
   engine: `POST /api/v1/claims/{id}/adjudicate` reads an ACCEPTED claim →
   `PatientEligibilityRepository.findCovering(serviceDate)` → the coverage plan → the pure `AdjudicationCalculator`
   (allowed → copay → deductible → coinsurance) → an **immutable** `adjudication` (header + per-line breakdown)
