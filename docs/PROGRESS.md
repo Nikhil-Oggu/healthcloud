@@ -87,8 +87,16 @@
   (+ `?claimId=` filter), server-allocated `APL-XXXXXXXX`. Submit is gated through the parent claim and validates
   that the claim is **appealable** (ADJUDICATED/REJECTED → else 400) with **no existing open appeal** (→ 409). Not
   consent field-masked (claims-domain data). An OVERTURNED appeal records the outcome only — wiring it into
-  re-adjudication is a later slice. Backend-only. **Next Phase-6 slices (not yet built, plan each first):** the
-  appeal UI, then provider network, anomaly signals, manual review, reprocessing.
+  re-adjudication is a later slice. Backend-only.
+  slice 9 ✅ — **appeal UI**: a new `src/appeal/` feature folder mirroring `src/referral/` — a work queue
+  (`/appeals`: Appeal # · patient · claim # · status, resolving names via `usePatients`/`useClaims`) + detail with
+  a status timeline and **Uphold/Overturn/Withdraw** decision buttons (client mirror of `AppealTransitions`,
+  optimistic-locked; Uphold/Overturn gated to CLAIMS_REVIEWER/ORG_ADMIN, Withdraw to the submitter; **every
+  transition prompts for a reason**), a link to the disputed claim, a **New appeal** form (a claim picker filtered
+  client-side to **appealable** ADJUDICATED/REJECTED claims + a reason), an **Appeals** nav button (adds
+  CLAIMS_REVIEWER, unlike referrals), and `api`/`types` methods. Appeals are now complete end-to-end in the
+  browser. Frontend-only. **Next Phase-6 slices (not yet built, plan each first):** provider network, anomaly
+  signals, manual review, reprocessing.
 - **Tooling:** HealthCloud-specific **`code-reviewer`** + **`security-reviewer`** subagents now live in
   `.claude/agents/` (read-only; project-aware checklists — tenant isolation, `PatientAccessGuard`, consent/masking,
   one-tx history, financial accumulators). Invoke by name in a fresh session (agent files load at startup).
@@ -168,6 +176,31 @@
   then `curl -b j.txt localhost:8080/api/v1/me`. Reset DB with `./scripts/db-reset.sh`.
 
 ## Log (newest first)
+
+### 2026-09-16 — Phase 6, slice 9 ✅ (appeal UI — queue + detail + decisions + submit form)
+- **Why:** slice 8 shipped the appeal backend; this puts it in the browser, mirroring the referral frontend
+  (`src/referral/`), completing the claims lifecycle in the UI (submit → adjudicate → appeal). **Frontend-only.**
+- **New feature folder `src/appeal/`** (mirrors `src/referral/`): `statusColor.ts` (`appealStatusColor` —
+  OVERTURNED→success, UPHELD/WITHDRAWN→default, SUBMITTED→info), `transitions.ts` (client mirror of
+  `AppealTransitions` — Uphold/Overturn gated to **CLAIMS_REVIEWER/ORG_ADMIN**, Withdraw to the submitter;
+  **`reasonRequired` true for all**), `useAppeal.ts` (`useAppeals`/`useAppeal`/`useAppealHistory`/`useCreateAppeal`/
+  `useChangeAppealStatus`), `AppealsPage.tsx` (queue Appeal # · patient · claim # · status, resolving
+  `patientId→name` via `usePatients` and `claimId→claimNumber` via `useClaims`, + the New-appeal form for submitter
+  roles), `AppealDetailPage.tsx` (header + a link to the disputed claim + reason + status timeline +
+  optimistic-locked decision buttons that always prompt for a reason), `CreateAppealForm.tsx` (a claim select
+  filtered client-side to **appealable** ADJUDICATED/REJECTED claims + a multiline reason, RHF+Zod).
+- **API + wiring:** `api/types.ts` (+`AppealStatus`/`AppealSummary`/`Appeal`/`AppealStatusHistory`/
+  `AppealStatusChange`/`CreateAppealRequest`), `api/client.ts` (+`listAppeals`/`getAppeal`/`getAppealHistory`/
+  `changeAppealStatus`/`createAppeal`), `App.tsx` (+2 routes), `AppLayout.tsx` (+an **Appeals** nav button gated to
+  PROVIDER/CARE_COORDINATOR/CLAIMS_REVIEWER/ORG_ADMIN — the reviewer is included, unlike referrals).
+- **Verified — automated:** `npm run typecheck` clean, `npm test` → **104 tests pass** (+13: `transitions.test`
+  ×4, `AppealsPage.test` ×3, `AppealDetailPage.test` ×4, `CreateAppealForm.test` ×2), `npm run build` green.
+- **Verified — live** (reviewer + coordinator in the browser): the reviewer's queue showed the seeded/created
+  appeals with patient + claim numbers resolved; opening the SUBMITTED one showed Uphold/Overturn (no Withdraw);
+  Uphold prompted for a reason → UPHELD live with the timeline appending `SUBMITTED → UPHELD` + decision reason;
+  the coordinator's New-appeal form rendered with the claim picker correctly filtered to the two REJECTED claims.
+- **Files:** +`frontend/src/appeal/` (8 files incl. 4 tests); changed `api/types.ts`, `api/client.ts`, `App.tsx`,
+  `layout/AppLayout.tsx`, `CLAUDE.md`, `docs/PROGRESS.md`.
 
 ### 2026-09-16 — Phase 6, slice 8 ✅ (appeals — dispute a claim's decision + resolution lifecycle, backend)
 - **Why:** referrals are complete end-to-end; appeals are the next Phase-6 area and round out the claims

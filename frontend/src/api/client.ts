@@ -43,6 +43,12 @@ import type {
   ReferralStatusChange,
   ReferralStatusHistory,
   CreateReferralRequest,
+  Appeal,
+  AppealStatus,
+  AppealSummary,
+  AppealStatusChange,
+  AppealStatusHistory,
+  CreateAppealRequest,
   RequestAssignment,
   RequestComment,
   RequestStatusHistory,
@@ -385,6 +391,34 @@ export const api = {
 
   changeReferralStatus: (id: string, body: ReferralStatusChange) =>
     request<Referral>(`/api/v1/referrals/${id}/status`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }),
+
+  // --- Appeals (§Phase 6) ---
+  listAppeals: (params?: { claimId?: string; status?: AppealStatus }) => {
+    const q = new URLSearchParams()
+    if (params?.claimId) q.set('claimId', params.claimId)
+    if (params?.status) q.set('status', params.status)
+    const suffix = q.toString() ? `?${q.toString()}` : ''
+    return request<AppealSummary[]>(`/api/v1/appeals${suffix}`)
+  },
+
+  createAppeal: (body: CreateAppealRequest) =>
+    request<Appeal>('/api/v1/appeals', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }),
+
+  getAppeal: (id: string) => request<Appeal>(`/api/v1/appeals/${id}`),
+
+  getAppealHistory: (id: string) =>
+    request<AppealStatusHistory[]>(`/api/v1/appeals/${id}/history`),
+
+  changeAppealStatus: (id: string, body: AppealStatusChange) =>
+    request<Appeal>(`/api/v1/appeals/${id}/status`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),

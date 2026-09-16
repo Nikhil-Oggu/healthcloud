@@ -78,7 +78,7 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   Checks: `npm run typecheck`, `npm test` (Vitest), `npm run build`. Node runs from `openjdk@25`'s
   sibling `node@24` — use `export PATH="/opt/homebrew/opt/node@24/bin:$PATH"` in non-interactive shells.
 
-## Current implementation (Phase 1–4 COMPLETE; Phase 5 COMPLETE — slices 1–12 done; MVP (Phase 0–5) feature-complete, engine AND UI. Phase 6 (advanced claims) IN PROGRESS — slices 1–8 done: prior authorization, wired into adjudication, + prior-auth UI (queue/detail/decisions + request form) + plan-prior-auth-requirement admin card, + referrals (backend: care-coordination aggregate + decision lifecycle; + UI: queue/detail/decisions + request form), + appeals (backend: dispute a claim's decision + resolution lifecycle) — see docs/PROGRESS.md for status)
+## Current implementation (Phase 1–4 COMPLETE; Phase 5 COMPLETE — slices 1–12 done; MVP (Phase 0–5) feature-complete, engine AND UI. Phase 6 (advanced claims) IN PROGRESS — slices 1–8 done: prior authorization, wired into adjudication, + prior-auth UI (queue/detail/decisions + request form) + plan-prior-auth-requirement admin card, + referrals (backend: care-coordination aggregate + decision lifecycle; + UI: queue/detail/decisions + request form), + appeals (backend: dispute a claim's decision + resolution lifecycle; + UI: queue/detail/decisions + submit form) — see docs/PROGRESS.md for status)
 - **Backend packages** under `com.healthcloud`: `organization` (Organization, Facility, FacilityMembership),
   `identity` (AppUser, Role, OrganizationMembership, UserRole), `auth` (SecurityConfig, DevLoginController,
   CurrentUserController/Service, CsrfCookieFilter), `context` (UserContext + UserContextAccessor/Filter),
@@ -336,7 +336,8 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   `VALIDATION_FAILED`) and has **no existing open (SUBMITTED) appeal** (→ 409), then stamps the patient from the
   claim. **Honest MVP limitation:** an OVERTURNED appeal records the outcome only — wiring it into re-adjudication
   (the engine already supports versioned re-adjudication, Phase 5 slice 11) is a later slice; no UNDER_REVIEW step.
-  Backend-only so far — the appeal UI is a later slice),
+  The appeal UI (queue/detail/decisions + submit form) shipped in slice 9 (see `src/appeal/` under Frontend
+  below)),
   `devdata` (DevDataSeeder, local-only — also seeds the global `medical_code` catalog once, then a couple of
   synthetic `clinical_summary` rows per assigned patient, one sample DRAFT `claim` (header + two procedure
   lines + its null→DRAFT status-history row) for the first patient, and two `coverage_plan` rows per org (a PPO
@@ -554,6 +555,18 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   (ICD-10-CM, the coded reason); RHF+Zod, on create navigates to the new referral. A **Referrals** nav button
   (staff roles, no reviewer). The reusable `MedicalCodePicker` gained an optional `category?: 'Procedure' |
   'Diagnosis'` prop (default Procedure, so claims/prior-auth callers are untouched).
+  Plus **`src/appeal/`** (Phase 6 slice 9 — the appeal UI, mirroring the referral UI): a work queue `appeals`
+  (Appeal # · patient · claim # · status — resolving `patientId → name` via `usePatients` and
+  `claimId → claimNumber` via `useClaims`) and a **detail** `appeals/:id` with the header (a link to the disputed
+  claim + the reason + decision reason when present), a status timeline, and **decision action buttons** driven by
+  a client mirror of `AppealTransitions` in `src/appeal/transitions.ts` — **Uphold/Overturn** for
+  **CLAIMS_REVIEWER/ORG_ADMIN** and **Withdraw** for the submitter roles, **each with a reason prompt** (every
+  appeal transition needs a rationale), optimistic-locked via the loaded `version` through `useChangeAppealStatus`.
+  A **New appeal** form on the queue (`CreateAppealForm`, submitter roles) — a claim select populated from
+  `useClaims()` filtered client-side to **appealable** (ADJUDICATED/REJECTED) claims + a multiline reason; RHF+Zod,
+  on create navigates to the new appeal. An **Appeals** nav button gated to
+  PROVIDER/CARE_COORDINATOR/CLAIMS_REVIEWER/ORG_ADMIN (the reviewer is included — appeals are a claims-review
+  function — unlike the referrals nav).
 - **Consent/field masking in the UI (Phase 3+):** the backend already withholds masked values, so the SPA only
   *displays* the state — render a "Restricted"/placeholder for a `null` consent-controlled field (named in
   `maskedFields`); never assume a field is present. This is display-only, not a security control.

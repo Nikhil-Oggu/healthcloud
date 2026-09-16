@@ -81,6 +81,11 @@ export function AppLayout() {
                 Referrals
               </Button>
             )}
+            {roles.some((r) => ['PROVIDER', 'CARE_COORDINATOR', 'CLAIMS_REVIEWER', 'ORG_ADMIN'].includes(r)) && (
+              <Button color="inherit" onClick={() => navigate('/appeals')}>
+                Appeals
+              </Button>
+            )}
             {roles.includes('ORG_ADMIN') && (
               <Button color="inherit" disabled>
                 Administration

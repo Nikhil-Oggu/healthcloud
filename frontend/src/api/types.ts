@@ -602,3 +602,57 @@ export interface CreateReferralRequest {
   specialty: string
   reasonCode: string
 }
+
+// --- Appeals (§Phase 6) --------------------------------------------------
+
+/** The appeal lifecycle states (mirrors AppealStatus). */
+export type AppealStatus = 'SUBMITTED' | 'UPHELD' | 'OVERTURNED' | 'WITHDRAWN'
+
+/** An appeal header row for the work queue (mirrors AppealSummaryDto). */
+export interface AppealSummary {
+  id: string
+  claimId: string
+  patientId: string
+  appealNumber: string
+  status: AppealStatus
+  createdAt: string
+}
+
+/** An appeal (mirrors AppealDto). Claims-domain data (a dispute of a claim's decision) — not consent-masked. */
+export interface Appeal {
+  id: string
+  claimId: string
+  patientId: string
+  appealNumber: string
+  reason: string
+  status: AppealStatus
+  decisionReason: string | null
+  decidedBy: string | null
+  decidedAt: string | null
+  submittedBy: string
+  createdAt: string
+  version: number
+}
+
+/** One appeal status-history entry (mirrors AppealStatusHistoryDto). */
+export interface AppealStatusHistory {
+  id: string
+  fromStatus: AppealStatus | null
+  toStatus: AppealStatus
+  actorUserId: string
+  reason: string | null
+  createdAt: string
+}
+
+/** Payload to apply a controlled appeal transition (uphold/overturn/withdraw), optimistic-locked. */
+export interface AppealStatusChange {
+  targetStatus: AppealStatus
+  expectedVersion: number
+  reason?: string
+}
+
+/** Payload to submit an appeal against a claim (mirrors CreateAppealRequest). */
+export interface CreateAppealRequest {
+  claimId: string
+  reason: string
+}
