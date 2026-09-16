@@ -72,6 +72,18 @@
   `BREAK_GLASS_INVOKED`/`REVOKED` events are permanent — never purged, that would break the hash chain), and the
   purge itself is audited as a `RETENTION_PURGED` event in the same transaction (§31.6). Tenant-scoped; a live or
   recently-expired grant is never touched. Manual trigger (a scheduled purge is Phase 8). **Phase 7 COMPLETE ✅.**
+- **Phase 8 IN PROGRESS 🚧 (event-driven architecture):** slice 1 ✅ — **transactional outbox foundation**
+  (backend, no Kafka yet): the answer to the dual-write problem (a Kafka publish can't join a DB transaction). A
+  new `outbox_event` table (V40) + `com.healthcloud.outbox` package — `OutboxService.record(aggregateType,
+  aggregateId, eventType, payload)` writes an integration event from **inside the domain action's own transaction**
+  (§31.6, exactly like `AuditService`), so the event commits atomically with the domain change or both roll back;
+  the payload is Jackson-serialized JSON, **minimum-necessary + PHI-free** (rule 5). Wired into
+  `AdjudicationService.adjudicate` as the first exemplar — a `claim.adjudicated` event (`ClaimAdjudicatedEvent`:
+  claim id/number, version, outcome, money split — no patient identifiers/clinical data) — so the §31.6 one-tx
+  quartet (domain change + status history + audit event + **outbox event**) is now fully real in one place. A row
+  is written `published_at IS NULL` (pending); a partial index backs the future relay's poll
+  (`findByPublishedAtIsNullOrderByOccurredAtAsc`). **Next:** the relay + Kafka (KRaft in docker-compose) that
+  publishes pending rows after commit and stamps `published_at`.
 - **Phase 6 COMPLETE ✅ (advanced claims, slices 1–21):** all seven roadmap areas done — prior auth, referrals,
   appeals, anomaly signals, manual review, reprocessing, provider network. slice 1 ✅ — **prior authorization**: a top-level,
   patient-gated `prior_authorization` aggregate (request a planned procedure be pre-approved under a coverage

@@ -27,6 +27,7 @@ import com.healthcloud.audit.AuditService;
 import com.healthcloud.error.CorrelationId;
 import com.healthcloud.error.InvalidStateTransitionException;
 import com.healthcloud.error.NotFoundException;
+import com.healthcloud.outbox.OutboxService;
 import com.healthcloud.patient.PatientAccessGuard;
 import com.healthcloud.priorauth.PriorAuthorizationRepository;
 import java.math.BigDecimal;
@@ -78,6 +79,7 @@ public class AdjudicationService {
     private final PatientAccessGuard accessGuard;
     private final UserContextAccessor userContext;
     private final AuditService audit;
+    private final OutboxService outbox;
 
     public AdjudicationService(ClaimRepository claims, ClaimLineRepository claimLines,
                                ClaimStatusHistoryRepository claimStatusHistory,
@@ -89,7 +91,7 @@ public class AdjudicationService {
                                PlanNetworkProviderRepository planNetwork,
                                PriorAuthorizationRepository priorAuths,
                                PatientAccessGuard accessGuard, UserContextAccessor userContext,
-                               AuditService audit) {
+                               AuditService audit, OutboxService outbox) {
         this.claims = claims;
         this.claimLines = claimLines;
         this.claimStatusHistory = claimStatusHistory;
@@ -106,6 +108,7 @@ public class AdjudicationService {
         this.accessGuard = accessGuard;
         this.userContext = userContext;
         this.audit = audit;
+        this.outbox = outbox;
     }
 
     /**
@@ -254,6 +257,12 @@ public class AdjudicationService {
                 AuditOutcome.SUCCESS,
                 "Claim " + claim.getClaimNumber() + " adjudicated v" + savedHeader.getAdjudicationVersion()
                         + " (" + savedHeader.getOutcome() + ")");
+
+        // §31.6 / §Phase 8: emit a claim.adjudicated integration event to the transactional outbox in this same
+        // transaction — the outbox row commits with the adjudication (or both roll back), and a relay publishes it
+        // to Kafka after commit (a later slice). Minimum-necessary, PHI-free payload.
+        outbox.record(OutboxService.AGGREGATE_CLAIM, claim.getId(), "claim.adjudicated",
+                ClaimAdjudicatedEvent.from(claim, savedHeader));
 
         return AdjudicationDto.from(savedHeader, planName(organizationId, savedHeader.getCoveragePlanId()),
                 savedLines);

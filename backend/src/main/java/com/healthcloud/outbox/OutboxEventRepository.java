@@ -1,0 +1,21 @@
+package com.healthcloud.outbox;
+
+import java.util.List;
+import java.util.UUID;
+import org.springframework.data.jpa.repository.JpaRepository;
+
+/**
+ * Tenant-safe repository for {@link OutboxEvent}. Business finders are constrained by {@code organizationId}. The
+ * relay's poll ({@link #findByPublishedAtIsNullOrderByOccurredAtAsc}) is deliberately cross-tenant — publishing is
+ * a platform background job, not a tenant-scoped user request — and is backed by the partial index on the pending
+ * backlog. The relay itself arrives in a later Phase 8 slice; this slice only writes the rows.
+ */
+public interface OutboxEventRepository extends JpaRepository<OutboxEvent, UUID> {
+
+    /** The pending backlog, oldest first — the relay's poll (a later slice). Cross-tenant by design. */
+    List<OutboxEvent> findByPublishedAtIsNullOrderByOccurredAtAsc();
+
+    /** This tenant's events for one aggregate, newest first (used by tests and future reads). */
+    List<OutboxEvent> findByOrganizationIdAndAggregateTypeAndAggregateIdOrderByOccurredAtDesc(
+            UUID organizationId, String aggregateType, UUID aggregateId);
+}
