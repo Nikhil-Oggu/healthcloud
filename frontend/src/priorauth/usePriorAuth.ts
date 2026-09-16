@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api/client'
-import type { PriorAuthStatusChange } from '../api/types'
+import type { CreatePriorAuthorizationRequest, PriorAuthStatusChange } from '../api/types'
 
 export const PRIOR_AUTHS_QUERY_KEY = ['prior-authorizations'] as const
 export const priorAuthKey = (id: string) => ['prior-authorizations', id] as const
@@ -13,6 +13,15 @@ export function usePriorAuthorizations() {
 
 export function usePriorAuthorization(id: string) {
   return useQuery({ queryKey: priorAuthKey(id), queryFn: () => api.getPriorAuthorization(id) })
+}
+
+/** Request a prior authorization (REQUESTED), then refresh the list. */
+export function useCreatePriorAuthorization() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (body: CreatePriorAuthorizationRequest) => api.createPriorAuthorization(body),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: PRIOR_AUTHS_QUERY_KEY }),
+  })
 }
 
 export function usePriorAuthHistory(id: string) {

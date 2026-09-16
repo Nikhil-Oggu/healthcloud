@@ -522,3 +522,12 @@ export interface PriorAuthStatusChange {
   expectedVersion: number
   reason?: string
 }
+
+/** Payload to request a prior authorization (mirrors CreatePriorAuthorizationRequest). */
+export interface CreatePriorAuthorizationRequest {
+  patientId: string
+  coveragePlanId: string
+  procedureCode: string
+  requestedServiceFrom: string // ISO date
+  requestedServiceTo?: string // ISO date, optional
+}

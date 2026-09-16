@@ -56,9 +56,13 @@
   slice 3 ✅ — **prior-auth frontend**: a work queue (`/prior-authorizations`) + detail with a status timeline and
   **Approve/Deny/Cancel** decision buttons (client mirror of `PriorAuthTransitions`, optimistic-locked), a **Prior
   auth** nav button, and the claims adjudication card now renders the **`AUTH_REQUIRED`** line outcome (surfacing
-  slice 2). Frontend-only; no request (create) form yet. **Next Phase-6 slices (not yet built, plan each first):**
-  the prior-auth **request form** (+ optionally a plan-prior-auth-requirement admin card); then referrals,
-  provider network, anomaly signals, manual review, appeals, reprocessing.
+  slice 2). Frontend-only.
+  slice 4 ✅ — **prior-auth request form**: a **New request** form on the queue (requester roles) — patient + plan
+  + procedure (`MedicalCodePicker`) + service dates, RHF+Zod, navigates to the new auth. Prior auth is now
+  complete end-to-end in the browser. **Next Phase-6 slices (not yet built, plan each first):** a
+  plan-prior-auth-requirement **admin card** on the coverage-plan page (so an admin sets which procedures require
+  prior auth in the browser); then referrals, provider network, anomaly signals, manual review, appeals,
+  reprocessing.
 - **Tooling:** HealthCloud-specific **`code-reviewer`** + **`security-reviewer`** subagents now live in
   `.claude/agents/` (read-only; project-aware checklists — tenant isolation, `PatientAccessGuard`, consent/masking,
   one-tx history, financial accumulators). Invoke by name in a fresh session (agent files load at startup).
@@ -138,6 +142,34 @@
   then `curl -b j.txt localhost:8080/api/v1/me`. Reset DB with `./scripts/db-reset.sh`.
 
 ## Log (newest first)
+
+### 2026-09-15 — Phase 6, slice 4 ✅ (prior-authorization request form — create a request in the browser)
+- **Why:** slice 3 gave the queue/detail/decisions but no way to *create* a prior auth in the browser (only the
+  seeded one or the API). This adds a **New request** form, mirroring the claims create form (slice 6).
+  **Frontend-only** — the `POST /api/v1/prior-authorizations` endpoint already exists (slice 1).
+- **`CreatePriorAuthForm`** on the queue page, shown to the requester roles (PROVIDER/CARE_COORDINATOR/ORG_ADMIN,
+  mirroring the backend `REQUEST_ROLES`; a reviewer sees the queue but no form): patient select (`usePatients`),
+  coverage-plan select (`useCoveragePlans`), the reusable **`MedicalCodePicker`** (from claims), and service
+  from/to dates. RHF + Zod mirroring `CreatePriorAuthorizationRequest` with a client `to ≥ from` window check;
+  all fields are strings so no `z.coerce`/3-generic gymnastics (simpler than the claims form). On create it
+  navigates to the new auth's detail (REQUESTED).
+- **Plumbing:** `api/types.ts` (+`CreatePriorAuthorizationRequest`), `api/client.ts` (`createPriorAuthorization`),
+  `priorauth/usePriorAuth.ts` (`useCreatePriorAuthorization`), `PriorAuthorizationsPage.tsx` (renders the form for
+  requester roles, now reads `useCurrentUser`).
+- **Scope boundary:** no plan-prior-auth-requirement **admin UI** yet (a later coverage-UI touch, mirroring the
+  exclusions/fee-schedule cards); no edit/NEEDS_INFO.
+- **Verified — automated:** frontend `npm run typecheck` clean, `npm test` → **74 pass** (+3:
+  `CreatePriorAuthForm.test.tsx` ×2 — requests with the entered patient/plan/procedure/date (asserts the API
+  body), blocks submit when required fields are missing; `PriorAuthorizationsPage.test.tsx` +1 — a requester role
+  sees "New request", a reviewer does not). `npm run build` OK.
+- **Verified — live in browser** (provider@northcare, backend + Vite): opened **Prior auth** → the **New request**
+  form showed only the provider's **assigned** patients (relationship-gated: Fern Fixture + Sam Sample) and the
+  plan options; filled Sam Sample · Standard PPO · 99213 · 2026-08-01 → **Request** → landed on the new
+  **PA-0B49FAD7** detail (REQUESTED, "open-ended"), where as a provider the only action was **Cancel** (not
+  Approve/Deny) — correct role gating.
+- **Files:** +`src/priorauth/CreatePriorAuthForm.tsx` +`CreatePriorAuthForm.test.tsx`; changed `api/types.ts`,
+  `api/client.ts`, `priorauth/usePriorAuth.ts`, `priorauth/PriorAuthorizationsPage.tsx`
+  (+`PriorAuthorizationsPage.test.tsx`), `CLAUDE.md`, `docs/PROGRESS.md`.
 
 ### 2026-09-15 — Phase 6, slice 3 ✅ (prior-authorization frontend — queue + detail + decision actions)
 - **Why:** slices 1–2 were backend-only. This surfaces prior auth in the browser (a reviewer sees the queue and

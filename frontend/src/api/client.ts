@@ -22,6 +22,7 @@ import type {
   PatientEligibility,
   PlanExclusion,
   PlanFeeScheduleEntry,
+  CreatePriorAuthorizationRequest,
   PriorAuthorization,
   PriorAuthorizationStatus,
   PriorAuthorizationSummary,
@@ -332,6 +333,13 @@ export const api = {
     const suffix = q.toString() ? `?${q.toString()}` : ''
     return request<PriorAuthorizationSummary[]>(`/api/v1/prior-authorizations${suffix}`)
   },
+
+  createPriorAuthorization: (body: CreatePriorAuthorizationRequest) =>
+    request<PriorAuthorization>('/api/v1/prior-authorizations', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }),
 
   getPriorAuthorization: (id: string) =>
     request<PriorAuthorization>(`/api/v1/prior-authorizations/${id}`),
