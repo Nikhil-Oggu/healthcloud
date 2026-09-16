@@ -78,7 +78,7 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   Checks: `npm run typecheck`, `npm test` (Vitest), `npm run build`. Node runs from `openjdk@25`'s
   sibling `node@24` — use `export PATH="/opt/homebrew/opt/node@24/bin:$PATH"` in non-interactive shells.
 
-## Current implementation (Phase 1–4 COMPLETE; Phase 5 COMPLETE — slices 1–12 done; MVP (Phase 0–5) feature-complete, engine AND UI. Phase 6 (advanced claims) IN PROGRESS — slices 1–12 done: prior authorization, wired into adjudication, + prior-auth UI (queue/detail/decisions + request form) + plan-prior-auth-requirement admin card, + referrals (backend: care-coordination aggregate + decision lifecycle; + UI: queue/detail/decisions + request form), + appeals (backend: dispute a claim's decision + resolution lifecycle; + UI: queue/detail/decisions + submit form; + overturn wired into re-adjudication), + claim anomaly signals (backend: a deterministic detector + reviewer scan; + UI: Anomalies card + Scan button on the claim detail page) — see docs/PROGRESS.md for status)
+## Current implementation (Phase 1–4 COMPLETE; Phase 5 COMPLETE — slices 1–12 done; MVP (Phase 0–5) feature-complete, engine AND UI. Phase 6 (advanced claims) IN PROGRESS — slices 1–13 done: prior authorization, wired into adjudication, + prior-auth UI (queue/detail/decisions + request form) + plan-prior-auth-requirement admin card, + referrals (backend: care-coordination aggregate + decision lifecycle; + UI: queue/detail/decisions + request form), + appeals (backend: dispute a claim's decision + resolution lifecycle; + UI: queue/detail/decisions + submit form; + overturn wired into re-adjudication), + claim anomaly signals (backend: a deterministic detector + reviewer scan; + UI: Anomalies card + Scan button on the claim detail page), + claim manual review (backend: open/resolve/cancel a review case on a claim) — see docs/PROGRESS.md for status)
 - **Backend packages** under `com.healthcloud`: `organization` (Organization, Facility, FacilityMembership),
   `identity` (AppUser, Role, OrganizationMembership, UserRole), `auth` (SecurityConfig, DevLoginController,
   CurrentUserController/Service, CsrfCookieFilter), `context` (UserContext + UserContextAccessor/Filter),
@@ -360,9 +360,28 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   only claims-domain data (type + severity + a PHI-free `detail` naming other claim numbers / procedure codes) — no
   clinical narrative, no patient identifiers — so **not consent field-masked**. A **rescan replaces** the claim's
   signals (delete + insert in one tx), so scanning is **idempotent** (no `@Version`). **Honest MVP limitation:**
-  detection is a manual reviewer-triggered scan (no auto-trigger at submit/adjudicate yet) and there is no
-  anomaly-resolution/manual-review workflow yet (a later Phase-6 slice). The anomaly UI shipped in slice 12 — the
-  **Anomalies card** on the claim detail page (see `src/claims/` under Frontend below)),
+  detection is a manual reviewer-triggered scan (no auto-trigger at submit/adjudicate yet). The anomaly UI shipped
+  in slice 12 — the **Anomalies card** on the claim detail page (see `src/claims/` under Frontend below)),
+  `claimreview` (Phase 6 slice 13 — manual review: a review case a coordinator/reviewer opens on a claim (often
+  prompted by anomaly signals) and a reviewer resolves. `GET/POST /api/v1/claim-reviews`, `GET .../{id}`,
+  `PATCH .../{id}/status`, `GET .../{id}/history` (+ `?claimId=`, `?status=`), with a server-allocated
+  `review_number` (`MRV-XXXXXXXX`, unique per tenant). Carries the reviewed `claimId` (FK-with-org to `claim`), an
+  optional `reason` (why opened), a `resolution` (the reviewer's conclusion, set on resolve), and the patient's id
+  **denormalized from the loaded claim** (never the client). **Top-level but gated by its patient** (like
+  claim/prior_authorization/referral/appeal): every read routes through `PatientAccessGuard` and the list scopes via
+  `accessiblePatientIdsIfGated` — a provider sees only assigned patients' reviews, a broad role (coordinator/admin/
+  reviewer) sees the tenant's as a work queue; another tenant's is a secure 404. **Not consent field-masked**.
+  **State machine** driven by the pure `ClaimReviewTransitions` policy (the 6th state-machine exemplar): OPEN →
+  RESOLVED (the **CLAIMS_REVIEWER**/ORG_ADMIN disposition — stamps `resolvedBy`/`resolvedAt`) or CANCELLED (the
+  opener roles **CARE_COORDINATOR**/CLAIMS_REVIEWER/ORG_ADMIN); terminal. **A reason is required on EVERY
+  transition** (the resolution conclusion, or a cancellation rationale). Same check order (exists → legal move →
+  role → reason → optimistic `expectedVersion`), status change + a `claim_review_status_history` row in one tx
+  (§31.6, null → OPEN on creation). **Open** loads the claim (gated by its patient → secure 404) and enforces **at
+  most one OPEN review per claim** (a partial unique index `WHERE status='OPEN'` → 409), then stamps the patient
+  from the claim. **Honest MVP limitation:** a review is a **tracking** record — opening one neither holds the claim
+  nor changes its status (the reviewer still uses accept/reject/adjudicate), and it is not structurally linked to
+  specific anomaly signals (signals inform the human). Backend-only so far — the manual-review UI (queue/detail/
+  decisions + open form) is a later slice),
   `devdata` (DevDataSeeder, local-only — also seeds the global `medical_code` catalog once, then a couple of
   synthetic `clinical_summary` rows per assigned patient, one sample DRAFT `claim` (header + two procedure
   lines + its null→DRAFT status-history row) for the first patient, and two `coverage_plan` rows per org (a PPO
@@ -375,8 +394,10 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   on the seeded PPO, and requests one sample REQUESTED `referral` (to Cardiology, reason I10, + its null→REQUESTED
   status-history row) for the first patient so a demo referral queue returns something, and seeds one additional
   REJECTED `claim` (full null→DRAFT→SUBMITTED→REJECTED history — a claim needs a decision to be appealable) plus a
-  SUBMITTED `appeal` on it for the first patient so a demo appeal queue returns something; reference codes are
-  seeded before the orgs so the clinical-summary/claim/referral→catalog FKs are satisfied).
+  SUBMITTED `appeal` on it for the first patient so a demo appeal queue returns something, and opens one OPEN
+  `claim_review` on that same claim (+ its null→OPEN status-history row) so a demo manual-review queue returns
+  something a reviewer can resolve; reference codes are seeded before the orgs so the
+  clinical-summary/claim/referral→catalog FKs are satisfied).
 - **Tenant-owned entity pattern (Phase 2+):** hold `organizationId` as the tenant key; repositories expose
   only org-scoped finders (`findByIdAndOrganizationId`, `findByOrganizationId…`) — no bare `findById` in
   business code; services derive the org from `UserContextAccessor.requireOrganizationId()`. `patient` is
@@ -394,9 +415,10 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   actor and `CorrelationId.current()` on each row. State-machine transitions are validated on the backend.
 - **Pure policy classes:** keep decision logic (state-machine transition tables, the consent evaluator, the
   anomaly detector) in a pure, unit-testable class with no Spring/DB deps — the exemplars are `RequestTransitions`
-  (§14.6 moves), `ClaimTransitions`, `PriorAuthTransitions`, `ReferralTransitions`, `AppealTransitions` (the five
-  state machines), `ConsentPolicy` (§22.5 consent+purpose), and `ClaimAnomalyDetector` (a **detector** — it emits
-  a list of findings rather than gating a transition); a thin service loads data and applies the policy.
+  (§14.6 moves), `ClaimTransitions`, `PriorAuthTransitions`, `ReferralTransitions`, `AppealTransitions`,
+  `ClaimReviewTransitions` (the six state machines), `ConsentPolicy` (§22.5 consent+purpose), and
+  `ClaimAnomalyDetector` (a **detector** — it emits a list of findings rather than gating a transition); a thin
+  service loads data and applies the policy.
 - **State machines:** with the transition table in a pure policy class (`RequestTransitions`, above), the
   service checks, in order, **exists → legal move → role → reason → version**, then
   updates status + appends history in one tx. An illegal move is `INVALID_STATE_TRANSITION` (409), distinct

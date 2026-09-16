@@ -12,6 +12,11 @@ import com.healthcloud.appeal.AppealRepository;
 import com.healthcloud.appeal.AppealStatus;
 import com.healthcloud.appeal.AppealStatusHistory;
 import com.healthcloud.appeal.AppealStatusHistoryRepository;
+import com.healthcloud.claimreview.ClaimReview;
+import com.healthcloud.claimreview.ClaimReviewRepository;
+import com.healthcloud.claimreview.ClaimReviewStatus;
+import com.healthcloud.claimreview.ClaimReviewStatusHistory;
+import com.healthcloud.claimreview.ClaimReviewStatusHistoryRepository;
 import com.healthcloud.claim.Claim;
 import com.healthcloud.claim.ClaimLine;
 import com.healthcloud.claim.ClaimLineRepository;
@@ -110,6 +115,8 @@ public class DevDataSeeder implements ApplicationRunner {
     private final ReferralStatusHistoryRepository referralStatusHistoryRepository;
     private final AppealRepository appealRepository;
     private final AppealStatusHistoryRepository appealStatusHistoryRepository;
+    private final ClaimReviewRepository claimReviewRepository;
+    private final ClaimReviewStatusHistoryRepository claimReviewStatusHistoryRepository;
 
     public DevDataSeeder(OrganizationRepository organizationRepository,
                          AppUserRepository appUserRepository,
@@ -135,7 +142,9 @@ public class DevDataSeeder implements ApplicationRunner {
                          ReferralRepository referralRepository,
                          ReferralStatusHistoryRepository referralStatusHistoryRepository,
                          AppealRepository appealRepository,
-                         AppealStatusHistoryRepository appealStatusHistoryRepository) {
+                         AppealStatusHistoryRepository appealStatusHistoryRepository,
+                         ClaimReviewRepository claimReviewRepository,
+                         ClaimReviewStatusHistoryRepository claimReviewStatusHistoryRepository) {
         this.organizationRepository = organizationRepository;
         this.appUserRepository = appUserRepository;
         this.roleRepository = roleRepository;
@@ -161,6 +170,8 @@ public class DevDataSeeder implements ApplicationRunner {
         this.referralStatusHistoryRepository = referralStatusHistoryRepository;
         this.appealRepository = appealRepository;
         this.appealStatusHistoryRepository = appealStatusHistoryRepository;
+        this.claimReviewRepository = claimReviewRepository;
+        this.claimReviewStatusHistoryRepository = claimReviewStatusHistoryRepository;
     }
 
     @Override
@@ -282,13 +293,16 @@ public class DevDataSeeder implements ApplicationRunner {
 
         // A sample REJECTED claim (its own claim, distinct from the DRAFT one above) + a SUBMITTED appeal on it
         // (Phase 6) for the first patient, so a demo appeal queue returns something a reviewer can uphold/overturn.
+        // seedAppeal also opens a sample manual review on that claim (Phase 6 slice 13) so a demo review queue
+        // returns something a reviewer can resolve.
         seedAppeal(org, patients.get(0), provider);
     }
 
     /**
      * A synthetic REJECTED claim (a claim needs a decision to be appealable) with its full history
      * (null → DRAFT → SUBMITTED → REJECTED), plus one SUBMITTED appeal against it with its creation history row
-     * (null → SUBMITTED), consistent with the claim + appeal state machines (§31.6).
+     * (null → SUBMITTED), consistent with the claim + appeal state machines (§31.6). Also opens one OPEN manual
+     * review on the same claim (null → OPEN) so a demo review queue returns something (Phase 6 slice 13).
      */
     private void seedAppeal(Organization org, Patient patient, AppUser author) {
         BigDecimal officeVisit = new BigDecimal("150.00");
@@ -316,6 +330,14 @@ public class DevDataSeeder implements ApplicationRunner {
         appealStatusHistoryRepository.save(new AppealStatusHistory(
                 org.getId(), appeal.getId(), null, AppealStatus.SUBMITTED, author.getId(),
                 "Appeal submitted", null));
+
+        ClaimReview review = claimReviewRepository.save(new ClaimReview(
+                org.getId(), claim.getId(), patient.getId(),
+                "MRV-" + org.getId().toString().substring(0, 4).toUpperCase() + "01",
+                "Flagged for manual review — anomaly signals on this claim.", author.getId()));
+        claimReviewStatusHistoryRepository.save(new ClaimReviewStatusHistory(
+                org.getId(), review.getId(), null, ClaimReviewStatus.OPEN, author.getId(),
+                "Review opened", null));
     }
 
     /**

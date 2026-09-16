@@ -115,8 +115,15 @@
   New `api`/`types` methods (`scanClaimAnomalies`/`listClaimAnomalies`, `ClaimAnomalySignal`) + `anomalySeverityColor`.
   Frontend-only; live-verified end-to-end (a duplicate claim scans to a HIGH DUPLICATE_CLAIM signal). Anomaly signals
   are now complete in the browser.
-  **Next Phase-6 slices (not yet built, plan each first):** provider network, manual review (an anomaly-resolution
-  workflow on top of these signals), reprocessing.
+  slice 13 ✅ — **claim manual review (backend)**: a new top-level, patient-gated `claim_review` aggregate (the 7th
+  decision aggregate) — a review case a coordinator/reviewer opens on a claim (often prompted by anomaly signals) and
+  a reviewer resolves. Pure `ClaimReviewTransitions` state machine — OPEN → RESOLVED (**CLAIMS_REVIEWER**/ORG_ADMIN,
+  stamps the resolver + conclusion) / CANCELLED (opener roles), reason required on every transition — one-tx status +
+  history, `MRV-XXXXXXXX` number, **at most one OPEN review per claim** (partial unique index → 409). `GET/POST
+  /api/v1/claim-reviews` + `.../{id}` + `PATCH .../{id}/status` + `.../{id}/history`. Migration V31. A **tracking**
+  record: doesn't hold the claim or change its status. Seeder opens one demo review. Backend-only.
+  **Next Phase-6 slices (not yet built, plan each first):** provider network, reprocessing; + a manual-review UI
+  (queue/detail/decisions + open form).
 - **Tooling:** HealthCloud-specific **`code-reviewer`** + **`security-reviewer`** subagents now live in
   `.claude/agents/` (read-only; project-aware checklists — tenant isolation, `PatientAccessGuard`, consent/masking,
   one-tx history, financial accumulators). Invoke by name in a fresh session (agent files load at startup).
@@ -196,6 +203,37 @@
   then `curl -b j.txt localhost:8080/api/v1/me`. Reset DB with `./scripts/db-reset.sh`.
 
 ## Log (newest first)
+
+### 2026-09-16 — Phase 6, slice 13 ✅ (claim manual review — open/resolve/cancel a review case on a claim, backend)
+- **Why:** the "manual review" item on Phase 6's advanced-claims list, and the durable human workflow on top of
+  slice-11 anomaly signals (which are advisory and replaced on every rescan, so a poor home for a human decision).
+  The **7th decision aggregate** — a near-mirror of appeal — so it reuses the whole established pattern.
+  **Backend-only.**
+- **New package `com.healthcloud.claimreview`** (13 classes): `ClaimReviewStatus` (OPEN/RESOLVED/CANCELLED),
+  `ClaimReview` (entity — claimId + patientId denormalized from the claim + reviewNumber `MRV-XXXXXXXX` + reason
+  (why opened) + resolution (the conclusion) + openedBy/resolvedBy/resolvedAt + @Version; `resolve()`),
+  `ClaimReviewStatusHistory`, `ClaimReviewTransitions` (pure policy — the 6th state machine: OPEN → RESOLVED
+  [CLAIMS_REVIEWER/ORG_ADMIN] / CANCELLED [opener roles CARE_COORDINATOR/CLAIMS_REVIEWER/ORG_ADMIN]; reason required
+  on every transition; isDecision=RESOLVED), repositories, DTOs (`ClaimReviewDto`/`SummaryDto`/`StatusHistoryDto`),
+  `CreateClaimReviewRequest`/`ClaimReviewStatusChangeRequest`, `ClaimReviewService`, `ClaimReviewController`.
+- **`ClaimReviewService`** mirrors `AppealService`: **open** requires an opener role + a reachable claim (patient-gated
+  → secure 404) + **no existing OPEN review** (409), stamps the patient from the claim; **changeStatus** checks
+  exists → legal move → role → reason → optimistic version, resolves (stamping the resolver) or cancels, status +
+  history in one tx; list scoped via `accessiblePatientIdsIfGated`.
+- **Migration V31 `claim_review` + `claim_review_status_history`:** FK-with-org to both `claim` and `patient`
+  (§32.10), `UNIQUE(org, review_number)` + `UNIQUE(id, org)`, a **partial unique index on `(org, claim_id) WHERE
+  status='OPEN'`** (one open review per claim), indexes on (org,status)/(org,claim_id)/(org,patient_id).
+- **Seeder:** opens one OPEN review (MRV-…01) on the seeded REJECTED claim so a demo review queue returns something.
+- **Tests (+16 → 359 backend, all green via `./mvnw -B clean verify`):** `ClaimReviewTransitionsTest` (5, pure) +
+  `ClaimReviewApiIntegrationTest` (11, RANDOM_PORT + real PG — open creates OPEN with an MRV number; a reviewer
+  resolves; resolve requires a reason; a coordinator opens+cancels but **can't resolve** (403); duplicate open → 409;
+  illegal transition → 409; stale version → 409; a provider sees only assigned patients' reviews; cross-tenant →
+  secure 404; unauthenticated → 401).
+- **Docs:** CLAUDE.md new `claimreview` blurb + `ClaimReviewTransitions` in the pure-policy convention + seeder blurb
+  + Phase-6 header 1–12 → 1–13.
+- **Honest MVP limitations:** a review is a **tracking** record — opening one neither holds the claim nor changes its
+  status (the reviewer still uses accept/reject/adjudicate); not structurally linked to specific anomaly signals; no
+  UI yet (a manual-review queue/detail is a later slice).
 
 ### 2026-09-16 — Phase 6, slice 12 ✅ (anomaly UI — Anomalies card + Scan button on the claim detail page)
 - **Why:** slice 11 shipped the anomaly-detection backend; this puts it in the browser (the backend-then-UI rhythm),
