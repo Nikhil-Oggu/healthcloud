@@ -130,9 +130,10 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   candidate-picker read for the assignment UI — `GET .../provider-assignments/candidates` and
   `.../coordinator-assignments/candidates` (coordinator/admin-gated, patient-tenant-scoped → secure 404):
   same-tenant users holding the required role, minus anyone already currently assigned, minimum-necessary
-  (`AssignmentCandidateDto{userId, fullName}`). `DevDataSeeder` assigns each provider to 2 of 3 patients and
-  the coordinator to 2 of 3, and links the `patient@` login to patient Sam Sample (index 0) so a PATIENT user
-  has their own profile for self-service),
+  (`AssignmentCandidateDto{userId, fullName}`). `DevDataSeeder` assigns the primary provider (Dana) to 2 of 3
+  patients and the coordinator to 2 of 3 (the second provider, Morgan, is left unassigned — see the provider
+  network note under `coverage`/`devdata`), and links the `patient@` login to patient Sam Sample (index 0) so a
+  PATIENT user has their own profile for self-service),
   `document` (Phase 3 — secure patient documents §19: `GET/POST /api/v1/patients/{id}/documents`,
   `GET .../documents/{docId}/content`. Metadata lives in `patient_document` (tenant key, `patient_id`,
   `file_name`/`content_type`/`size_bytes`, opaque `storage_key`, `scan_status` PENDING/CLEAN/QUARANTINED,
@@ -244,9 +245,10 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   catalog code: because `app_user` is not tenant-keyed there is no FK-with-org on the provider; the service
   validates it is an **active same-tenant PROVIDER** (else 400, no existence leak) via the identity repos, exactly
   as `ProviderPatientAssignmentService` does, and offers a candidate picker (same-tenant PROVIDERs not already in
-  the network → `AssignmentCandidateDto`). **Inert config this slice** — the claim gains a rendering provider and
-  the engine marks an out-of-network line `OUT_OF_NETWORK` in later slices (a plan with no network rows imposes no
-  restriction; opt-in). Immutable (no `@Version`)),
+  the network → `AssignmentCandidateDto`). **The adjudication engine reads this** (slice 19): a covered line on a
+  claim whose rendering provider is not in the covering plan's network adjudicates `OUT_OF_NETWORK` (a plan with no
+  network rows imposes no restriction; opt-in). Managed in the browser via the coverage-plan detail page's Network
+  providers card (slice 20). Immutable (no `@Version`)),
   `adjudication` (Phase 5 — the basic synthetic claims-adjudication engine: `POST /api/v1/claims/{id}/adjudicate`
   + `GET /api/v1/claims/{id}/adjudication`. It turns an **ACCEPTED** claim into a deterministic, explainable
   `adjudication` (header + `adjudication_line` breakdown): it finds the coverage in effect on the claim's
@@ -427,7 +429,8 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   **Honest MVP limitations:** synchronous (the async/recoverable outbox+worker version is Phase 8 — a crashed
   batch can be left `RUNNING` with no recovery yet); scope is a single coverage plan (no date-range/all-plans); no
   Idempotency-Key (each POST is an intentional new batch); each claim is reversed/recomputed independently (the
-  slice-11 limitation carries over). Backend-only so far — the reprocessing UI is a later slice),
+  slice-11 limitation carries over). The reprocessing UI (batch queue/detail + Run form) shipped in slice 16 (see
+  `src/reprocessing/` under Frontend below)),
   `devdata` (DevDataSeeder, local-only — also seeds the global `medical_code` catalog once, then a couple of
   synthetic `clinical_summary` rows per assigned patient, one sample DRAFT `claim` (header + two procedure
   lines + its null→DRAFT status-history row) for the first patient, and two `coverage_plan` rows per org (a PPO
