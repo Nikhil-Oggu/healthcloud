@@ -78,7 +78,7 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   Checks: `npm run typecheck`, `npm test` (Vitest), `npm run build`. Node runs from `openjdk@25`'s
   sibling `node@24` — use `export PATH="/opt/homebrew/opt/node@24/bin:$PATH"` in non-interactive shells.
 
-## Current implementation (Phase 1–4 COMPLETE; Phase 5 COMPLETE — slices 1–12 done; MVP (Phase 0–5) feature-complete, engine AND UI. Phase 6 (advanced claims) IN PROGRESS — slices 1–8 done: prior authorization, wired into adjudication, + prior-auth UI (queue/detail/decisions + request form) + plan-prior-auth-requirement admin card, + referrals (backend: care-coordination aggregate + decision lifecycle; + UI: queue/detail/decisions + request form), + appeals (backend: dispute a claim's decision + resolution lifecycle; + UI: queue/detail/decisions + submit form) — see docs/PROGRESS.md for status)
+## Current implementation (Phase 1–4 COMPLETE; Phase 5 COMPLETE — slices 1–12 done; MVP (Phase 0–5) feature-complete, engine AND UI. Phase 6 (advanced claims) IN PROGRESS — slices 1–9 done: prior authorization, wired into adjudication, + prior-auth UI (queue/detail/decisions + request form) + plan-prior-auth-requirement admin card, + referrals (backend: care-coordination aggregate + decision lifecycle; + UI: queue/detail/decisions + request form), + appeals (backend: dispute a claim's decision + resolution lifecycle; + UI: queue/detail/decisions + submit form) — see docs/PROGRESS.md for status)
 - **Backend packages** under `com.healthcloud`: `organization` (Organization, Facility, FacilityMembership),
   `identity` (AppUser, Role, OrganizationMembership, UserRole), `auth` (SecurityConfig, DevLoginController,
   CurrentUserController/Service, CsrfCookieFilter), `context` (UserContext + UserContextAccessor/Filter),
@@ -172,7 +172,8 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   row in one tx (null→DRAFT on creation). Submitting **validates** the claim (≥1 line, total > 0 → else 400).
   `ADJUDICATED` is structurally reachable from ACCEPTED but **engine-owned** — a bare status change to it is
   refused (reserved for the Phase-5 adjudication engine, like `ASSIGNED` on requests). Reason required to
-  reject/cancel. Backend-only so far),
+  reject/cancel. The claims UI (work queue + detail + lifecycle actions + adjudication) shipped in Phase 5
+  (see `src/claims/` under Frontend below)),
   `clinical` (Phase 4 — clinical summaries: `GET/POST /api/v1/patients/{patientId}/clinical-summaries`,
   `GET .../clinical-summaries/{id}`. A short clinical note about a patient encounter, pointing at an ICD-10-CM
   diagnosis from the global `medical_code` catalog. **Tenant-owned + patient-scoped**, so it reuses the whole
@@ -186,8 +187,9 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   is its `PatientFieldPolicy`-shaped map; the DTO blanks it to `null` + lists it in `maskedFields`. The
   structured diagnosis **code stays visible** so a caller sees the coded, claim-relevant diagnosis without the
   unrestricted narrative — the first half of the Phase-4 §60 proof. Writes require PROVIDER (must be actively
-  assigned)/CARE_COORDINATOR/ORG_ADMIN; write responses are unmasked. Backend-only so far — a UI arrives with the
-  clinical/claims frontend slice. The broader "a CLAIMS_REVIEWER sees claims data *regardless* of consent"
+  assigned)/CARE_COORDINATOR/ORG_ADMIN; write responses are unmasked. Backend-only so far — no clinical-summaries
+  UI yet (the consent-masked narrative surfaces on the patient detail page in a later slice). The broader "a
+  CLAIMS_REVIEWER sees claims data *regardless* of consent"
   business-need rule is still the deferred permission-matrix work),
   `coding` (Phase 4 — the medical code catalog: `GET /api/v1/medical-codes?system=&q=` search +
   `GET /api/v1/medical-codes/{system}/{code}` single lookup. ICD-10-CM diagnoses + HCPCS/CPT procedures — the
@@ -513,7 +515,8 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   service date (≤ today, mirroring the backend `@PastOrPresent`), and a `useFieldArray` of lines each with a
   reusable **`MedicalCodePicker`** (an MUI Autocomplete, freeSolo + debounced, searching the catalog via
   `GET /api/v1/medical-codes` filtered to PROCEDURE codes) + units + charge; on create it navigates to the new
-  claim. No exclusions/coverage-plan/eligibility admin UI yet — later slices), and
+  claim. The coverage-plan/exclusions/fee-schedule/eligibility admin UIs shipped in later slices — see
+  `src/coverage/` next), and
   `src/coverage/` (Phase 5 slice 7 — the **coverage admin UI**: a plans list `coverage-plans` with a New-plan
   form (ORG_ADMIN; reads open to same-tenant staff), and a plan **detail** `coverage-plans/:id` with an
   **Exclusions card** — add via the reusable `MedicalCodePicker` / remove, ORG_ADMIN — reusing the slice-6 picker,
