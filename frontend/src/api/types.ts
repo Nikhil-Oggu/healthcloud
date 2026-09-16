@@ -469,6 +469,19 @@ export interface AddFeeScheduleRequest {
   allowedAmount: number
 }
 
+/** A procedure a plan requires prior authorization for (mirrors PlanPriorAuthRequirementDto). */
+export interface PlanPriorAuthRequirement {
+  id: string
+  coveragePlanId: string
+  codeSystem: CodeSystem
+  code: string
+}
+
+/** Payload to require prior auth for a procedure on a plan (ORG_ADMIN); the backend resolves + validates the code. */
+export interface AddPriorAuthRequirementRequest {
+  procedureCode: string
+}
+
 // --- Prior authorization (§Phase 6) --------------------------------------
 
 /** The prior-authorization lifecycle states (mirrors PriorAuthorizationStatus). */

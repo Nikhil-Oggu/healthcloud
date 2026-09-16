@@ -1,11 +1,18 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api/client'
-import type { AddFeeScheduleRequest, AddPlanExclusionRequest, CreateCoveragePlanRequest } from '../api/types'
+import type {
+  AddFeeScheduleRequest,
+  AddPlanExclusionRequest,
+  AddPriorAuthRequirementRequest,
+  CreateCoveragePlanRequest,
+} from '../api/types'
 
 export const COVERAGE_PLANS_QUERY_KEY = ['coverage-plans'] as const
 export const coveragePlanKey = (id: string) => ['coverage-plans', id] as const
 export const exclusionsKey = (id: string) => ['coverage-plans', id, 'exclusions'] as const
 export const feeScheduleKey = (id: string) => ['coverage-plans', id, 'fee-schedule'] as const
+export const priorAuthRequirementsKey = (id: string) =>
+  ['coverage-plans', id, 'prior-auth-requirements'] as const
 
 /** The current tenant's coverage plans (reads open to any same-tenant user). */
 export function useCoveragePlans() {
@@ -66,5 +73,30 @@ export function useRemoveFeeSchedule(planId: string) {
   return useMutation({
     mutationFn: (entryId: string) => api.removeFeeSchedule(planId, entryId),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: feeScheduleKey(planId) }),
+  })
+}
+
+export function usePriorAuthRequirements(planId: string) {
+  return useQuery({
+    queryKey: priorAuthRequirementsKey(planId),
+    queryFn: () => api.listPriorAuthRequirements(planId),
+  })
+}
+
+/** Require prior auth for a procedure on a plan, then refresh that plan's requirement list. */
+export function useAddPriorAuthRequirement(planId: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (body: AddPriorAuthRequirementRequest) => api.addPriorAuthRequirement(planId, body),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: priorAuthRequirementsKey(planId) }),
+  })
+}
+
+/** Remove a prior-auth requirement from a plan, then refresh that plan's requirement list. */
+export function useRemovePriorAuthRequirement(planId: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (requirementId: string) => api.removePriorAuthRequirement(planId, requirementId),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: priorAuthRequirementsKey(planId) }),
   })
 }

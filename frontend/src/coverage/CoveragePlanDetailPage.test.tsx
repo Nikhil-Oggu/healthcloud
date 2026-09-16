@@ -7,7 +7,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { api } from '../api/client'
 import { useCurrentUser } from '../auth/useAuth'
 import { CoveragePlanDetailPage } from './CoveragePlanDetailPage'
-import type { CoveragePlan, CurrentUser, PlanExclusion, PlanFeeScheduleEntry } from '../api/types'
+import type {
+  CoveragePlan,
+  CurrentUser,
+  PlanExclusion,
+  PlanFeeScheduleEntry,
+  PlanPriorAuthRequirement,
+} from '../api/types'
 
 vi.mock('../api/client', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../api/client')>()
@@ -22,6 +28,9 @@ vi.mock('../api/client', async (importOriginal) => {
       listFeeSchedule: vi.fn(),
       addFeeSchedule: vi.fn(),
       removeFeeSchedule: vi.fn(),
+      listPriorAuthRequirements: vi.fn(),
+      addPriorAuthRequirement: vi.fn(),
+      removePriorAuthRequirement: vi.fn(),
       searchMedicalCodes: vi.fn(),
     },
   }
@@ -35,6 +44,9 @@ const removeExclusion = vi.mocked(api.removeExclusion)
 const listFeeSchedule = vi.mocked(api.listFeeSchedule)
 const addFeeSchedule = vi.mocked(api.addFeeSchedule)
 const removeFeeSchedule = vi.mocked(api.removeFeeSchedule)
+const listPriorAuthRequirements = vi.mocked(api.listPriorAuthRequirements)
+const addPriorAuthRequirement = vi.mocked(api.addPriorAuthRequirement)
+const removePriorAuthRequirement = vi.mocked(api.removePriorAuthRequirement)
 const searchMedicalCodes = vi.mocked(api.searchMedicalCodes)
 const useCurrentUserMock = vi.mocked(useCurrentUser)
 
@@ -47,6 +59,9 @@ const EXCLUSIONS: PlanExclusion[] = [
 ]
 const FEE_SCHEDULE: PlanFeeScheduleEntry[] = [
   { id: 'fs1', coveragePlanId: 'pl1', codeSystem: 'CPT', code: '99213', allowedAmount: 110 },
+]
+const PRIOR_AUTH_REQUIREMENTS: PlanPriorAuthRequirement[] = [
+  { id: 'pa1', coveragePlanId: 'pl1', codeSystem: 'CPT', code: '99214' },
 ]
 
 function mockUser(roles: string[]) {
@@ -76,6 +91,7 @@ describe('CoveragePlanDetailPage', () => {
     searchMedicalCodes.mockResolvedValue([])
     listExclusions.mockResolvedValue([])
     listFeeSchedule.mockResolvedValue([])
+    listPriorAuthRequirements.mockResolvedValue([])
   })
 
   it('renders the plan parameters and its exclusions', async () => {
@@ -162,5 +178,46 @@ describe('CoveragePlanDetailPage', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Remove' }))
 
     await waitFor(() => expect(removeFeeSchedule).toHaveBeenCalledWith('pl1', 'fs1'))
+  })
+
+  it('renders a prior-auth requirement', async () => {
+    mockUser(['CLAIMS_REVIEWER'])
+    listPriorAuthRequirements.mockResolvedValue(PRIOR_AUTH_REQUIREMENTS)
+
+    renderDetail(<CoveragePlanDetailPage />)
+
+    expect(await screen.findByText(/Standard PPO/)).toBeInTheDocument()
+    // The prior-auth requirement list loads from its own query.
+    expect(await screen.findByText('99214')).toBeInTheDocument()
+    // A non-admin sees no add control.
+    expect(screen.queryByLabelText('Require prior auth for a procedure')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Add requirement' })).not.toBeInTheDocument()
+  })
+
+  it('an admin can add a prior-auth requirement via the picker', async () => {
+    mockUser(['ORG_ADMIN'])
+    addPriorAuthRequirement.mockResolvedValue({ id: 'pa2', coveragePlanId: 'pl1', codeSystem: 'CPT', code: '99214' })
+
+    renderDetail(<CoveragePlanDetailPage />)
+    await screen.findByText(/Standard PPO/)
+
+    await userEvent.type(screen.getByLabelText('Require prior auth for a procedure'), '99214')
+    await userEvent.click(screen.getByRole('button', { name: 'Add requirement' }))
+
+    await waitFor(() =>
+      expect(addPriorAuthRequirement).toHaveBeenCalledWith('pl1', { procedureCode: '99214' }))
+  })
+
+  it('an admin can remove a prior-auth requirement', async () => {
+    mockUser(['ORG_ADMIN'])
+    listPriorAuthRequirements.mockResolvedValue(PRIOR_AUTH_REQUIREMENTS)
+    removePriorAuthRequirement.mockResolvedValue(undefined)
+
+    renderDetail(<CoveragePlanDetailPage />)
+    await screen.findByText('99214')
+
+    await userEvent.click(screen.getByRole('button', { name: 'Remove' }))
+
+    await waitFor(() => expect(removePriorAuthRequirement).toHaveBeenCalledWith('pl1', 'pa1'))
   })
 })

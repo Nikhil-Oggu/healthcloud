@@ -8,6 +8,7 @@ import type {
   AssignRequest,
   AddPlanExclusionRequest,
   AddFeeScheduleRequest,
+  AddPriorAuthRequirementRequest,
   Claim,
   ClaimStatusChange,
   ClaimStatusHistory,
@@ -22,6 +23,7 @@ import type {
   PatientEligibility,
   PlanExclusion,
   PlanFeeScheduleEntry,
+  PlanPriorAuthRequirement,
   CreatePriorAuthorizationRequest,
   PriorAuthorization,
   PriorAuthorizationStatus,
@@ -391,6 +393,21 @@ export const api = {
 
   removeFeeSchedule: (planId: string, entryId: string) =>
     request<void>(`/api/v1/coverage-plans/${planId}/fee-schedule/${entryId}`, { method: 'DELETE' }),
+
+  listPriorAuthRequirements: (planId: string) =>
+    request<PlanPriorAuthRequirement[]>(`/api/v1/coverage-plans/${planId}/prior-auth-requirements`),
+
+  addPriorAuthRequirement: (planId: string, body: AddPriorAuthRequirementRequest) =>
+    request<PlanPriorAuthRequirement>(`/api/v1/coverage-plans/${planId}/prior-auth-requirements`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }),
+
+  removePriorAuthRequirement: (planId: string, requirementId: string) =>
+    request<void>(`/api/v1/coverage-plans/${planId}/prior-auth-requirements/${requirementId}`, {
+      method: 'DELETE',
+    }),
 
   // --- Patient eligibility (§Phase 4/5) ---
   listEligibility: (patientId: string) =>

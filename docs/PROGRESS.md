@@ -59,10 +59,14 @@
   slice 2). Frontend-only.
   slice 4 ✅ — **prior-auth request form**: a **New request** form on the queue (requester roles) — patient + plan
   + procedure (`MedicalCodePicker`) + service dates, RHF+Zod, navigates to the new auth. Prior auth is now
-  complete end-to-end in the browser. **Next Phase-6 slices (not yet built, plan each first):** a
-  plan-prior-auth-requirement **admin card** on the coverage-plan page (so an admin sets which procedures require
-  prior auth in the browser); then referrals, provider network, anomaly signals, manual review, appeals,
-  reprocessing.
+  complete end-to-end in the browser.
+  slice 5 ✅ — **plan-prior-auth-requirement admin card**: a **Prior-auth requirements** card on the coverage-plan
+  detail page (`src/coverage/CoveragePlanDetailPage.tsx`) — lists a plan's procedures that require prior auth,
+  add via the reusable `MedicalCodePicker` / remove, ORG_ADMIN (a near-twin of the Exclusions card), backed by
+  new `useCoverage` hooks + `api` methods against the slice-2 `.../prior-auth-requirements` endpoints. So an admin
+  now manages the slice-2 requirement in the browser (closing the last "no admin UI yet" gap). Frontend-only.
+  **Next Phase-6 slices (not yet built, plan each first):** referrals, provider network, anomaly signals, manual
+  review, appeals, reprocessing.
 - **Tooling:** HealthCloud-specific **`code-reviewer`** + **`security-reviewer`** subagents now live in
   `.claude/agents/` (read-only; project-aware checklists — tenant isolation, `PatientAccessGuard`, consent/masking,
   one-tx history, financial accumulators). Invoke by name in a fresh session (agent files load at startup).
@@ -142,6 +146,34 @@
   then `curl -b j.txt localhost:8080/api/v1/me`. Reset DB with `./scripts/db-reset.sh`.
 
 ## Log (newest first)
+
+### 2026-09-16 — Phase 6, slice 5 ✅ (plan-prior-auth-requirement admin card — set which procedures need prior auth in the browser)
+- **Why:** slice 2 built the `plan_prior_auth_requirement` backend (the config the engine reads to mark a line
+  `AUTH_REQUIRED`) but left "no plan-prior-auth-requirement admin UI yet" as the last Phase-6 UI gap — an admin
+  could only manage it via the API or the seeder. This adds the browser surface. **Frontend-only** — the
+  `GET/POST/DELETE /api/v1/coverage-plans/{planId}/prior-auth-requirements` endpoints already exist (slice 2).
+- **`PriorAuthRequirementsCard`** on the coverage-plan detail page (`src/coverage/CoveragePlanDetailPage.tsx`),
+  rendered after the Fee schedule card — a **near-twin of the Exclusions card** (code list + remove; add via the
+  reusable `MedicalCodePicker`, no amount field). Reads open to same-tenant staff; the add/remove controls show
+  only to ORG_ADMIN (`canAdmin`), matching the backend gate — the server still enforces it. Copy explains the
+  effect: a claim line billing one of these procedures adjudicates as needing prior authorization unless an
+  approved authorization covers the service date.
+- **Plumbing (mirrors the exclusion pattern exactly):** `api/types.ts` (+`PlanPriorAuthRequirement`,
+  `AddPriorAuthRequirementRequest`), `api/client.ts` (`listPriorAuthRequirements`/`addPriorAuthRequirement`/
+  `removePriorAuthRequirement`), `coverage/useCoverage.ts` (`priorAuthRequirementsKey` +
+  `usePriorAuthRequirements`/`useAddPriorAuthRequirement`/`useRemovePriorAuthRequirement`, invalidating the list
+  on success). No backend, no migration, no new form library (matches the sibling cards' `useState` add control).
+- **Verified — automated:** frontend `npm run typecheck` clean, `npm test` → **77 pass** (+3 in
+  `CoveragePlanDetailPage.test.tsx`: renders a requirement + a non-admin sees no add/remove control; an admin adds
+  via the picker (asserts `addPriorAuthRequirement('pl1', {procedureCode:'99214'})`); an admin removes (asserts
+  `removePriorAuthRequirement('pl1','pa1')`)). `npm run build` OK.
+- **Verified — live** (admin@northcare, backend + Vite, fresh db-reset): the PPO detail page showed the
+  **Prior-auth requirements** card with the seeded **99214** (CPT) + a REMOVE button; typed 99213 into the picker
+  (debounced catalog search surfaced the option), **Add requirement** → 99213 appeared alongside 99214 live, then
+  **Remove** → back to just 99214. Also API round-trip via curl: add real code → 201, add unknown 99215 → 400
+  `VALIDATION_FAILED` (backend code validation), remove → 204.
+- **Files:** changed `src/api/types.ts`, `src/api/client.ts`, `src/coverage/useCoverage.ts`,
+  `src/coverage/CoveragePlanDetailPage.tsx` (+`CoveragePlanDetailPage.test.tsx`), `CLAUDE.md`, `docs/PROGRESS.md`.
 
 ### 2026-09-15 — Phase 6, slice 4 ✅ (prior-authorization request form — create a request in the browser)
 - **Why:** slice 3 gave the queue/detail/decisions but no way to *create* a prior auth in the browser (only the

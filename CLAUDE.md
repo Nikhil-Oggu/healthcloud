@@ -78,7 +78,7 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   Checks: `npm run typecheck`, `npm test` (Vitest), `npm run build`. Node runs from `openjdk@25`'s
   sibling `node@24` — use `export PATH="/opt/homebrew/opt/node@24/bin:$PATH"` in non-interactive shells.
 
-## Current implementation (Phase 1–4 COMPLETE; Phase 5 COMPLETE — slices 1–12 done; MVP (Phase 0–5) feature-complete, engine AND UI. Phase 6 (advanced claims) IN PROGRESS — slices 1–4 done: prior authorization, wired into adjudication, + prior-auth UI (queue/detail/decisions + request form) — see docs/PROGRESS.md for status)
+## Current implementation (Phase 1–4 COMPLETE; Phase 5 COMPLETE — slices 1–12 done; MVP (Phase 0–5) feature-complete, engine AND UI. Phase 6 (advanced claims) IN PROGRESS — slices 1–5 done: prior authorization, wired into adjudication, + prior-auth UI (queue/detail/decisions + request form) + plan-prior-auth-requirement admin card — see docs/PROGRESS.md for status)
 - **Backend packages** under `com.healthcloud`: `organization` (Organization, Facility, FacilityMembership),
   `identity` (AppUser, Role, OrganizationMembership, UserRole), `auth` (SecurityConfig, DevLoginController,
   CurrentUserController/Service, CsrfCookieFilter), `context` (UserContext + UserContextAccessor/Filter),
@@ -474,7 +474,10 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   form (ORG_ADMIN; reads open to same-tenant staff), and a plan **detail** `coverage-plans/:id` with an
   **Exclusions card** — add via the reusable `MedicalCodePicker` / remove, ORG_ADMIN — reusing the slice-6 picker,
   and (slice 10) a **Fee schedule card** — the priced procedures (code + allowed amount), add via the picker + an
-  allowed-amount field / remove, ORG_ADMIN — so the slice-9 fee schedule is manageable in the browser.
+  allowed-amount field / remove, ORG_ADMIN — so the slice-9 fee schedule is manageable in the browser,
+  and (Phase 6 slice 5) a **Prior-auth requirements card** — the procedures that require prior auth (a near-twin
+  of the Exclusions card: code list + add via the picker / remove, ORG_ADMIN) — so the slice-2
+  `plan_prior_auth_requirement` config is manageable in the browser.
   Slice 8 added **`src/coverage/useEligibility.ts`** and a **Coverage eligibility** card on the *patient detail*
   page (`src/patients/PatientDetailPage.tsx`, after Care team) — lists a patient's enrollments (plan · member ID ·
   effective period, "Open-ended" for a null end) with an **Enroll in a plan** form (CARE_COORDINATOR/ORG_ADMIN;
@@ -494,7 +497,9 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   the requester roles PROVIDER/CARE_COORDINATOR/ORG_ADMIN, mirroring `CreateClaimForm`) — patient select, plan
   select (`useCoveragePlans`), the reusable `MedicalCodePicker`, and service from/to dates; RHF+Zod mirroring
   `CreatePriorAuthorizationRequest` (all string fields, so no `z.coerce`/3-generic needed), on create navigates to
-  the new auth. No plan-prior-auth-requirement admin UI yet — a later coverage-UI touch.
+  the new auth. Slice 5 added the **plan-prior-auth-requirement admin card** on the coverage-plan detail page (see
+  the `src/coverage/` Prior-auth requirements card above), so an admin sets which procedures require prior auth in
+  the browser.
 - **Consent/field masking in the UI (Phase 3+):** the backend already withholds masked values, so the SPA only
   *displays* the state — render a "Restricted"/placeholder for a `null` consent-controlled field (named in
   `maskedFields`); never assume a field is present. This is display-only, not a security control.
