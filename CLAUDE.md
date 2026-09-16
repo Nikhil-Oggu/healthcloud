@@ -78,7 +78,7 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   Checks: `npm run typecheck`, `npm test` (Vitest), `npm run build`. Node runs from `openjdk@25`'s
   sibling `node@24` — use `export PATH="/opt/homebrew/opt/node@24/bin:$PATH"` in non-interactive shells.
 
-## Current implementation (Phase 1–4 COMPLETE; Phase 5 COMPLETE — slices 1–12 done; MVP (Phase 0–5) feature-complete, engine AND UI. Phase 6 (advanced claims) IN PROGRESS — slices 1–16 done: prior authorization, wired into adjudication, + prior-auth UI (queue/detail/decisions + request form) + plan-prior-auth-requirement admin card, + referrals (backend: care-coordination aggregate + decision lifecycle; + UI: queue/detail/decisions + request form), + appeals (backend: dispute a claim's decision + resolution lifecycle; + UI: queue/detail/decisions + submit form; + overturn wired into re-adjudication), + claim anomaly signals (backend: a deterministic detector + reviewer scan; + UI: Anomalies card + Scan button on the claim detail page), + claim manual review (backend: open/resolve/cancel a review case on a claim; + UI: queue/detail/decisions + open form), + reprocessing (backend: batch re-adjudication of a coverage plan's claims after a config change; + UI: batch queue/detail + Run form) — see docs/PROGRESS.md for status)
+## Current implementation (Phase 1–4 COMPLETE; Phase 5 COMPLETE — slices 1–12 done; MVP (Phase 0–5) feature-complete, engine AND UI. Phase 6 (advanced claims) IN PROGRESS — slices 1–17 done: prior authorization, wired into adjudication, + prior-auth UI (queue/detail/decisions + request form) + plan-prior-auth-requirement admin card, + referrals (backend: care-coordination aggregate + decision lifecycle; + UI: queue/detail/decisions + request form), + appeals (backend: dispute a claim's decision + resolution lifecycle; + UI: queue/detail/decisions + submit form; + overturn wired into re-adjudication), + claim anomaly signals (backend: a deterministic detector + reviewer scan; + UI: Anomalies card + Scan button on the claim detail page), + claim manual review (backend: open/resolve/cancel a review case on a claim; + UI: queue/detail/decisions + open form), + reprocessing (backend: batch re-adjudication of a coverage plan's claims after a config change; + UI: batch queue/detail + Run form), + provider network config (backend: which PROVIDERs are in a coverage plan's network — inert until wired into adjudication in a later slice) — see docs/PROGRESS.md for status)
 - **Backend packages** under `com.healthcloud`: `organization` (Organization, Facility, FacilityMembership),
   `identity` (AppUser, Role, OrganizationMembership, UserRole), `auth` (SecurityConfig, DevLoginController,
   CurrentUserController/Service, CsrfCookieFilter), `context` (UserContext + UserContextAccessor/Filter),
@@ -229,7 +229,17 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   a plan): `GET/POST /api/v1/coverage-plans/{planId}/prior-auth-requirements`, `DELETE .../{id}`; identical shape
   to `plan_exclusion` (tenant-owned plan config, procedure FKs the catalog, reads same-tenant, **add/remove
   ORG_ADMIN**, duplicate 409, unknown code 400). The engine reads these to mark a covered line `AUTH_REQUIRED`
-  when no APPROVED `prior_authorization` covers the service date),
+  when no APPROVED `prior_authorization` covers the service date.
+  **Also `plan_network_provider`** (Phase 6 slice 17 — the PROVIDERs in a plan's network, for provider network):
+  `GET/POST /api/v1/coverage-plans/{planId}/network-providers`, `GET .../network-providers/candidates`,
+  `DELETE .../{id}`. Same tenant-owned plan-config shape as `plan_prior_auth_requirement` (reads same-tenant,
+  **add/remove + candidates ORG_ADMIN**, duplicate 409) — but the participant is a **provider (`app_user`)**, not a
+  catalog code: because `app_user` is not tenant-keyed there is no FK-with-org on the provider; the service
+  validates it is an **active same-tenant PROVIDER** (else 400, no existence leak) via the identity repos, exactly
+  as `ProviderPatientAssignmentService` does, and offers a candidate picker (same-tenant PROVIDERs not already in
+  the network → `AssignmentCandidateDto`). **Inert config this slice** — the claim gains a rendering provider and
+  the engine marks an out-of-network line `OUT_OF_NETWORK` in later slices (a plan with no network rows imposes no
+  restriction; opt-in). Immutable (no `@Version`)),
   `adjudication` (Phase 5 — the basic synthetic claims-adjudication engine: `POST /api/v1/claims/{id}/adjudicate`
   + `GET /api/v1/claims/{id}/adjudication`. It turns an **ACCEPTED** claim into a deterministic, explainable
   `adjudication` (header + `adjudication_line` breakdown): it finds the coverage in effect on the claim's

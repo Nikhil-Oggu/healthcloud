@@ -144,7 +144,15 @@
   outcome chip, new version / PHI-free message), a **Run batch** form (plan `<select>` from `useCoveragePlans`, RHF+
   Zod) gated to CLAIMS_REVIEWER/ORG_ADMIN, a **Reprocessing** nav button (same roles), `statusColor.ts`,
   `useReprocessing.ts`, and `api`/`types` methods. Reprocessing is now complete end-to-end. Frontend-only.
-  **Next Phase-6 slices (not yet built, plan each first):** provider network (the last Phase-6 area).
+  slice 17 ✅ — **provider network config (backend)**: a `plan_network_provider` table — which PROVIDERs are in a
+  coverage plan's network. `GET/POST /api/v1/coverage-plans/{planId}/network-providers`, `GET .../candidates`,
+  `DELETE .../{id}`; reads same-tenant, add/remove/candidates ORG_ADMIN, dup 409, cross-tenant plan → secure 404.
+  The participant is a **provider (`app_user`)**, validated as an active same-tenant PROVIDER (else 400) via the
+  identity repos (like `ProviderPatientAssignmentService`); candidate picker reuses `AssignmentCandidateDto`.
+  Migration V33. **Inert config** — the claim gains a rendering provider (slice 18) and the engine marks
+  out-of-network lines (slice 19) next. Backend-only.
+  **Next provider-network slices (not yet built, plan each first):** rendering provider on the claim (18) →
+  wire into adjudication as OUT_OF_NETWORK (19) → UI (20).
 - **Tooling:** HealthCloud-specific **`code-reviewer`** + **`security-reviewer`** subagents now live in
   `.claude/agents/` (read-only; project-aware checklists — tenant isolation, `PatientAccessGuard`, consent/masking,
   one-tx history, financial accumulators). Invoke by name in a fresh session (agent files load at startup).
@@ -224,6 +232,35 @@
   then `curl -b j.txt localhost:8080/api/v1/me`. Reset DB with `./scripts/db-reset.sh`.
 
 ## Log (newest first)
+
+### 2026-09-16 — Phase 6, slice 17 ✅ (provider network config — which providers are in a plan's network, backend)
+- **Why:** the "provider network" item on Phase 6's advanced-claims list — the last area. It's ~4 slices (a plan
+  needs a network, a claim needs a rendering provider, the engine must apply an out-of-network rule, then UI); this
+  is the first: the plan-side config, the lowest-risk, most pattern-consistent starting point (mirrors how
+  prior-auth started with its plan-side config table, wired to the engine later). **Backend-only.**
+- **New in `com.healthcloud.coverage`:** `PlanNetworkProvider` (entity: `coveragePlanId` + `providerUserId`,
+  immutable, no `@Version`), `PlanNetworkProviderRepository` (org-scoped finders + `existsBy…CoveragePlanId` — the
+  engine's "is a network defined?" hook), `PlanNetworkProviderDto` (id · plan · provider · resolved name),
+  `AddNetworkProviderRequest` (`providerUserId`), `PlanNetworkProviderService`, `PlanNetworkProviderController`
+  (`GET/POST /api/v1/coverage-plans/{planId}/network-providers`, `GET .../candidates`, `DELETE .../{id}`).
+- **Same plan-config shape as `plan_prior_auth_requirement`** (tenant-owned, not patient-scoped; reads open to
+  same-tenant, **add/remove + candidates ORG_ADMIN**; duplicate → 409; cross-tenant plan → secure 404) — **but the
+  participant is a provider (`app_user`)**, not a catalog code: `app_user` isn't tenant-keyed so there's no
+  FK-with-org on the provider; the service validates it's an **active same-tenant PROVIDER** (else 400, no
+  existence leak) via `OrganizationMembershipRepository` + `UserRoleRepository`, exactly as
+  `ProviderPatientAssignmentService` does, and offers a **candidate picker** (same-tenant PROVIDERs not already in
+  the network → `AssignmentCandidateDto`).
+- **Migration `V33__plan_network_provider.sql`:** FK-with-org to `coverage_plan`, plain FK `provider_user_id →
+  app_user(id)`, `UNIQUE(organization_id, coverage_plan_id, provider_user_id)`, index.
+- **Inert config this slice** (documented): it does not affect adjudication until slice 19 wires it (a covered line
+  rendered out-of-network → `OUT_OF_NETWORK`); a plan with no network rows imposes no restriction (opt-in). No
+  seeding yet — a demo network is seeded in slice 19 when it changes a result.
+- **Tests (+7 → 372 backend, all green; `./mvnw -B clean verify` green):** `PlanNetworkProviderApiIntegrationTest`
+  — auth (401); admin add/list/remove with the provider name resolved; reads open to a coordinator but add → 403;
+  a non-PROVIDER same-tenant user → 400; duplicate → 409; candidates exclude already-added providers; another
+  tenant's plan → secure 404.
+- **Next:** slice 18 — rendering provider on the claim (a nullable `renderingProviderId`, validated as a same-tenant
+  PROVIDER), the claim-side data the engine needs.
 
 ### 2026-09-16 — Phase 6, slice 16 ✅ (reprocessing UI — batch queue + detail + Run form)
 - **Why:** slice 15 shipped the reprocessing backend; this puts it in the browser (the backend-then-UI rhythm),
