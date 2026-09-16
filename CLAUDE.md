@@ -78,7 +78,7 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   Checks: `npm run typecheck`, `npm test` (Vitest), `npm run build`. Node runs from `openjdk@25`'s
   sibling `node@24` — use `export PATH="/opt/homebrew/opt/node@24/bin:$PATH"` in non-interactive shells.
 
-## Current implementation (Phase 1–4 COMPLETE; Phase 5 COMPLETE — slices 1–12 done; MVP (Phase 0–5) feature-complete, engine AND UI. Phase 6 (advanced claims) COMPLETE ✅ — slices 1–21 done: prior authorization, wired into adjudication, + prior-auth UI (queue/detail/decisions + request form) + plan-prior-auth-requirement admin card, + referrals (backend: care-coordination aggregate + decision lifecycle; + UI: queue/detail/decisions + request form), + appeals (backend: dispute a claim's decision + resolution lifecycle; + UI: queue/detail/decisions + submit form; + overturn wired into re-adjudication), + claim anomaly signals (backend: a deterministic detector + reviewer scan; + UI: Anomalies card + Scan button on the claim detail page), + claim manual review (backend: open/resolve/cancel a review case on a claim; + UI: queue/detail/decisions + open form), + reprocessing (backend: batch re-adjudication of a coverage plan's claims after a config change; + UI: batch queue/detail + Run form), + provider network (backend: plan network config + a rendering provider on the claim + the engine marks a covered line OUT_OF_NETWORK when its rendering provider is outside the covering plan's network; + UI: plan network admin card + the OUT_OF_NETWORK line chip + the rendering-provider picker on claim create, backed by a GET /api/v1/providers directory read) — this completes Phase 6's advanced-claims areas. **Phase 7 (advanced security/governance) IN PROGRESS 🚧** — slice 1 done: the **security audit event log** (a tenant-owned, append-only, immutable `audit_event` + `AuditService.record(...)` written inside the domain action's own transaction, wired into adjudication + consent revoke; a role-gated read `GET /api/v1/audit-events` for AUDITOR/ORG_ADMIN); next is making it tamper-evident (per-org HMAC chain), then break-glass, access reviews, retention; see docs/PROGRESS.md for status)
+## Current implementation (Phase 1–4 COMPLETE; Phase 5 COMPLETE — slices 1–12 done; MVP (Phase 0–5) feature-complete, engine AND UI. Phase 6 (advanced claims) COMPLETE ✅ — slices 1–21 done: prior authorization, wired into adjudication, + prior-auth UI (queue/detail/decisions + request form) + plan-prior-auth-requirement admin card, + referrals (backend: care-coordination aggregate + decision lifecycle; + UI: queue/detail/decisions + request form), + appeals (backend: dispute a claim's decision + resolution lifecycle; + UI: queue/detail/decisions + submit form; + overturn wired into re-adjudication), + claim anomaly signals (backend: a deterministic detector + reviewer scan; + UI: Anomalies card + Scan button on the claim detail page), + claim manual review (backend: open/resolve/cancel a review case on a claim; + UI: queue/detail/decisions + open form), + reprocessing (backend: batch re-adjudication of a coverage plan's claims after a config change; + UI: batch queue/detail + Run form), + provider network (backend: plan network config + a rendering provider on the claim + the engine marks a covered line OUT_OF_NETWORK when its rendering provider is outside the covering plan's network; + UI: plan network admin card + the OUT_OF_NETWORK line chip + the rendering-provider picker on claim create, backed by a GET /api/v1/providers directory read) — this completes Phase 6's advanced-claims areas. **Phase 7 (advanced security/governance) IN PROGRESS 🚧** — slice 1 done: the **security audit event log** (a tenant-owned, append-only, immutable `audit_event` + `AuditService.record(...)` written inside the domain action's own transaction, wired into adjudication + consent revoke; a role-gated read `GET /api/v1/audit-events` for AUDITOR/ORG_ADMIN); slice 2 done: the trail is now **tamper-evident** — a per-org HMAC-SHA256 hash chain (`sequence_no`/`prev_hash`/`entry_hash` appended under a pessimistic-locked `audit_chain_head`, keyed by a per-org key derived from a config master secret held out of the DB) + `GET /api/v1/audit-events/verify` that detects any modified/deleted/reordered/inserted/truncated row; next is the audit UI, then break-glass, access reviews, retention; see docs/PROGRESS.md for status)
 - **Backend packages** under `com.healthcloud`: `organization` (Organization, Facility, FacilityMembership),
   `identity` (AppUser, Role, OrganizationMembership, UserRole; plus the **provider directory** read
   `GET /api/v1/providers` — `ProviderController`/`ProviderDirectoryService` list the caller's tenant's active
@@ -453,9 +453,21 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   `CorrelationId`. This finally realizes the "audit event" the §31.6 one-tx pattern has described aspirationally.
   Wired into two exemplar actions so far — `AdjudicationService.adjudicate` (a money decision) and
   `ConsentDirectiveService.revoke` (a privacy decision); remaining actions get audit events as the log matures in
-  later slices. **Honest limitation:** the trail is **not yet tamper-evident** — the per-org HMAC hash chain +
-  `verify` endpoint is Phase 7 slice 2; break-glass, access reviews and retention follow. No frontend yet (the
-  auditor-facing log UI is a later slice)),
+  later slices. **Tamper-evident (slice 2):** each event is a link in a **per-org HMAC-SHA256 hash chain** — an
+  `audit_event` also carries a per-org monotonic `sequenceNo`, the previous event's fingerprint `prevHash`, and its
+  own `entryHash = HMAC(orgKey, canonical(event, prevHash))`; change/delete/reorder/insert any row and its fingerprint
+  no longer matches and the break cascades to later rows. The **per-org key is derived** (`AuditSigningKeys`:
+  `HMAC(masterSecret, orgId)`) from a **master secret held in configuration** (`healthcloud.audit.hmac-secret`,
+  env-overridable dev default — a real deployment uses a KMS/HSM, Phase 10), **never in the DB it protects**, so
+  tampering with `audit_event` alone can't forge a valid fingerprint. Appends serialize per org via a
+  `PESSIMISTIC_WRITE`-locked `audit_chain_head` (insert-if-absent then lock — the `benefit_accumulator` row-lock
+  pattern, §31) that holds the chain tip (`lastHash` + `nextSequence`). The canonical serialization + HMAC live in
+  the pure, DB-free **`AuditHashChain`** (a policy class, shared by writer and verifier; timestamp fingerprinted as a
+  micros-truncated UTC instant so a DB round-trip reproduces it). **`GET /api/v1/audit-events/verify`**
+  (AUDITOR/ORG_ADMIN) recomputes the chain in sequence order — position, `prevHash` link, recomputed `entryHash` —
+  and cross-checks the head (catching truncation), returning `AuditChainVerificationDto{valid, entriesChecked,
+  brokenAtSequence, reason}`. **Deferred:** break-glass, access reviews, retention; no frontend yet (the
+  auditor-facing log + "verify integrity" UI is a later slice)),
   `devdata` (DevDataSeeder, local-only — also seeds the global `medical_code` catalog once, then a couple of
   synthetic `clinical_summary` rows per assigned patient, one sample DRAFT `claim` (header + two procedure
   lines + its null→DRAFT status-history row) for the first patient, and two `coverage_plan` rows per org (a PPO
@@ -493,9 +505,10 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
 - **Pure policy classes:** keep decision logic (state-machine transition tables, the consent evaluator, the
   anomaly detector) in a pure, unit-testable class with no Spring/DB deps — the exemplars are `RequestTransitions`
   (§14.6 moves), `ClaimTransitions`, `PriorAuthTransitions`, `ReferralTransitions`, `AppealTransitions`,
-  `ClaimReviewTransitions` (the six state machines), `ConsentPolicy` (§22.5 consent+purpose), and
-  `ClaimAnomalyDetector` (a **detector** — it emits a list of findings rather than gating a transition); a thin
-  service loads data and applies the policy.
+  `ClaimReviewTransitions` (the six state machines), `ConsentPolicy` (§22.5 consent+purpose),
+  `ClaimAnomalyDetector` (a **detector** — it emits a list of findings rather than gating a transition), and
+  `AuditHashChain` (§Phase 7 — the canonical serialization + HMAC compute for the tamper-evident audit chain,
+  shared by the writer and the verifier); a thin service loads data and applies the policy.
 - **State machines:** with the transition table in a pure policy class (`RequestTransitions`, above), the
   service checks, in order, **exists → legal move → role → reason → version**, then
   updates status + appends history in one tx. An illegal move is `INVALID_STATE_TRANSITION` (409), distinct

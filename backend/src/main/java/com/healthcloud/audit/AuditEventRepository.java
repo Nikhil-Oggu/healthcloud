@@ -18,4 +18,7 @@ public interface AuditEventRepository extends JpaRepository<AuditEvent, UUID> {
     /** Every event on a single resource in the tenant, newest first (a resource's audit history). */
     List<AuditEvent> findByOrganizationIdAndResourceTypeAndResourceIdOrderByOccurredAtDesc(
             UUID organizationId, String resourceType, UUID resourceId);
+
+    /** The org's whole chain in append order — the sequence verification walks to check integrity. */
+    List<AuditEvent> findByOrganizationIdOrderBySequenceNoAsc(UUID organizationId);
 }

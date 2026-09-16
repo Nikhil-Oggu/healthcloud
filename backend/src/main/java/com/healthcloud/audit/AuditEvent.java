@@ -7,7 +7,6 @@ import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
-import jakarta.persistence.PrePersist;
 import jakarta.persistence.Table;
 import java.time.OffsetDateTime;
 import java.util.UUID;
@@ -22,8 +21,13 @@ import java.util.UUID;
  * version column and every field is {@code updatable = false}. The row is written <b>inside the domain action's own
  * transaction</b> (§31.6) by {@link AuditService}, so it commits atomically with the change it records. It carries
  * only PHI-free metadata (a coded action/resource + a short, non-sensitive {@code detail}), never a clinical
- * narrative or patient identifier (rule 5), so it is not consent field-masked. This table is the foundation the
- * later Phase-7 slices extend (the tamper-evident HMAC chain, break-glass, retention).
+ * narrative or patient identifier (rule 5), so it is not consent field-masked.
+ *
+ * <p><b>Tamper-evident (§Phase 7 slice 2).</b> Each row also carries its position in its org's hash chain: a
+ * per-org monotonic {@code sequenceNo}, the previous event's fingerprint {@code prevHash}, and its own fingerprint
+ * {@code entryHash} (HMAC-SHA256 over the canonical form incl. {@code prevHash} — see {@link AuditHashChain}).
+ * {@code occurredAt} is assigned at construction (truncated to microseconds so a DB round-trip reproduces it
+ * exactly for verification) rather than in a lifecycle callback, because its value is part of what is fingerprinted.
  */
 @Entity
 @Table(name = "audit_event")
@@ -64,13 +68,24 @@ public class AuditEvent {
     @Column(nullable = false, length = 500, updatable = false)
     private String detail;
 
+    @Column(name = "sequence_no", nullable = false, updatable = false)
+    private long sequenceNo;
+
+    @Column(name = "prev_hash", nullable = false, length = 64, updatable = false)
+    private String prevHash;
+
+    @Column(name = "entry_hash", nullable = false, length = 64, updatable = false)
+    private String entryHash;
+
     protected AuditEvent() {
         // for JPA
     }
 
-    public AuditEvent(UUID organizationId, UUID actorUserId, AuditAction action, String resourceType,
-                      UUID resourceId, AuditOutcome outcome, String correlationId, String detail) {
+    public AuditEvent(UUID organizationId, OffsetDateTime occurredAt, UUID actorUserId, AuditAction action,
+                      String resourceType, UUID resourceId, AuditOutcome outcome, String correlationId,
+                      String detail, long sequenceNo, String prevHash, String entryHash) {
         this.organizationId = organizationId;
+        this.occurredAt = occurredAt;
         this.actorUserId = actorUserId;
         this.action = action;
         this.resourceType = resourceType;
@@ -78,11 +93,9 @@ public class AuditEvent {
         this.outcome = outcome;
         this.correlationId = correlationId;
         this.detail = detail;
-    }
-
-    @PrePersist
-    void onCreate() {
-        this.occurredAt = OffsetDateTime.now();
+        this.sequenceNo = sequenceNo;
+        this.prevHash = prevHash;
+        this.entryHash = entryHash;
     }
 
     public UUID getId() {
@@ -123,5 +136,17 @@ public class AuditEvent {
 
     public String getDetail() {
         return detail;
+    }
+
+    public long getSequenceNo() {
+        return sequenceNo;
+    }
+
+    public String getPrevHash() {
+        return prevHash;
+    }
+
+    public String getEntryHash() {
+        return entryHash;
     }
 }

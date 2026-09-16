@@ -5,8 +5,9 @@ import java.util.UUID;
 
 /**
  * Client-facing view of an audit event. PHI-free metadata only (actor id + coded action/resource + outcome +
- * correlation id + a non-sensitive detail); not consent field-masked. Access is controlled by the tenant + role
- * gate (AUDITOR/ORG_ADMIN) at the service layer.
+ * correlation id + a non-sensitive detail), plus the tamper-evidence fields (the chain position and fingerprints,
+ * §Phase 7 slice 2); not consent field-masked. Access is controlled by the tenant + role gate (AUDITOR/ORG_ADMIN)
+ * at the service layer.
  */
 public record AuditEventDto(
         UUID id,
@@ -17,7 +18,10 @@ public record AuditEventDto(
         UUID resourceId,
         AuditOutcome outcome,
         String correlationId,
-        String detail) {
+        String detail,
+        long sequenceNo,
+        String prevHash,
+        String entryHash) {
 
     public static AuditEventDto from(AuditEvent event) {
         return new AuditEventDto(
@@ -29,6 +33,9 @@ public record AuditEventDto(
                 event.getResourceId(),
                 event.getOutcome(),
                 event.getCorrelationId(),
-                event.getDetail());
+                event.getDetail(),
+                event.getSequenceNo(),
+                event.getPrevHash(),
+                event.getEntryHash());
     }
 }

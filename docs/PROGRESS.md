@@ -47,8 +47,11 @@
   audit-trail foundation): a tenant-owned, append-only, immutable `audit_event` + `AuditService.record(...)` written
   inside the domain action's own transaction (§31.6), wired into adjudication (`CLAIM_ADJUDICATED`) + consent revoke
   (`CONSENT_REVOKED`); a role-gated read `GET /api/v1/audit-events` (AUDITOR/ORG_ADMIN); the long-unused AUDITOR role
-  gets its first job. Next: slice 2 makes it **tamper-evident** (per-org HMAC hash chain + verify). Then break-glass,
-  access reviews, retention.
+  gets its first job. slice 2 ✅ — **tamper-evident audit chain**: each event is now a link in a **per-org HMAC-SHA256
+  hash chain** (`sequence_no` + `prev_hash` + `entry_hash`, appended under a `PESSIMISTIC_WRITE`-locked
+  `audit_chain_head`), keyed by a per-org key derived from a master secret held in config (not the DB); a
+  `GET /api/v1/audit-events/verify` recomputes the chain and detects any modified/deleted/reordered/inserted/truncated
+  row. Next: slice 3 = the auditor-facing UI. Then break-glass, access reviews, retention.
 - **Phase 6 COMPLETE ✅ (advanced claims, slices 1–21):** all seven roadmap areas done — prior auth, referrals,
   appeals, anomaly signals, manual review, reprocessing, provider network. slice 1 ✅ — **prior authorization**: a top-level,
   patient-gated `prior_authorization` aggregate (request a planned procedure be pre-approved under a coverage
@@ -258,6 +261,43 @@
   then `curl -b j.txt localhost:8080/api/v1/me`. Reset DB with `./scripts/db-reset.sh`.
 
 ## Log (newest first)
+
+### 2026-09-16 — Phase 7, slice 2 ✅ (tamper-evident audit chain — per-org HMAC hash chain + verify, backend)
+- **Why:** slice 1's audit trail was honest but unprotected — someone with DB access could edit or delete a row and
+  nothing would show it. This slice makes it **tamper-evident**: each event becomes a link in a hash chain, so any
+  edit, deletion, reorder, insertion or truncation of `audit_event` can be **detected**. This is the flagship of
+  Phase 7.
+- **How the chain works (plain terms):** each event gets a fingerprint `entry_hash = HMAC-SHA256(orgKey,
+  canonical(event) + prev_hash)` — its own contents *plus the previous event's fingerprint*, like a blockchain.
+  Change any old row and its fingerprint no longer matches, and because later rows chained off it, the break
+  cascades. We use **HMAC** with a secret key, so an attacker can't just recompute a valid fingerprint after
+  tampering.
+- **Per-org key, master secret OUT of the DB:** each org's chain uses key = `HMAC(masterSecret, orgId)`; the
+  **master secret lives in configuration** (`healthcloud.audit.hmac-secret`, env-overridable dev default — Phase-10
+  KMS/HSM later), **never in the database it protects**. So tampering with `audit_event` alone can't forge a valid
+  fingerprint. (`AuditSigningKeys` derives the per-org key.)
+- **Migration `V37__audit_event_chain.sql`:** adds `sequence_no` (per-org monotonic), `prev_hash`, `entry_hash`
+  (VARCHAR(64)) to `audit_event` + `UNIQUE(organization_id, sequence_no)`; new `audit_chain_head` (per-org tip:
+  `last_hash` + `next_sequence`). Assumes a fresh/reset DB (no production data; V36 was one commit prior).
+- **Append path (`AuditService.record`):** now locks the org's `audit_chain_head` (`insertIfAbsent` +
+  `PESSIMISTIC_WRITE`, the `benefit_accumulator` row-lock pattern) so concurrent audit writes for an org serialize
+  and the chain can't fork; computes `entry_hash` from the locked `last_hash`; saves the event with its
+  `sequence_no`/`prev_hash`/`entry_hash`; advances the head — all still inside the caller's transaction.
+- **Pure core `AuditHashChain`** (no Spring/DB): the ONE canonical serialization + the HMAC compute, shared by the
+  writer and the verifier (a pure policy class, unit-tested). Timestamp fingerprinted as a UTC instant truncated to
+  micros so a DB round-trip reproduces it exactly.
+- **Verify endpoint `GET /api/v1/audit-events/verify`** (AUDITOR/ORG_ADMIN): walks the org chain in sequence order,
+  re-checking each position, `prev_hash` link and recomputed fingerprint, then cross-checks the head (catches
+  truncation). Returns `{valid, entriesChecked, brokenAtSequence, reason}`.
+- **Verify:** backend `./mvnw -B clean verify` green (384 → **406** tests): new `AuditHashChainTest` (6, pure —
+  determinism, field-change detection, key dependence) + `AuditChainApiIntegrationTest` (6 — intact chain valid; a
+  field modified directly in the DB detected then restored; a row deleted from the DB detected then restored;
+  tampering one org doesn't flip another (per-org keys); verify gated to AUDITOR/ORG_ADMIN, reviewer/patient 403;
+  requires auth 401). Tamper tests use `JdbcTemplate` to mutate/delete rows behind the app's back, then restore so
+  the shared chain is left intact.
+- **Deferred:** slice 3 = the auditor-facing **UI** (log viewer + a "verify integrity" button); then break-glass,
+  access reviews, retention.
+- **Next:** Phase 7, slice 3 — the audit-trail UI.
 
 ### 2026-09-16 — Phase 7, slice 1 ✅ (security audit event log — the audit-trail foundation, backend)
 - **Why:** Phase 7 is advanced security/governance. Its headline features — a **tamper-evident per-org HMAC audit
