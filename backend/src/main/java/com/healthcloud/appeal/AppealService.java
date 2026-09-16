@@ -1,5 +1,6 @@
 package com.healthcloud.appeal;
 
+import com.healthcloud.adjudication.AdjudicationService;
 import com.healthcloud.claim.Claim;
 import com.healthcloud.claim.ClaimRepository;
 import com.healthcloud.claim.ClaimStatus;
@@ -31,6 +32,11 @@ import org.springframework.transaction.annotation.Transactional;
  * status-history row are written atomically. The state machine lives in the pure {@link AppealTransitions}
  * policy; this service loads data and applies it. Mirrors {@code ReferralService}, with the twist that submit is
  * gated through a parent claim.
+ *
+ * <p><b>Overturn wiring (§Phase 6):</b> overturning an appeal on an ADJUDICATED claim re-runs the adjudication
+ * engine — appending a new immutable adjudication version under current coverage/config — in the <b>same</b>
+ * transaction as the overturn, so the two commit or roll back together. A REJECTED claim's overturn records the
+ * outcome only (re-opening a rejected claim into the pipeline is a later slice).
  */
 @Service
 @Transactional(readOnly = true)
@@ -47,14 +53,17 @@ public class AppealService {
     private final AppealRepository appeals;
     private final AppealStatusHistoryRepository statusHistory;
     private final ClaimRepository claims;
+    private final AdjudicationService adjudication;
     private final PatientAccessGuard accessGuard;
     private final UserContextAccessor userContext;
 
     public AppealService(AppealRepository appeals, AppealStatusHistoryRepository statusHistory,
-                         ClaimRepository claims, PatientAccessGuard accessGuard, UserContextAccessor userContext) {
+                         ClaimRepository claims, AdjudicationService adjudication,
+                         PatientAccessGuard accessGuard, UserContextAccessor userContext) {
         this.appeals = appeals;
         this.statusHistory = statusHistory;
         this.claims = claims;
+        this.adjudication = adjudication;
         this.accessGuard = accessGuard;
         this.userContext = userContext;
     }
@@ -104,7 +113,9 @@ public class AppealService {
     /**
      * Apply a controlled appeal transition (uphold/overturn/withdraw). In one transaction: gate by tenant +
      * patient, then validate — order of checks: exists → legal move → role → reason → optimistic version — then
-     * update the status (stamping the decider on a decision) and append a history row.
+     * update the status (stamping the decider on a decision) and append a history row. An OVERTURNED decision on
+     * an ADJUDICATED claim additionally re-runs the adjudication engine (a new immutable version), in this same
+     * transaction.
      */
     @Transactional
     public AppealDto changeStatus(UUID appealId, AppealStatusChangeRequest change) {
@@ -145,6 +156,17 @@ public class AppealService {
         statusHistory.save(new AppealStatusHistory(
                 appeal.getOrganizationId(), appeal.getId(), from, to, caller.userId(),
                 change.reason(), CorrelationId.current()));
+
+        // Wire the appeal outcome into the money (§Phase 6): overturning re-runs the adjudication engine on the
+        // disputed claim if it is ADJUDICATED, appending a new immutable version under current coverage/config —
+        // in THIS transaction, so the overturn and the re-adjudication commit or roll back together (§31.6). The
+        // overturning caller is a CLAIMS_REVIEWER/ORG_ADMIN, exactly the roles the engine command requires. A
+        // REJECTED claim's overturn records the outcome only — re-opening a rejected claim is a later slice.
+        if (to == AppealStatus.OVERTURNED) {
+            claims.findByIdAndOrganizationId(appeal.getClaimId(), appeal.getOrganizationId())
+                    .filter(claim -> claim.getStatus() == ClaimStatus.ADJUDICATED)
+                    .ifPresent(claim -> adjudication.adjudicate(claim.getId()));
+        }
 
         return AppealDto.from(saved);
     }

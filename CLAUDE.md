@@ -78,7 +78,7 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   Checks: `npm run typecheck`, `npm test` (Vitest), `npm run build`. Node runs from `openjdk@25`'s
   sibling `node@24` — use `export PATH="/opt/homebrew/opt/node@24/bin:$PATH"` in non-interactive shells.
 
-## Current implementation (Phase 1–4 COMPLETE; Phase 5 COMPLETE — slices 1–12 done; MVP (Phase 0–5) feature-complete, engine AND UI. Phase 6 (advanced claims) IN PROGRESS — slices 1–9 done: prior authorization, wired into adjudication, + prior-auth UI (queue/detail/decisions + request form) + plan-prior-auth-requirement admin card, + referrals (backend: care-coordination aggregate + decision lifecycle; + UI: queue/detail/decisions + request form), + appeals (backend: dispute a claim's decision + resolution lifecycle; + UI: queue/detail/decisions + submit form) — see docs/PROGRESS.md for status)
+## Current implementation (Phase 1–4 COMPLETE; Phase 5 COMPLETE — slices 1–12 done; MVP (Phase 0–5) feature-complete, engine AND UI. Phase 6 (advanced claims) IN PROGRESS — slices 1–10 done: prior authorization, wired into adjudication, + prior-auth UI (queue/detail/decisions + request form) + plan-prior-auth-requirement admin card, + referrals (backend: care-coordination aggregate + decision lifecycle; + UI: queue/detail/decisions + request form), + appeals (backend: dispute a claim's decision + resolution lifecycle; + UI: queue/detail/decisions + submit form; + overturn wired into re-adjudication) — see docs/PROGRESS.md for status)
 - **Backend packages** under `com.healthcloud`: `organization` (Organization, Facility, FacilityMembership),
   `identity` (AppUser, Role, OrganizationMembership, UserRole), `auth` (SecurityConfig, DevLoginController,
   CurrentUserController/Service, CsrfCookieFilter), `context` (UserContext + UserContextAccessor/Filter),
@@ -336,10 +336,14 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   `appeal_status_history` row in one tx (§31.6, null → SUBMITTED on creation). **Submit** loads the claim (gated
   by its patient → secure 404), validates it is **appealable** (`ADJUDICATED`/`REJECTED` → else 400
   `VALIDATION_FAILED`) and has **no existing open (SUBMITTED) appeal** (→ 409), then stamps the patient from the
-  claim. **Honest MVP limitation:** an OVERTURNED appeal records the outcome only — wiring it into re-adjudication
-  (the engine already supports versioned re-adjudication, Phase 5 slice 11) is a later slice; no UNDER_REVIEW step.
-  The appeal UI (queue/detail/decisions + submit form) shipped in slice 9 (see `src/appeal/` under Frontend
-  below)),
+  claim. **Overturn wired into re-adjudication** (slice 10): an OVERTURNED decision on an **ADJUDICATED** claim
+  re-runs the adjudication engine (`AdjudicationService.adjudicate`) — appending a new immutable adjudication
+  version under current coverage/config — in the **same transaction** as the overturn (§31.6), so the two commit
+  or roll back together; the overturning caller is a CLAIMS_REVIEWER/ORG_ADMIN, exactly the roles the engine
+  command requires (`AppealService` depends on `AdjudicationService`, no bean cycle). **Honest MVP limitation:** a
+  **REJECTED** claim's overturn records the outcome only — re-opening a rejected claim (REJECTED is terminal on the
+  claim machine) into the adjudication pipeline is a later slice; no UNDER_REVIEW step. The appeal UI
+  (queue/detail/decisions + submit form) shipped in slice 9 (see `src/appeal/` under Frontend below)),
   `devdata` (DevDataSeeder, local-only — also seeds the global `medical_code` catalog once, then a couple of
   synthetic `clinical_summary` rows per assigned patient, one sample DRAFT `claim` (header + two procedure
   lines + its null→DRAFT status-history row) for the first patient, and two `coverage_plan` rows per org (a PPO

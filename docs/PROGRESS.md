@@ -95,8 +95,14 @@
   transition prompts for a reason**), a link to the disputed claim, a **New appeal** form (a claim picker filtered
   client-side to **appealable** ADJUDICATED/REJECTED claims + a reason), an **Appeals** nav button (adds
   CLAIMS_REVIEWER, unlike referrals), and `api`/`types` methods. Appeals are now complete end-to-end in the
-  browser. Frontend-only. **Next Phase-6 slices (not yet built, plan each first):** provider network, anomaly
-  signals, manual review, reprocessing.
+  browser. Frontend-only.
+  slice 10 ✅ — **appeal overturn wired into re-adjudication**: overturning an appeal on an **ADJUDICATED** claim
+  now re-runs the adjudication engine (`AppealService` → `AdjudicationService.adjudicate`), appending a new
+  immutable adjudication version under current coverage/config, in the **same transaction** as the overturn (§31.6)
+  — so the appeal outcome actually moves the money. A **REJECTED** claim's overturn still records the outcome only
+  (re-opening a terminal-REJECTED claim is a later slice). Backend-only, no new tables; closes the slice-8 deferred
+  limitation. **Next Phase-6 slices (not yet built, plan each first):** provider network, anomaly signals, manual
+  review, reprocessing.
 - **Tooling:** HealthCloud-specific **`code-reviewer`** + **`security-reviewer`** subagents now live in
   `.claude/agents/` (read-only; project-aware checklists — tenant isolation, `PatientAccessGuard`, consent/masking,
   one-tx history, financial accumulators). Invoke by name in a fresh session (agent files load at startup).
@@ -176,6 +182,31 @@
   then `curl -b j.txt localhost:8080/api/v1/me`. Reset DB with `./scripts/db-reset.sh`.
 
 ## Log (newest first)
+
+### 2026-09-16 — Phase 6, slice 10 ✅ (appeal overturn wired into re-adjudication)
+- **Why:** slice 8 shipped the appeal backend with a deliberate deferral — "an OVERTURNED appeal records the
+  outcome only; wiring it into re-adjudication is a later slice." This is that slice: an overturn now actually
+  moves the money by re-running the engine on the disputed claim. **Backend-only, no new tables** — it reuses the
+  versioned re-adjudication the engine already supports (Phase 5 slice 11). Closes the loop between the appeal
+  aggregate (slices 8–9) and the adjudication engine.
+- **`AppealService` now depends on `AdjudicationService`** (constructor injection; no bean cycle — adjudication
+  doesn't depend on appeals). In `changeStatus`, after the OVERTURNED appeal + its history row are saved, if the
+  disputed claim is currently `ADJUDICATED` the service calls `adjudication.adjudicate(claim.getId())` **in the
+  same `@Transactional`** (§31.6) — the overturn and the new adjudication version commit or roll back together.
+- **Authorization stays consistent:** overturning is already gated to CLAIMS_REVIEWER/ORG_ADMIN by
+  `AppealTransitions`, exactly the roles the engine command requires — no privilege widening.
+- **Honest MVP limitation kept explicit:** a **REJECTED** claim's overturn records the outcome only. A REJECTED
+  claim was never adjudicated and REJECTED is terminal on the claim state machine, so re-opening it into the
+  pipeline is a later slice (would need a claim-machine change). Only ADJUDICATED claims auto-re-adjudicate.
+- **Tests (+2 → 333 backend, all green via `./mvnw -B clean verify`):** in `AppealApiIntegrationTest`, a new
+  `adjudicatedClaimId` helper drives create→submit→accept→adjudicate; `overturning_an_appeal_on_an_adjudicated_claim_reajudicates`
+  asserts `GET .../adjudication/versions` goes 1 → 2 after the overturn; `overturning_..._rejected_claim_records_the_outcome_only`
+  asserts a REJECTED claim's overturn produces no adjudication (`GET .../adjudication` → 404). Both are real
+  HTTP+session+Postgres flows against the embedded server — the end-to-end proof.
+- **Docs:** CLAUDE.md `appeal` blurb updated (overturn-wiring paragraph replaces the deferral note); Phase-6
+  header count 1–9 → 1–10.
+- **No frontend change:** the effect is already visible on the claim detail page's existing **Version history**
+  card (a second version appears after an overturn).
 
 ### 2026-09-16 — Phase 6, slice 9 ✅ (appeal UI — queue + detail + decisions + submit form)
 - **Why:** slice 8 shipped the appeal backend; this puts it in the browser, mirroring the referral frontend

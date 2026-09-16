@@ -66,6 +66,19 @@ class AppealApiIntegrationTest {
         return claimId;
     }
 
+    /**
+     * Drive a fresh claim to ADJUDICATED (an appealable state): create (DRAFT) → submit → accept → adjudicate.
+     * The test patient has no eligibility, so the engine records a DENIED_NO_ELIGIBILITY version 1 — still an
+     * ADJUDICATED, re-adjudicatable claim.
+     */
+    private String adjudicatedClaimId(Session coordinator, Session reviewer, String patientId) throws Exception {
+        String claimId = firstId(post(coordinator, "/api/v1/claims", claimJson(patientId)).body());
+        assertEquals(200, patchClaimStatus(coordinator, claimId, "SUBMITTED", 0, null).statusCode());
+        assertEquals(200, patchClaimStatus(reviewer, claimId, "ACCEPTED", 1, null).statusCode());
+        assertEquals(200, postNoBody(reviewer, "/api/v1/claims/" + claimId + "/adjudicate").statusCode());
+        return claimId;
+    }
+
     @Test
     void appeals_require_authentication() throws Exception {
         assertEquals(401, get(null, "/api/v1/appeals").statusCode());
@@ -138,6 +151,40 @@ class AppealApiIntegrationTest {
         HttpResponse<String> withdrawn = patchStatus(coordinator, appealId, "WITHDRAWN", 0, "Filed in error");
         assertEquals(200, withdrawn.statusCode(), withdrawn.body());
         assertTrue(withdrawn.body().contains("\"status\":\"WITHDRAWN\""));
+    }
+
+    @Test
+    void overturning_an_appeal_on_an_adjudicated_claim_reajudicates() throws Exception {
+        Session coordinator = loginWithCsrf("coordinator@northcare.example.org");
+        Session reviewer = loginWithCsrf("reviewer@northcare.example.org");
+        String patientId = firstId(createPatient(coordinator).body());
+        String claimId = adjudicatedClaimId(coordinator, reviewer, patientId);
+
+        // One immutable adjudication version exists after the initial adjudicate.
+        assertEquals(1, countVersions(
+                get(reviewer.session, "/api/v1/claims/" + claimId + "/adjudication/versions").body()));
+
+        String appealId = firstId(post(coordinator, "/api/v1/appeals", appealJson(claimId)).body());
+        HttpResponse<String> overturned = patchStatus(reviewer, appealId, "OVERTURNED", 0, "New evidence");
+        assertEquals(200, overturned.statusCode(), overturned.body());
+
+        // Overturning re-ran the engine in the same transaction: a second version now exists.
+        assertEquals(2, countVersions(
+                get(reviewer.session, "/api/v1/claims/" + claimId + "/adjudication/versions").body()));
+    }
+
+    @Test
+    void overturning_an_appeal_on_a_rejected_claim_records_the_outcome_only() throws Exception {
+        Session coordinator = loginWithCsrf("coordinator@northcare.example.org");
+        Session reviewer = loginWithCsrf("reviewer@northcare.example.org");
+        String patientId = firstId(createPatient(coordinator).body());
+        String claimId = appealableClaimId(coordinator, reviewer, patientId); // REJECTED, never adjudicated
+        String appealId = firstId(post(coordinator, "/api/v1/appeals", appealJson(claimId)).body());
+
+        HttpResponse<String> overturned = patchStatus(reviewer, appealId, "OVERTURNED", 0, "New evidence");
+        assertEquals(200, overturned.statusCode(), overturned.body());
+        // No adjudication is produced — re-opening a rejected claim is a later slice, so the overturn only records.
+        assertEquals(404, get(reviewer.session, "/api/v1/claims/" + claimId + "/adjudication").statusCode());
     }
 
     @Test
@@ -266,6 +313,16 @@ class AppealApiIntegrationTest {
                 HttpResponse.BodyHandlers.ofString());
     }
 
+    private HttpResponse<String> postNoBody(Session s, String path) throws Exception {
+        return http.send(
+                HttpRequest.newBuilder(uri(path))
+                        .header("Cookie", "SESSION=" + s.session + "; XSRF-TOKEN=" + s.xsrf)
+                        .header("X-XSRF-TOKEN", s.xsrf)
+                        .POST(HttpRequest.BodyPublishers.noBody())
+                        .build(),
+                HttpResponse.BodyHandlers.ofString());
+    }
+
     private HttpResponse<String> patchStatus(Session s, String id, String target, long expectedVersion,
                                              String reason) throws Exception {
         return patch(s, "/api/v1/appeals/" + id + "/status", target, expectedVersion, reason);
@@ -310,6 +367,16 @@ class AppealApiIntegrationTest {
         Matcher m = APPEAL_NUMBER.matcher(json);
         assertTrue(m.find(), "expected an appealNumber in: " + json);
         return m.group(1);
+    }
+
+    /** Count adjudication versions in a {@code /adjudication/versions} array response. */
+    private static int countVersions(String json) {
+        Matcher m = Pattern.compile("\"adjudicationVersion\":").matcher(json);
+        int count = 0;
+        while (m.find()) {
+            count++;
+        }
+        return count;
     }
 
     private static String cookie(List<String> setCookies, String name) {
