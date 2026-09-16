@@ -288,8 +288,8 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   — a provider sees only assigned patients' authorizations, a broad role (coordinator/admin/**claims reviewer**)
   sees the tenant's as a work queue; another tenant's is a secure 404. Carries only coded, claim-relevant data
   (no clinical narrative), so **not consent field-masked** (like a claim). **State machine** driven by the pure
-  `PriorAuthTransitions` policy (the 4th pure-policy exemplar after `RequestTransitions`/`ClaimTransitions`/
-  `ConsentPolicy`): REQUESTED → APPROVED/DENIED (the **CLAIMS_REVIEWER**/ORG_ADMIN decision — a decision stamps
+  `PriorAuthTransitions` policy (the 3rd state machine after `RequestTransitions`/`ClaimTransitions`):
+  REQUESTED → APPROVED/DENIED (the **CLAIMS_REVIEWER**/ORG_ADMIN decision — a decision stamps
   `decidedBy`/`decidedAt`) or CANCELLED (the requester roles PROVIDER-assigned/CARE_COORDINATOR/ORG_ADMIN);
   APPROVED/DENIED/CANCELLED terminal, reason required to deny/cancel. Same check order as the claim machine
   (exists → legal move → role → reason → optimistic `expectedVersion`), status change + a
@@ -309,8 +309,8 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   patients' referrals, a broad role (coordinator/admin/reviewer) sees the tenant's as a work queue; another
   tenant's is a secure 404. Carries only coded, coordination-relevant data (a specialty + a diagnosis code, **no
   clinical narrative**), so **not consent field-masked** (like a claim). **State machine** driven by the pure
-  `ReferralTransitions` policy (the 5th pure-policy exemplar after `RequestTransitions`/`ClaimTransitions`/
-  `ConsentPolicy`/`PriorAuthTransitions`): REQUESTED → APPROVED/DENIED (the **CARE_COORDINATOR**/ORG_ADMIN
+  `ReferralTransitions` policy (the 4th state machine after `RequestTransitions`/`ClaimTransitions`/
+  `PriorAuthTransitions`): REQUESTED → APPROVED/DENIED (the **CARE_COORDINATOR**/ORG_ADMIN
   decision — a decision stamps `decidedBy`/`decidedAt`; this deliberately differs from prior auth's CLAIMS_REVIEWER,
   showing the pattern generalizes across roles) or CANCELLED (the requester roles PROVIDER-assigned/
   CARE_COORDINATOR/ORG_ADMIN); APPROVED/DENIED/CANCELLED terminal, reason required to deny/cancel. Same check order
@@ -328,7 +328,7 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   read routes through `PatientAccessGuard` and the list scopes via `accessiblePatientIdsIfGated` — a provider sees
   only assigned patients' appeals, a broad role (coordinator/admin/reviewer) sees the tenant's as a work queue;
   another tenant's is a secure 404. **Not consent field-masked** (like a claim). **State machine** driven by the
-  pure `AppealTransitions` policy (the 6th pure-policy exemplar): SUBMITTED → UPHELD/OVERTURNED (the
+  pure `AppealTransitions` policy (the 5th state machine): SUBMITTED → UPHELD/OVERTURNED (the
   **CLAIMS_REVIEWER**/ORG_ADMIN decision — stamps `decidedBy`/`decidedAt`) or WITHDRAWN (the submitter roles
   PROVIDER-assigned/CARE_COORDINATOR/ORG_ADMIN); terminal. **A reason is required on EVERY transition** (a
   per-domain variation — an appeal outcome or withdrawal always needs a rationale). Same check order as the claim
@@ -371,7 +371,7 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   claim/prior_authorization/referral/appeal): every read routes through `PatientAccessGuard` and the list scopes via
   `accessiblePatientIdsIfGated` — a provider sees only assigned patients' reviews, a broad role (coordinator/admin/
   reviewer) sees the tenant's as a work queue; another tenant's is a secure 404. **Not consent field-masked**.
-  **State machine** driven by the pure `ClaimReviewTransitions` policy (the 6th state-machine exemplar): OPEN →
+  **State machine** driven by the pure `ClaimReviewTransitions` policy (the 6th state machine): OPEN →
   RESOLVED (the **CLAIMS_REVIEWER**/ORG_ADMIN disposition — stamps `resolvedBy`/`resolvedAt`) or CANCELLED (the
   opener roles **CARE_COORDINATOR**/CLAIMS_REVIEWER/ORG_ADMIN); terminal. **A reason is required on EVERY
   transition** (the resolution conclusion, or a cancellation rationale). Same check order (exists → legal move →
