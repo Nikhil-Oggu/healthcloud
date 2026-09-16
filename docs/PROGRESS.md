@@ -54,7 +54,10 @@
   row. slice 3 ✅ — **audit-trail UI**: an auditor-facing **Audit** page (`/audit`, nav gated to AUDITOR/ORG_ADMIN)
   — a recent-events table (with a visible truncated fingerprint per row + a client-side action filter) and a
   **Verify integrity** button that surfaces the slice-2 verdict as a green "chain intact" / red "tampering detected
-  at sequence X" banner. Next: break-glass, access reviews, retention.
+  at sequence X" banner. slice 4 ✅ — **break-glass emergency access** (backend): a PROVIDER self-grants **time-boxed**
+  access to a patient they're not assigned to by recording a reason (`POST /api/v1/break-glass`); `PatientAccessGuard`
+  honours a live grant so the whole patient record becomes reachable, and a `BREAK_GLASS_INVOKED` event lands on the
+  audit trail. Never crosses tenants; expires automatically. Next: break-glass UI, access reviews, retention.
 - **Phase 6 COMPLETE ✅ (advanced claims, slices 1–21):** all seven roadmap areas done — prior auth, referrals,
   appeals, anomaly signals, manual review, reprocessing, provider network. slice 1 ✅ — **prior authorization**: a top-level,
   patient-gated `prior_authorization` aggregate (request a planned procedure be pre-approved under a coverage
@@ -264,6 +267,37 @@
   then `curl -b j.txt localhost:8080/api/v1/me`. Reset DB with `./scripts/db-reset.sh`.
 
 ## Log (newest first)
+
+### 2026-09-16 — Phase 7, slice 4 ✅ (break-glass emergency access — time-boxed override + audit, backend)
+- **Why:** the classic HIPAA "break the glass". A PROVIDER who is not assigned to a patient can, in an emergency,
+  **self-grant time-boxed access** by recording a justification — made safe by being fully audited and reviewable.
+  It overrides ONLY the object/relationship gate (§21 layer 6), never tenant isolation. Backend-only.
+- **Migration `V38__break_glass_grant.sql`:** a tenant-owned, immutable `break_glass_grant` (`app_user_id` provider,
+  `patient_id`, `reason`, `created_at`, `expires_at`); composite FK `(patient_id, organization_id)` → `patient`
+  (§32.10); index `(organization_id, app_user_id, expires_at)` for the active-grant lookup.
+- **New `com.healthcloud.breakglass` package:** `BreakGlassGrant` entity, org-scoped `BreakGlassGrantRepository`
+  (a per-patient `existsBy…ExpiresAtAfter` check + an active-grants list), `BreakGlassGrantDto`,
+  `CreateBreakGlassRequest` (`@NotNull patientId`, `@NotBlank reason`), and **`BreakGlassService`**:
+  `create(...)` is **PROVIDER**-gated, loads the patient **directly** by tenant (NOT via the guard — the whole point
+  is reaching a patient the guard would 404 on; cross-tenant/unknown is still a secure 404), and writes the grant +
+  a `BREAK_GLASS_INVOKED` audit event in **one transaction**; `listMine()` returns the caller's live grants.
+- **Guard integration (`PatientAccessGuard`):** a provider-gated caller with no assignment is now also allowed if a
+  **live break-glass grant** exists for `(caller, patient)`; and `accessiblePatientIdsIfGated` unions assigned +
+  break-glass patient ids, so break-glass patients appear in list reads. The guard gains a
+  `BreakGlassGrantRepository` dep (repository-only → no bean cycle). Because everything patient-gated routes through
+  the guard, break-glass reaches the patient's whole record (requests, consent, documents, claims), not just the
+  profile.
+- **Endpoints:** `POST /api/v1/break-glass` (self-grant) + `GET /api/v1/break-glass` (my live grants).
+- **Audit:** new `AuditAction.BREAK_GLASS_INVOKED` + `AuditService.RESOURCE_PATIENT`. The audit **detail is PHI-free**
+  — it names the grant id + expiry, **not** the free-text reason (the reason stays on the grant row for review).
+- **Config:** `healthcloud.break-glass.grant-duration-minutes` (default 60).
+- **Verify:** backend `./mvnw -B clean verify` green (406 → **411** tests; new `BreakGlassApiIntegrationTest`, 5 cases
+  — unassigned provider 404 → break-glass → 200 + listed + one `BREAK_GLASS_INVOKED` event with a PHI-free detail; an
+  **expired** grant (inserted via `JdbcTemplate`) grants nothing; blank reason 400; cross-tenant patient 404; a
+  non-provider (coordinator) 403).
+- **Honest limitations:** self-service (no approval step — intentional for emergencies); the grant is audited at
+  invocation, not on every subsequent read under it; no early admin revocation yet (grants expire on their own).
+- **Next:** Phase 7 — the break-glass UI, then access reviews (admin/auditor oversight of all grants) and retention.
 
 ### 2026-09-16 — Phase 7, slice 3 ✅ (audit-trail UI — log viewer + Verify integrity button, frontend)
 - **Why:** slices 1–2 built the backend audit trail + tamper-evidence. This slice puts it in front of a human so an

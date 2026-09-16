@@ -47,6 +47,10 @@ healthcloud:
     # with audit_event rows alone cannot forge a valid fingerprint. This is a local-first dev default — a real
     # deployment holds it in a KMS/HSM (Phase 10), never in plaintext config. Override with HEALTHCLOUD_AUDIT_HMAC_SECRET.
     hmac-secret: ${HEALTHCLOUD_AUDIT_HMAC_SECRET:dev-only-audit-hmac-secret-change-me}
+  break-glass:
+    # How long a break-glass emergency-access grant stays in force (§Phase 7). Time-boxed on purpose: emergency
+    # access is temporary and every grant is audited + reviewable. Minutes. Override with HEALTHCLOUD_BREAK_GLASS_GRANT_DURATION_MINUTES.
+    grant-duration-minutes: ${HEALTHCLOUD_BREAK_GLASS_GRANT_DURATION_MINUTES:60}
 
 logging:
   pattern:

@@ -11,5 +11,8 @@ public enum AuditAction {
     CLAIM_ADJUDICATED,
 
     /** A consent directive was revoked — a privacy decision. */
-    CONSENT_REVOKED
+    CONSENT_REVOKED,
+
+    /** A provider broke the glass — a time-boxed emergency override of the relationship gate (§Phase 7). */
+    BREAK_GLASS_INVOKED
 }

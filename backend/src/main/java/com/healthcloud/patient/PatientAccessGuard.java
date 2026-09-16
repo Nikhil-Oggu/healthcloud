@@ -1,5 +1,7 @@
 package com.healthcloud.patient;
 
+import com.healthcloud.breakglass.BreakGlassGrant;
+import com.healthcloud.breakglass.BreakGlassGrantRepository;
 import com.healthcloud.context.UserContext;
 import com.healthcloud.context.UserContextAccessor;
 import com.healthcloud.error.NotFoundException;
@@ -7,6 +9,8 @@ import com.healthcloud.relationship.ProviderPatientAssignment;
 import com.healthcloud.relationship.ProviderPatientAssignmentRepository;
 import com.healthcloud.relationship.ProviderPatientAssignmentStatus;
 import java.time.LocalDate;
+import java.time.OffsetDateTime;
+import java.util.HashSet;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -40,13 +44,16 @@ public class PatientAccessGuard {
 
     private final PatientRepository patients;
     private final ProviderPatientAssignmentRepository assignments;
+    private final BreakGlassGrantRepository breakGlassGrants;
     private final UserContextAccessor userContext;
 
     public PatientAccessGuard(PatientRepository patients,
                               ProviderPatientAssignmentRepository assignments,
+                              BreakGlassGrantRepository breakGlassGrants,
                               UserContextAccessor userContext) {
         this.patients = patients;
         this.assignments = assignments;
+        this.breakGlassGrants = breakGlassGrants;
         this.userContext = userContext;
     }
 
@@ -60,7 +67,8 @@ public class PatientAccessGuard {
         Patient patient = patients.findByIdAndOrganizationId(patientId, organizationId)
                 .orElseThrow(NotFoundException::new);
         if (isProviderGated(caller)
-                && !isActivelyAssigned(organizationId, caller.userId(), patientId)) {
+                && !isActivelyAssigned(organizationId, caller.userId(), patientId)
+                && !hasActiveBreakGlass(organizationId, caller.userId(), patientId)) {
             throw new NotFoundException();
         }
         if (isPatientSelfGated(caller) && !caller.userId().equals(patient.getAppUserId())) {
@@ -78,7 +86,10 @@ public class PatientAccessGuard {
      */
     public Optional<Set<UUID>> accessiblePatientIdsIfGated(UserContext caller, UUID organizationId) {
         if (isProviderGated(caller)) {
-            return Optional.of(activePatientIdsFor(organizationId, caller.userId()));
+            // Assigned patients PLUS any reached under a live break-glass grant, so list reads include them too.
+            Set<UUID> reachable = new HashSet<>(activePatientIdsFor(organizationId, caller.userId()));
+            reachable.addAll(breakGlassPatientIdsFor(organizationId, caller.userId()));
+            return Optional.of(reachable);
         }
         if (isPatientSelfGated(caller)) {
             return Optional.of(selfPatientIds(organizationId, caller.userId()));
@@ -138,6 +149,25 @@ public class PatientAccessGuard {
     /** Whether a provider has an in-force ACTIVE assignment to a patient (the per-patient gate check). */
     public boolean isActivelyAssigned(UUID organizationId, UUID providerUserId, UUID patientId) {
         return activePatientIdsFor(organizationId, providerUserId).contains(patientId);
+    }
+
+    /**
+     * Whether the provider has a live break-glass grant for this patient (§Phase 7) — a time-boxed emergency
+     * override of the relationship gate. An expired grant matches nothing (the query filters {@code expiresAt > now}).
+     */
+    private boolean hasActiveBreakGlass(UUID organizationId, UUID providerUserId, UUID patientId) {
+        return breakGlassGrants.existsByOrganizationIdAndAppUserIdAndPatientIdAndExpiresAtAfter(
+                organizationId, providerUserId, patientId, OffsetDateTime.now());
+    }
+
+    /** The patient ids a provider currently reaches under a live break-glass grant (for list scoping). */
+    private Set<UUID> breakGlassPatientIdsFor(UUID organizationId, UUID providerUserId) {
+        return breakGlassGrants
+                .findByOrganizationIdAndAppUserIdAndExpiresAtAfterOrderByCreatedAtDesc(
+                        organizationId, providerUserId, OffsetDateTime.now())
+                .stream()
+                .map(BreakGlassGrant::getPatientId)
+                .collect(Collectors.toSet());
     }
 
     /** Whether {@code today} falls within the assignment's effective window (open-ended when no end date). */
