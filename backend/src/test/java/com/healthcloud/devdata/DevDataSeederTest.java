@@ -47,15 +47,16 @@ class DevDataSeederTest {
     }
 
     @Test
-    void each_org_has_five_members_all_scoped_to_that_org() {
+    void each_org_has_six_members_all_scoped_to_that_org() {
         Organization north = organizations.findByName("NorthCare Health").orElseThrow();
         Organization green = organizations.findByName("Green Valley Clinic").orElseThrow();
 
         List<OrganizationMembership> northMembers = memberships.findByOrganization_Id(north.getId());
         List<OrganizationMembership> greenMembers = memberships.findByOrganization_Id(green.getId());
 
-        assertEquals(5, northMembers.size());
-        assertEquals(5, greenMembers.size());
+        // patient, provider, provider2 (§Phase 6 provider network), coordinator, reviewer, admin.
+        assertEquals(6, northMembers.size());
+        assertEquals(6, greenMembers.size());
 
         // Tenant isolation: every NorthCare membership belongs to NorthCare, none to Green Valley.
         assertTrue(northMembers.stream().allMatch(m -> m.getOrganization().getId().equals(north.getId())));

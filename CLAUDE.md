@@ -78,7 +78,7 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   Checks: `npm run typecheck`, `npm test` (Vitest), `npm run build`. Node runs from `openjdk@25`'s
   sibling `node@24` — use `export PATH="/opt/homebrew/opt/node@24/bin:$PATH"` in non-interactive shells.
 
-## Current implementation (Phase 1–4 COMPLETE; Phase 5 COMPLETE — slices 1–12 done; MVP (Phase 0–5) feature-complete, engine AND UI. Phase 6 (advanced claims) IN PROGRESS — slices 1–17 done: prior authorization, wired into adjudication, + prior-auth UI (queue/detail/decisions + request form) + plan-prior-auth-requirement admin card, + referrals (backend: care-coordination aggregate + decision lifecycle; + UI: queue/detail/decisions + request form), + appeals (backend: dispute a claim's decision + resolution lifecycle; + UI: queue/detail/decisions + submit form; + overturn wired into re-adjudication), + claim anomaly signals (backend: a deterministic detector + reviewer scan; + UI: Anomalies card + Scan button on the claim detail page), + claim manual review (backend: open/resolve/cancel a review case on a claim; + UI: queue/detail/decisions + open form), + reprocessing (backend: batch re-adjudication of a coverage plan's claims after a config change; + UI: batch queue/detail + Run form), + provider network config (backend: which PROVIDERs are in a coverage plan's network — inert until wired into adjudication in a later slice) — see docs/PROGRESS.md for status)
+## Current implementation (Phase 1–4 COMPLETE; Phase 5 COMPLETE — slices 1–12 done; MVP (Phase 0–5) feature-complete, engine AND UI. Phase 6 (advanced claims) IN PROGRESS — slices 1–19 done: prior authorization, wired into adjudication, + prior-auth UI (queue/detail/decisions + request form) + plan-prior-auth-requirement admin card, + referrals (backend: care-coordination aggregate + decision lifecycle; + UI: queue/detail/decisions + request form), + appeals (backend: dispute a claim's decision + resolution lifecycle; + UI: queue/detail/decisions + submit form; + overturn wired into re-adjudication), + claim anomaly signals (backend: a deterministic detector + reviewer scan; + UI: Anomalies card + Scan button on the claim detail page), + claim manual review (backend: open/resolve/cancel a review case on a claim; + UI: queue/detail/decisions + open form), + reprocessing (backend: batch re-adjudication of a coverage plan's claims after a config change; + UI: batch queue/detail + Run form), + provider network (backend: plan network config + a rendering provider on the claim + the engine marks a covered line OUT_OF_NETWORK when its rendering provider is outside the covering plan's network; UI pending) — see docs/PROGRESS.md for status)
 - **Backend packages** under `com.healthcloud`: `organization` (Organization, Facility, FacilityMembership),
   `identity` (AppUser, Role, OrganizationMembership, UserRole), `auth` (SecurityConfig, DevLoginController,
   CurrentUserController/Service, CsrfCookieFilter), `context` (UserContext + UserContextAccessor/Filter),
@@ -284,7 +284,14 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   (`plan_prior_auth_requirement`), with no APPROVED `prior_authorization` whose window covers the service date, is
   the new `LineOutcome.AUTH_REQUIRED` — allowed 0, plan pays 0, member owes the charge — and, like an exclusion, it
   skips cost-sharing (no deductible/OOP consumption); exclusion takes precedence over an auth requirement. Approving
-  a covering authorization and re-adjudicating (slice 11) flips the line to COVERED. **Re-adjudication is versioned** (slice 11):
+  a covering authorization and re-adjudicating (slice 11) flips the line to COVERED. **Provider network is enforced**
+  (Phase 6 slice 19): when the covering plan **defines a network** (`plan_network_provider`) and the claim's
+  `renderingProviderId` is present but not in it, every non-excluded line is the new `LineOutcome.OUT_OF_NETWORK`
+  — allowed 0, plan pays 0, member owes the charge, no deductible/OOP consumption (like an exclusion). It is a
+  claim-level determination (one header rendering provider). **Precedence: exclusion > out-of-network > auth
+  requirement > covered.** A **null rendering provider** imposes no penalty (can't prove out-of-network) and a
+  plan with **no network rows** imposes none (opt-in) — so existing/null-provider claims are unaffected.
+  **Re-adjudication is versioned** (slice 11):
   the same `POST .../adjudicate` re-runs on an already-ADJUDICATED claim, writing a **new immutable version**
   (v = prior max + 1) while every prior version is retained and the claim stays ADJUDICATED; the engine first
   **backs out the prior version's benefit-accumulator contribution** (read from that version's own line snapshot,
@@ -436,7 +443,9 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   SUBMITTED `appeal` on it for the first patient so a demo appeal queue returns something, and opens one OPEN
   `claim_review` on that same claim (+ its null→OPEN status-history row) so a demo manual-review queue returns
   something a reviewer can resolve; reference codes are seeded before the orgs so the
-  clinical-summary/claim/referral→catalog FKs are satisfied).
+  clinical-summary/claim/referral→catalog FKs are satisfied. **A second PROVIDER per org** (`provider2@`, "Morgan
+  Provider", unassigned) plus the **PPO's network = {Dana}** (`plan_network_provider`, Phase 6 slice 19) so a claim
+  rendered by Morgan on the PPO adjudicates OUT_OF_NETWORK — the seeded/null-provider claims are unaffected).
 - **Tenant-owned entity pattern (Phase 2+):** hold `organizationId` as the tenant key; repositories expose
   only org-scoped finders (`findByIdAndOrganizationId`, `findByOrganizationId…`) — no bare `findById` in
   business code; services derive the org from `UserContextAccessor.requireOrganizationId()`. `patient` is

@@ -146,9 +146,97 @@ class AdjudicationApiIntegrationTest {
         assertTrue(cross.body().contains("NOT_FOUND"));
     }
 
+    @Test
+    void an_out_of_network_rendering_provider_makes_the_lines_out_of_network() throws Exception {
+        Session admin = loginWithCsrf("admin@northcare.example.org");
+        String patientId = firstId(createPatient(admin).body());
+        String planId = createPlan(admin);
+        // The plan's network is {Dana}; the claim is rendered by Morgan → out of network.
+        addNetworkProvider(admin, planId, providerId("provider@northcare.example.org"));
+        enroll(admin, patientId, planId);
+
+        String claimId = acceptedClaimWithProvider(admin, patientId, providerId("provider2@northcare.example.org"));
+        HttpResponse<String> adjudicated = adjudicate(admin, claimId);
+        assertEquals(200, adjudicated.statusCode(), adjudicated.body());
+        assertTrue(adjudicated.body().contains("\"outcome\":\"OUT_OF_NETWORK\""), adjudicated.body());
+        // Plan pays nothing; the member owes the full charge (a single 150.00 line).
+        assertTrue(adjudicated.body().contains("\"totalPlanPaidAmount\":0"), adjudicated.body());
+        assertTrue(adjudicated.body().contains("\"totalMemberResponsibility\":150"), adjudicated.body());
+    }
+
+    @Test
+    void an_in_network_rendering_provider_is_covered() throws Exception {
+        Session admin = loginWithCsrf("admin@northcare.example.org");
+        String patientId = firstId(createPatient(admin).body());
+        String planId = createPlan(admin);
+        String dana = providerId("provider@northcare.example.org");
+        addNetworkProvider(admin, planId, dana);
+        enroll(admin, patientId, planId);
+
+        // The claim is rendered by Dana, who IS in the plan's network → covered.
+        String claimId = acceptedClaimWithProvider(admin, patientId, dana);
+        HttpResponse<String> adjudicated = adjudicate(admin, claimId);
+        assertEquals(200, adjudicated.statusCode(), adjudicated.body());
+        assertTrue(adjudicated.body().contains("\"outcome\":\"COVERED\""), adjudicated.body());
+    }
+
+    @Test
+    void a_null_rendering_provider_is_not_penalized_by_the_network() throws Exception {
+        Session admin = loginWithCsrf("admin@northcare.example.org");
+        String patientId = firstId(createPatient(admin).body());
+        String planId = createPlan(admin);
+        addNetworkProvider(admin, planId, providerId("provider@northcare.example.org"));
+        enroll(admin, patientId, planId);
+
+        // The claim names no rendering provider → no out-of-network penalty (rule: null imposes none).
+        String claimId = acceptedClaim(admin, admin, patientId);
+        HttpResponse<String> adjudicated = adjudicate(admin, claimId);
+        assertEquals(200, adjudicated.statusCode(), adjudicated.body());
+        assertTrue(adjudicated.body().contains("\"outcome\":\"COVERED\""), adjudicated.body());
+    }
+
     // --- helpers -------------------------------------------------------------
 
     private record Session(String session, String xsrf) {}
+
+    /** Create a coverage plan (ORG_ADMIN) — deductible 0, coinsurance 0.2 — so a covered line pays. */
+    private String createPlan(Session admin) throws Exception {
+        String planCode = "OON-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase();
+        HttpResponse<String> created = post(admin, "/api/v1/coverage-plans", """
+                {"planCode":"%s","name":"OON Test PPO","planType":"PPO",\
+                "deductibleAmount":0.00,"coinsuranceRate":0.2000,"copayAmount":0.00}""".formatted(planCode));
+        assertEquals(201, created.statusCode(), created.body());
+        return firstId(created.body());
+    }
+
+    private void addNetworkProvider(Session admin, String planId, String providerUserId) throws Exception {
+        HttpResponse<String> added = post(admin, "/api/v1/coverage-plans/" + planId + "/network-providers",
+                "{\"providerUserId\":\"" + providerUserId + "\"}");
+        assertEquals(201, added.statusCode(), added.body());
+    }
+
+    /** The user id of a seeded account (from its own /me). */
+    private String providerId(String email) throws Exception {
+        String session = loginWithCsrf(email).session;
+        HttpResponse<String> me = http.send(
+                HttpRequest.newBuilder(uri("/api/v1/me")).header("Cookie", "SESSION=" + session).GET().build(),
+                HttpResponse.BodyHandlers.ofString());
+        Matcher m = Pattern.compile("\"userId\":\"([0-9a-fA-F-]{36})\"").matcher(me.body());
+        assertTrue(m.find(), "expected a userId in /me: " + me.body());
+        return m.group(1);
+    }
+
+    /** Drive a single-line claim rendered by {@code providerUserId} to ACCEPTED. */
+    private String acceptedClaimWithProvider(Session actor, String patientId, String providerUserId)
+            throws Exception {
+        String claimId = firstId(post(actor, "/api/v1/claims", """
+                {"patientId":"%s","serviceDate":"2026-01-10","renderingProviderId":"%s","lines":[
+                  {"procedureCode":"99213","units":1,"chargeAmount":150.00}]}"""
+                .formatted(patientId, providerUserId)).body());
+        assertEquals(200, patchStatus(actor, claimId, "SUBMITTED", 0).statusCode());
+        assertEquals(200, patchStatus(actor, claimId, "ACCEPTED", 1).statusCode());
+        return claimId;
+    }
 
     private HttpResponse<String> createPatient(Session s) throws Exception {
         return post(s, "/api/v1/patients", """

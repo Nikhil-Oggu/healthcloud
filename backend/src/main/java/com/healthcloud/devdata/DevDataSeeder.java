@@ -36,6 +36,8 @@ import com.healthcloud.coverage.PatientEligibility;
 import com.healthcloud.coverage.PatientEligibilityRepository;
 import com.healthcloud.coverage.PlanFeeScheduleEntry;
 import com.healthcloud.coverage.PlanFeeScheduleRepository;
+import com.healthcloud.coverage.PlanNetworkProvider;
+import com.healthcloud.coverage.PlanNetworkProviderRepository;
 import com.healthcloud.coverage.PlanPriorAuthRequirement;
 import com.healthcloud.coverage.PlanPriorAuthRequirementRepository;
 import com.healthcloud.coverage.PlanType;
@@ -108,6 +110,7 @@ public class DevDataSeeder implements ApplicationRunner {
     private final CoveragePlanRepository coveragePlanRepository;
     private final PatientEligibilityRepository patientEligibilityRepository;
     private final PlanFeeScheduleRepository planFeeScheduleRepository;
+    private final PlanNetworkProviderRepository planNetworkProviderRepository;
     private final PlanPriorAuthRequirementRepository planPriorAuthRequirementRepository;
     private final PriorAuthorizationRepository priorAuthorizationRepository;
     private final PriorAuthorizationStatusHistoryRepository priorAuthorizationStatusHistoryRepository;
@@ -136,6 +139,7 @@ public class DevDataSeeder implements ApplicationRunner {
                          CoveragePlanRepository coveragePlanRepository,
                          PatientEligibilityRepository patientEligibilityRepository,
                          PlanFeeScheduleRepository planFeeScheduleRepository,
+                         PlanNetworkProviderRepository planNetworkProviderRepository,
                          PlanPriorAuthRequirementRepository planPriorAuthRequirementRepository,
                          PriorAuthorizationRepository priorAuthorizationRepository,
                          PriorAuthorizationStatusHistoryRepository priorAuthorizationStatusHistoryRepository,
@@ -163,6 +167,7 @@ public class DevDataSeeder implements ApplicationRunner {
         this.coveragePlanRepository = coveragePlanRepository;
         this.patientEligibilityRepository = patientEligibilityRepository;
         this.planFeeScheduleRepository = planFeeScheduleRepository;
+        this.planNetworkProviderRepository = planNetworkProviderRepository;
         this.planPriorAuthRequirementRepository = planPriorAuthRequirementRepository;
         this.priorAuthorizationRepository = priorAuthorizationRepository;
         this.priorAuthorizationStatusHistoryRepository = priorAuthorizationStatusHistoryRepository;
@@ -237,6 +242,9 @@ public class DevDataSeeder implements ApplicationRunner {
                 createMember(org, facility, "patient",     "Sam Sample",        "PATIENT",          emailDomain, false);
         AppUser provider =
                 createMember(org, facility, "provider",    "Dana Provider",     "PROVIDER",         emailDomain, true);
+        // A second PROVIDER (unassigned) so provider network is demonstrable: the PPO's network is {Dana}, so a
+        // claim rendered by Morgan adjudicates OUT_OF_NETWORK (§Phase 6 provider network).
+        createMember(org, facility, "provider2",   "Morgan Provider",   "PROVIDER",         emailDomain, true);
         AppUser coordinator =
                 createMember(org, facility, "coordinator", "Cory Coordinator",  "CARE_COORDINATOR", emailDomain, true);
         createMember(org, facility, "reviewer",    "Riley Reviewer",    "CLAIMS_REVIEWER",  emailDomain, false);
@@ -277,6 +285,12 @@ public class DevDataSeeder implements ApplicationRunner {
         CoveragePlan ppo = seedCoveragePlans(org, mrnPrefix);
         seedEligibility(org, patients.get(0), ppo, mrnPrefix, coordinator);
         seedFeeSchedule(org, ppo, admin);
+
+        // Define the PPO's provider network as {Dana} (§Phase 6 provider network). A claim rendered by Morgan
+        // (the other seeded provider) then adjudicates OUT_OF_NETWORK. Claims with no rendering provider — the
+        // seeded claim and the adjudication tests — are unaffected (a null provider imposes no network penalty).
+        planNetworkProviderRepository.save(new PlanNetworkProvider(org.getId(), ppo.getId(), provider.getId(),
+                admin.getId()));
 
         // A sample REQUESTED prior authorization (Phase 6) for the first patient under the PPO, so a demo
         // prior-auth queue returns something a reviewer can approve/deny. Synthetic; coded data only.

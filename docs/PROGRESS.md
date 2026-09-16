@@ -155,8 +155,14 @@
   claim (migration V34, nullable FK → app_user). `CreateClaimRequest` accepts it; `ClaimService.create` validates
   it is an active same-tenant PROVIDER (else 400) and stamps it; `ClaimDto`/`ClaimSummaryDto` expose it as a raw
   id. Backward-compatible (null when omitted). Backend-only.
-  **Next provider-network slices (not yet built, plan each first):** wire into adjudication as OUT_OF_NETWORK (19)
-  → UI (20).
+  slice 19 ✅ — **provider network wired into adjudication (backend)**: a new `LineOutcome.OUT_OF_NETWORK` (migration
+  V35) — when the covering plan defines a network (`plan_network_provider`) and the claim's rendering provider is
+  present but not in it, every non-excluded line is OUT_OF_NETWORK (allowed 0, plan pays 0, member owes charge, no
+  deductible/OOP), a claim-level determination. Precedence exclusion > out-of-network > auth > covered; a null
+  rendering provider or a plan with no network imposes no penalty (opt-in, backward-compatible). Seeder adds a 2nd
+  provider per org (`provider2@`/Morgan) + the PPO network = {Dana}. Backend-only.
+  **Next provider-network slice (not yet built, plan first):** UI (20) — rendering-provider picker on claim create,
+  the plan network admin card, and the OUT_OF_NETWORK line chip. **This completes Phase 6's advanced-claims areas.**
 - **Tooling:** HealthCloud-specific **`code-reviewer`** + **`security-reviewer`** subagents now live in
   `.claude/agents/` (read-only; project-aware checklists — tenant isolation, `PatientAccessGuard`, consent/masking,
   one-tx history, financial accumulators). Invoke by name in a fresh session (agent files load at startup).
@@ -236,6 +242,29 @@
   then `curl -b j.txt localhost:8080/api/v1/me`. Reset DB with `./scripts/db-reset.sh`.
 
 ## Log (newest first)
+
+### 2026-09-16 — Phase 6, slice 19 ✅ (provider network wired into adjudication — OUT_OF_NETWORK, backend)
+- **Why:** the slice where provider network affects the money. The 3rd of the ~4 provider-network slices (only the
+  UI remains). **Backend-only.**
+- **`LineOutcome.OUT_OF_NETWORK`** (migration `V35` extends the `adjudication_line.outcome` CHECK, mirroring V27's
+  AUTH_REQUIRED add). Additive; existing rows unaffected.
+- **`AdjudicationService`:** injects `PlanNetworkProviderRepository`; in the covered branch computes a claim-level
+  `outOfNetwork` = the covering plan defines a network **and** the claim has a rendering provider **and** that
+  provider is not in the network. When true, every non-excluded line is `OUT_OF_NETWORK` (allowed 0, plan pays 0,
+  member owes the charge, no deductible/OOP — reuses `deniedLine`), and its charge is added to the header member
+  responsibility. **Precedence: exclusion > out-of-network > auth requirement > covered.**
+- **Rule (a) for a null rendering provider** (as agreed): no penalty — so every existing claim/test (all
+  null-provider) and a plan with no network are unaffected. Opt-in.
+- **Seeder:** a 2nd PROVIDER per org (`provider2@`/Morgan, unassigned) + the PPO's network = {Dana}
+  (`plan_network_provider`), so a claim rendered by Morgan on the PPO adjudicates OUT_OF_NETWORK — a demoable
+  scenario. (The seeded claim + amount-asserting PPO tests have null rendering providers → unaffected.)
+- **Tests (+3 adjudication → 378; fixed the seeder member-count test 5→6 for the 2nd provider; all green,
+  `./mvnw -B clean verify`):** an out-of-network rendering provider → OUT_OF_NETWORK lines (plan pays 0, member
+  owes charge); an in-network provider → COVERED; a null rendering provider on a networked plan → COVERED. Each
+  test creates its own plan + network via the slice-17 endpoint and uses the two seeded providers.
+- **Not in this slice:** the frontend (the OUT_OF_NETWORK chip + `LineOutcome` type + rendering-provider picker +
+  network admin card) is slice 20; between 19 and 20 an OON line renders with a default chip color.
+- **Next:** slice 20 — provider-network UI, which completes Phase 6's advanced-claims areas.
 
 ### 2026-09-16 — Phase 6, slice 18 ✅ (rendering provider on the claim, backend)
 - **Why:** the claim-side data provider network needs — who rendered the service — so slice 19's engine rule can

@@ -18,6 +18,7 @@ import com.healthcloud.coverage.PlanExclusion;
 import com.healthcloud.coverage.PlanExclusionRepository;
 import com.healthcloud.coverage.PlanFeeScheduleEntry;
 import com.healthcloud.coverage.PlanFeeScheduleRepository;
+import com.healthcloud.coverage.PlanNetworkProviderRepository;
 import com.healthcloud.coverage.PlanPriorAuthRequirement;
 import com.healthcloud.coverage.PlanPriorAuthRequirementRepository;
 import com.healthcloud.error.CorrelationId;
@@ -69,6 +70,7 @@ public class AdjudicationService {
     private final PlanExclusionRepository planExclusions;
     private final PlanFeeScheduleRepository planFeeSchedule;
     private final PlanPriorAuthRequirementRepository planPriorAuthRequirements;
+    private final PlanNetworkProviderRepository planNetwork;
     private final PriorAuthorizationRepository priorAuths;
     private final PatientAccessGuard accessGuard;
     private final UserContextAccessor userContext;
@@ -80,6 +82,7 @@ public class AdjudicationService {
                                BenefitAccumulatorRepository accumulators, PlanExclusionRepository planExclusions,
                                PlanFeeScheduleRepository planFeeSchedule,
                                PlanPriorAuthRequirementRepository planPriorAuthRequirements,
+                               PlanNetworkProviderRepository planNetwork,
                                PriorAuthorizationRepository priorAuths,
                                PatientAccessGuard accessGuard, UserContextAccessor userContext) {
         this.claims = claims;
@@ -93,6 +96,7 @@ public class AdjudicationService {
         this.planExclusions = planExclusions;
         this.planFeeSchedule = planFeeSchedule;
         this.planPriorAuthRequirements = planPriorAuthRequirements;
+        this.planNetwork = planNetwork;
         this.priorAuths = priorAuths;
         this.accessGuard = accessGuard;
         this.userContext = userContext;
@@ -149,19 +153,33 @@ public class AdjudicationService {
                     .findByIdAndOrganizationId(enrollment.getCoveragePlanId(), organizationId)
                     .orElseThrow(NotFoundException::new);
 
-            // A procedure the plan excludes is NOT_COVERED; a procedure that requires prior authorization with no
-            // APPROVED authorization covering the service date is AUTH_REQUIRED (§Phase 6). Both skip the
-            // cost-sharing math and do not touch the deductible or out-of-pocket max — only truly covered lines
-            // flow through the calculator. Exclusion takes precedence over a prior-auth requirement.
+            // A procedure the plan excludes is NOT_COVERED; a claim rendered by a provider not in the covering
+            // plan's network is OUT_OF_NETWORK; a procedure that requires prior authorization with no APPROVED
+            // authorization covering the service date is AUTH_REQUIRED (§Phase 6). All three skip the cost-sharing
+            // math and do not touch the deductible or out-of-pocket max — only truly covered lines flow through
+            // the calculator. Precedence: exclusion > out-of-network > auth requirement.
+            //
+            // Out-of-network is a claim-level determination (one header rendering provider): the plan must define
+            // a network, the claim must name a rendering provider, and that provider must not be in the network.
+            // A null rendering provider imposes no penalty (we cannot prove out-of-network); a plan with no
+            // network rows imposes none either (opt-in).
+            boolean outOfNetwork = claim.getRenderingProviderId() != null
+                    && planNetwork.existsByOrganizationIdAndCoveragePlanId(organizationId, plan.getId())
+                    && !planNetwork.existsByOrganizationIdAndCoveragePlanIdAndProviderUserId(
+                            organizationId, plan.getId(), claim.getRenderingProviderId());
+
             Set<String> excluded = excludedCodeKeys(organizationId, plan.getId());
             Set<String> requiresPriorAuth = priorAuthRequiredCodeKeys(organizationId, plan.getId());
             List<ClaimLine> coveredLines = new ArrayList<>();
             List<ClaimLine> excludedLines = new ArrayList<>();
+            Set<UUID> outOfNetworkLineIds = new HashSet<>();
             Set<UUID> authRequiredLineIds = new HashSet<>();
             for (ClaimLine line : lines) {
                 String key = codeKey(line.getProcedureCodeSystem(), line.getProcedureCode());
                 if (excluded.contains(key)) {
                     excludedLines.add(line);
+                } else if (outOfNetwork) {
+                    outOfNetworkLineIds.add(line.getId());
                 } else if (requiresPriorAuth.contains(key)
                         && !priorAuths.existsApprovedCovering(organizationId, claim.getPatientId(), plan.getId(),
                                 line.getProcedureCodeSystem().name(), line.getProcedureCode(),
@@ -190,8 +208,12 @@ public class AdjudicationService {
             accumulators.save(accumulator);
 
             // Header totals: the covered math, plus the charges the member owes in full where the plan paid 0 —
-            // excluded procedures and procedures needing (missing) prior authorization.
+            // excluded procedures, out-of-network lines, and procedures needing (missing) prior authorization.
             BigDecimal excludedCharge = totalCharge(excludedLines);
+            BigDecimal outOfNetworkCharge = money(lines.stream()
+                    .filter(l -> outOfNetworkLineIds.contains(l.getId()))
+                    .map(ClaimLine::getChargeAmount)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add));
             BigDecimal authRequiredCharge = money(lines.stream()
                     .filter(l -> authRequiredLineIds.contains(l.getId()))
                     .map(ClaimLine::getChargeAmount)
@@ -200,10 +222,11 @@ public class AdjudicationService {
                     organizationId, claim.getId(), nextVersion, AdjudicationOutcome.ADJUDICATED,
                     plan.getId(), enrollment.getId(), totalCharge(lines),
                     computation.totalAllowed(), computation.totalPlanPaid(),
-                    computation.totalMemberResponsibility().add(excludedCharge).add(authRequiredCharge),
+                    computation.totalMemberResponsibility()
+                            .add(excludedCharge).add(outOfNetworkCharge).add(authRequiredCharge),
                     caller.userId(), CorrelationId.current()));
             savedLines = saveAdjudicationLines(
-                    claim, lines, excluded, authRequiredLineIds, computation, savedHeader);
+                    claim, lines, excluded, outOfNetworkLineIds, authRequiredLineIds, computation, savedHeader);
         }
 
         // §31.6: on the first adjudication only, advance the claim and append its status-history row in the same
@@ -263,7 +286,8 @@ public class AdjudicationService {
      * split. The covered computations are keyed by line number (the calculator only saw the covered lines).
      */
     private List<AdjudicationLine> saveAdjudicationLines(Claim claim, List<ClaimLine> lines,
-                                                         Set<String> excluded, Set<UUID> authRequiredLineIds,
+                                                         Set<String> excluded, Set<UUID> outOfNetworkLineIds,
+                                                         Set<UUID> authRequiredLineIds,
                                                          AdjudicationCalculator.Computation computation,
                                                          Adjudication header) {
         Map<Integer, AdjudicationCalculator.LineComputation> byLine = new HashMap<>();
@@ -275,6 +299,8 @@ public class AdjudicationService {
         for (ClaimLine line : lines) {
             if (excluded.contains(codeKey(line.getProcedureCodeSystem(), line.getProcedureCode()))) {
                 saved.add(adjudicationLines.save(deniedLine(claim, header, line, LineOutcome.NOT_COVERED)));
+            } else if (outOfNetworkLineIds.contains(line.getId())) {
+                saved.add(adjudicationLines.save(deniedLine(claim, header, line, LineOutcome.OUT_OF_NETWORK)));
             } else if (authRequiredLineIds.contains(line.getId())) {
                 saved.add(adjudicationLines.save(deniedLine(claim, header, line, LineOutcome.AUTH_REQUIRED)));
             } else {
