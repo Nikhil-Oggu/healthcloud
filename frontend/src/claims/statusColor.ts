@@ -1,4 +1,4 @@
-import type { ClaimStatus, LineOutcome } from '../api/types'
+import type { AnomalySeverity, ClaimStatus, LineOutcome } from '../api/types'
 
 type ChipColor = 'default' | 'primary' | 'secondary' | 'success' | 'error' | 'warning' | 'info'
 
@@ -27,5 +27,17 @@ export function lineOutcomeColor(outcome: LineOutcome): ChipColor {
       return 'warning'
     default:
       return 'default'
+  }
+}
+
+/** Colour for an anomaly signal's severity (advisory cue; the label always states the severity). */
+export function anomalySeverityColor(severity: AnomalySeverity): ChipColor {
+  switch (severity) {
+    case 'HIGH':
+      return 'error'
+    case 'MEDIUM':
+      return 'warning'
+    default:
+      return 'info'
   }
 }

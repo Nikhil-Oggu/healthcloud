@@ -1,6 +1,7 @@
 import type {
   AddCommentRequest,
   Adjudication,
+  ClaimAnomalySignal,
   ApiError,
   AssignableUser,
   AssignMemberRequest,
@@ -338,6 +339,13 @@ export const api = {
 
   getAdjudicationVersions: (id: string) =>
     request<Adjudication[]>(`/api/v1/claims/${id}/adjudication/versions`),
+
+  // --- Claim anomaly signals (§Phase 6) ---
+  scanClaimAnomalies: (id: string) =>
+    request<ClaimAnomalySignal[]>(`/api/v1/claims/${id}/anomaly-scan`, { method: 'POST' }),
+
+  listClaimAnomalies: (id: string) =>
+    request<ClaimAnomalySignal[]>(`/api/v1/claims/${id}/anomalies`),
 
   // --- Prior authorization (§Phase 6) ---
   listPriorAuthorizations: (params?: { patientId?: string; status?: PriorAuthorizationStatus }) => {

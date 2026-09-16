@@ -7,6 +7,7 @@ export const claimKey = (id: string) => ['claims', id] as const
 export const claimHistoryKey = (id: string) => ['claims', id, 'history'] as const
 export const adjudicationKey = (id: string) => ['claims', id, 'adjudication'] as const
 export const adjudicationVersionsKey = (id: string) => ['claims', id, 'adjudication', 'versions'] as const
+export const anomaliesKey = (id: string) => ['claims', id, 'anomalies'] as const
 
 /** The current tenant's claims (backend scopes to the caller: provider → assigned; reviewer/admin → all). */
 export function useClaims() {
@@ -60,6 +61,20 @@ export function useChangeClaimStatus(id: string) {
       queryClient.invalidateQueries({ queryKey: claimHistoryKey(id) })
       queryClient.invalidateQueries({ queryKey: CLAIMS_QUERY_KEY })
     },
+  })
+}
+
+/** The claim's current anomaly signals (readable by any caller who can reach the claim). */
+export function useAnomalies(id: string) {
+  return useQuery({ queryKey: anomaliesKey(id), queryFn: () => api.listClaimAnomalies(id) })
+}
+
+/** Run the anomaly detector (reviewer/admin), then refresh the claim's signals. */
+export function useScanAnomalies(id: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: () => api.scanClaimAnomalies(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: anomaliesKey(id) }),
   })
 }
 

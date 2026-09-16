@@ -23,16 +23,18 @@ import { useCurrentUser } from '../auth/useAuth'
 import { LoadingScreen } from '../components/LoadingScreen'
 import { ErrorScreen } from '../components/ErrorScreen'
 import type { ClaimStatus } from '../api/types'
-import { claimStatusColor, lineOutcomeColor } from './statusColor'
+import { anomalySeverityColor, claimStatusColor, lineOutcomeColor } from './statusColor'
 import { actionLabel, allowedActions, canAdjudicate, canReadjudicate, reasonRequired } from './transitions'
 import { money } from './ClaimsPage'
 import {
   useAdjudicate,
   useAdjudication,
   useAdjudicationVersions,
+  useAnomalies,
   useChangeClaimStatus,
   useClaim,
   useClaimHistory,
+  useScanAnomalies,
 } from './useClaims'
 
 export function ClaimDetailPage() {
@@ -42,6 +44,8 @@ export function ClaimDetailPage() {
   const history = useClaimHistory(id)
   const changeStatus = useChangeClaimStatus(id)
   const adjudicate = useAdjudicate(id)
+  const anomalies = useAnomalies(id)
+  const scan = useScanAnomalies(id)
 
   const [pending, setPending] = useState<ClaimStatus | null>(null)
   const [reason, setReason] = useState('')
@@ -61,6 +65,7 @@ export function ClaimDetailPage() {
   const actions = allowedActions(c.status, roles)
   const showAdjudicate = canAdjudicate(c.status, roles)
   const showReadjudicate = canReadjudicate(c.status, roles)
+  const canScan = roles.includes('CLAIMS_REVIEWER') || roles.includes('ORG_ADMIN')
 
   async function apply(to: ClaimStatus, withReason?: string) {
     setActionError(null)
@@ -90,6 +95,16 @@ export function ClaimDetailPage() {
       await adjudicate.mutateAsync()
     } catch (err) {
       reportError(err, 'Could not adjudicate the claim.')
+    }
+  }
+
+  async function onScan() {
+    setActionError(null)
+    setCorrelationId(undefined)
+    try {
+      await scan.mutateAsync()
+    } catch (err) {
+      reportError(err, 'Could not scan the claim.')
     }
   }
 
@@ -234,6 +249,13 @@ export function ClaimDetailPage() {
 
       {c.status === 'ADJUDICATED' && <VersionHistoryCard versions={versions} />}
 
+      <AnomaliesCard
+        result={anomalies}
+        canScan={canScan}
+        scanning={scan.isPending}
+        onScan={() => void onScan()}
+      />
+
       <Card variant="outlined">
         <CardContent>
           <Typography variant="subtitle1" gutterBottom>
@@ -344,6 +366,67 @@ function AdjudicationCard({ result }: { result: ReturnType<typeof useAdjudicatio
                 </TableBody>
               </Table>
             </Box>
+          </Stack>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+/**
+ * Advisory anomaly signals on the claim (§Phase 6 slice 11). Any caller who can reach the claim sees the current
+ * signals; a reviewer/admin gets a Scan button that runs the detector (a rescan replaces the prior signals). The
+ * signals never change the claim status or the adjudication math — they are advisory only.
+ */
+function AnomaliesCard({
+  result,
+  canScan,
+  scanning,
+  onScan,
+}: {
+  result: ReturnType<typeof useAnomalies>
+  canScan: boolean
+  scanning: boolean
+  onScan: () => void
+}) {
+  const signals = result.data ?? []
+  return (
+    <Card variant="outlined">
+      <CardContent>
+        <Stack direction="row" spacing={2} sx={{ alignItems: 'center', mb: 1, flexWrap: 'wrap', rowGap: 1 }}>
+          <Typography variant="subtitle1">Anomaly signals</Typography>
+          {canScan && (
+            <Button variant="outlined" size="small" disabled={scanning} onClick={onScan}>
+              {scanning ? 'Scanning…' : 'Scan'}
+            </Button>
+          )}
+        </Stack>
+
+        {result.isPending ? (
+          <Typography variant="body2" color="text.secondary">
+            Loading…
+          </Typography>
+        ) : result.isError ? (
+          <Typography variant="body2" color="error">
+            Could not load anomaly signals.
+          </Typography>
+        ) : signals.length === 0 ? (
+          <Typography variant="body2" color="text.secondary">
+            {canScan ? 'No anomaly signals — run a scan to check this claim.' : 'No anomaly signals.'}
+          </Typography>
+        ) : (
+          <Stack spacing={1} divider={<Divider flexItem />}>
+            {signals.map((s) => (
+              <Box key={s.id}>
+                <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+                  <Chip label={s.severity} size="small" color={anomalySeverityColor(s.severity)} />
+                  <Typography variant="body2">{s.signalType}</Typography>
+                </Stack>
+                <Typography variant="caption" color="text.secondary">
+                  {s.detail} · {new Date(s.detectedAt).toLocaleString()}
+                </Typography>
+              </Box>
+            ))}
           </Stack>
         )}
       </CardContent>

@@ -78,7 +78,7 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   Checks: `npm run typecheck`, `npm test` (Vitest), `npm run build`. Node runs from `openjdk@25`'s
   sibling `node@24` — use `export PATH="/opt/homebrew/opt/node@24/bin:$PATH"` in non-interactive shells.
 
-## Current implementation (Phase 1–4 COMPLETE; Phase 5 COMPLETE — slices 1–12 done; MVP (Phase 0–5) feature-complete, engine AND UI. Phase 6 (advanced claims) IN PROGRESS — slices 1–11 done: prior authorization, wired into adjudication, + prior-auth UI (queue/detail/decisions + request form) + plan-prior-auth-requirement admin card, + referrals (backend: care-coordination aggregate + decision lifecycle; + UI: queue/detail/decisions + request form), + appeals (backend: dispute a claim's decision + resolution lifecycle; + UI: queue/detail/decisions + submit form; + overturn wired into re-adjudication), + claim anomaly signals (backend: a deterministic detector + reviewer scan) — see docs/PROGRESS.md for status)
+## Current implementation (Phase 1–4 COMPLETE; Phase 5 COMPLETE — slices 1–12 done; MVP (Phase 0–5) feature-complete, engine AND UI. Phase 6 (advanced claims) IN PROGRESS — slices 1–12 done: prior authorization, wired into adjudication, + prior-auth UI (queue/detail/decisions + request form) + plan-prior-auth-requirement admin card, + referrals (backend: care-coordination aggregate + decision lifecycle; + UI: queue/detail/decisions + request form), + appeals (backend: dispute a claim's decision + resolution lifecycle; + UI: queue/detail/decisions + submit form; + overturn wired into re-adjudication), + claim anomaly signals (backend: a deterministic detector + reviewer scan; + UI: Anomalies card + Scan button on the claim detail page) — see docs/PROGRESS.md for status)
 - **Backend packages** under `com.healthcloud`: `organization` (Organization, Facility, FacilityMembership),
   `identity` (AppUser, Role, OrganizationMembership, UserRole), `auth` (SecurityConfig, DevLoginController,
   CurrentUserController/Service, CsrfCookieFilter), `context` (UserContext + UserContextAccessor/Filter),
@@ -361,8 +361,8 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   clinical narrative, no patient identifiers — so **not consent field-masked**. A **rescan replaces** the claim's
   signals (delete + insert in one tx), so scanning is **idempotent** (no `@Version`). **Honest MVP limitation:**
   detection is a manual reviewer-triggered scan (no auto-trigger at submit/adjudicate yet) and there is no
-  anomaly-resolution/manual-review workflow yet (a later Phase-6 slice); backend-only (an Anomalies card + Scan
-  button on the claim detail page is a later slice)),
+  anomaly-resolution/manual-review workflow yet (a later Phase-6 slice). The anomaly UI shipped in slice 12 — the
+  **Anomalies card** on the claim detail page (see `src/claims/` under Frontend below)),
   `devdata` (DevDataSeeder, local-only — also seeds the global `medical_code` catalog once, then a couple of
   synthetic `clinical_summary` rows per assigned patient, one sample DRAFT `claim` (header + two procedure
   lines + its null→DRAFT status-history row) for the first patient, and two `coverage_plan` rows per org (a PPO
@@ -535,6 +535,10 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   CLAIMS_REVIEWER/ORG_ADMIN — reuses the adjudicate command to append a new immutable version), a
   **current-version label** on the breakdown card, and a **Version history** card (all versions newest-first via
   `useAdjudicationVersions` → `GET .../adjudication/versions`, shown once there is more than one version).
+  **Phase 6 slice 12** added an **Anomalies card** (shown for any claim status) — the claim's current anomaly
+  signals (a severity `Chip` via `anomalySeverityColor` + the type + the PHI-free detail + detected time) via
+  `useAnomalies` → `GET .../anomalies`, plus a **Scan** button for CLAIMS_REVIEWER/ORG_ADMIN (`useScanAnomalies`
+  → `POST .../anomaly-scan`, a rescan replaces the signals) — the browser view of the slice-11 detector.
   Slice 6 added a **New claim form** on the list page (create roles only) — patient select,
   service date (≤ today, mirroring the backend `@PastOrPresent`), and a `useFieldArray` of lines each with a
   reusable **`MedicalCodePicker`** (an MUI Autocomplete, freeSolo + debounced, searching the catalog via

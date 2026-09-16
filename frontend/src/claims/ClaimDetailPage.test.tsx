@@ -7,7 +7,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { api } from '../api/client'
 import { useCurrentUser } from '../auth/useAuth'
 import { ClaimDetailPage } from './ClaimDetailPage'
-import type { Adjudication, Claim, ClaimStatusHistory, CurrentUser } from '../api/types'
+import type {
+  Adjudication,
+  Claim,
+  ClaimAnomalySignal,
+  ClaimStatusHistory,
+  CurrentUser,
+} from '../api/types'
 
 vi.mock('../api/client', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../api/client')>()
@@ -21,6 +27,8 @@ vi.mock('../api/client', async (importOriginal) => {
       adjudicateClaim: vi.fn(),
       getAdjudication: vi.fn(),
       getAdjudicationVersions: vi.fn(),
+      listClaimAnomalies: vi.fn(),
+      scanClaimAnomalies: vi.fn(),
     },
   }
 })
@@ -32,6 +40,8 @@ const changeClaimStatus = vi.mocked(api.changeClaimStatus)
 const adjudicateClaim = vi.mocked(api.adjudicateClaim)
 const getAdjudication = vi.mocked(api.getAdjudication)
 const getAdjudicationVersions = vi.mocked(api.getAdjudicationVersions)
+const listClaimAnomalies = vi.mocked(api.listClaimAnomalies)
+const scanClaimAnomalies = vi.mocked(api.scanClaimAnomalies)
 const useCurrentUserMock = vi.mocked(useCurrentUser)
 
 const DRAFT: Claim = {
@@ -68,6 +78,12 @@ const ADJUDICATION_V2: Adjudication = {
   adjudicatedAt: '2026-01-12T09:00:00Z',
 }
 
+const DUPLICATE_SIGNAL: ClaimAnomalySignal = {
+  id: 'an1', claimId: 'cl1', signalType: 'DUPLICATE_CLAIM', severity: 'HIGH',
+  detail: 'Possible duplicate of claim CLM-OTHER99 (same service date 2026-01-10, shared procedure 99213).',
+  detectedBy: 'u2', detectedAt: '2026-01-11T09:00:00Z',
+}
+
 function mockUser(roles: string[]) {
   useCurrentUserMock.mockReturnValue({
     data: { userId: 'u1', email: 'x@northcare.example.org', fullName: 'X',
@@ -94,6 +110,7 @@ describe('ClaimDetailPage', () => {
     getClaimHistory.mockResolvedValue(HISTORY)
     getAdjudication.mockResolvedValue(ADJUDICATION)
     getAdjudicationVersions.mockResolvedValue([ADJUDICATION])
+    listClaimAnomalies.mockResolvedValue([])
   })
 
   it('renders the header and the lines', async () => {
@@ -195,6 +212,40 @@ describe('ClaimDetailPage', () => {
     await screen.findByText('Adjudication — version 1')
 
     expect(screen.queryByText('Version history')).not.toBeInTheDocument()
+  })
+
+  it('a reviewer can scan for anomalies and sees the returned signals', async () => {
+    mockUser(['CLAIMS_REVIEWER'])
+    getClaim.mockResolvedValue(ACCEPTED)
+    scanClaimAnomalies.mockResolvedValue([DUPLICATE_SIGNAL])
+
+    renderDetail(<ClaimDetailPage />)
+    await screen.findByText('Claim CLM-ABC12345')
+
+    // Before scanning, the card shows the reviewer prompt and no signal.
+    expect(await screen.findByText('No anomaly signals — run a scan to check this claim.')).toBeInTheDocument()
+
+    // After scanning, the returned signal renders (the refetch also returns it).
+    listClaimAnomalies.mockResolvedValue([DUPLICATE_SIGNAL])
+    await userEvent.click(screen.getByRole('button', { name: 'Scan' }))
+
+    await waitFor(() => expect(scanClaimAnomalies).toHaveBeenCalledWith('cl1'))
+    expect(await screen.findByText('DUPLICATE_CLAIM')).toBeInTheDocument()
+    expect(screen.getByText('HIGH')).toBeInTheDocument()
+  })
+
+  it('a non-reviewer sees the anomalies list but no Scan button', async () => {
+    mockUser(['CARE_COORDINATOR'])
+    getClaim.mockResolvedValue(ACCEPTED)
+    listClaimAnomalies.mockResolvedValue([DUPLICATE_SIGNAL])
+
+    renderDetail(<ClaimDetailPage />)
+    await screen.findByText('Claim CLM-ABC12345')
+
+    // The signal is visible…
+    expect(await screen.findByText('DUPLICATE_CLAIM')).toBeInTheDocument()
+    // …but a coordinator cannot trigger a scan (backend also enforces this).
+    expect(screen.queryByRole('button', { name: 'Scan' })).not.toBeInTheDocument()
   })
 
   it('submitting sends the transition with the loaded version', async () => {

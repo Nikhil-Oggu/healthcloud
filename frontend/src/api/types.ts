@@ -362,6 +362,22 @@ export interface Adjudication {
   lines: AdjudicationLine[]
 }
 
+// --- Claim anomaly signals (§Phase 6) ------------------------------------
+
+export type AnomalySeverity = 'LOW' | 'MEDIUM' | 'HIGH'
+export type AnomalySignalType = 'DUPLICATE_CLAIM' | 'HIGH_TOTAL_CHARGE'
+
+/** One advisory anomaly signal on a claim (mirrors ClaimAnomalySignalDto). PHI-free claims-domain data only. */
+export interface ClaimAnomalySignal {
+  id: string
+  claimId: string
+  signalType: AnomalySignalType
+  severity: AnomalySeverity
+  detail: string
+  detectedBy: string
+  detectedAt: string
+}
+
 // --- Medical codes (§Phase 4) + claim creation ---------------------------
 
 /** A medical code from the global catalog (mirrors MedicalCodeDto). category is 'Diagnosis' or 'Procedure'. */

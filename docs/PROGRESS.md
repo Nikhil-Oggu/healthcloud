@@ -109,8 +109,14 @@
   same service date, shared procedure) + `HIGH_TOTAL_CHARGE` (total over a configurable threshold). Signals
   (`claim_anomaly_signal`, migration V30) are immutable + patient-gated via the claim; a rescan **replaces** them
   so scanning is idempotent. **Additive** — never touches claim status or the adjudication math. Backend-only.
+  slice 12 ✅ — **anomaly UI**: an **Anomalies card** on the claim detail page (`src/claims/ClaimDetailPage.tsx`) —
+  lists the claim's current anomaly signals (severity chip + type + PHI-free detail + time) via `useAnomalies`, with
+  a **Scan** button for CLAIMS_REVIEWER/ORG_ADMIN (`useScanAnomalies`) that runs the slice-11 detector and refreshes.
+  New `api`/`types` methods (`scanClaimAnomalies`/`listClaimAnomalies`, `ClaimAnomalySignal`) + `anomalySeverityColor`.
+  Frontend-only; live-verified end-to-end (a duplicate claim scans to a HIGH DUPLICATE_CLAIM signal). Anomaly signals
+  are now complete in the browser.
   **Next Phase-6 slices (not yet built, plan each first):** provider network, manual review (an anomaly-resolution
-  workflow on top of these signals), reprocessing; + an anomaly UI (a Scan button + Anomalies card).
+  workflow on top of these signals), reprocessing.
 - **Tooling:** HealthCloud-specific **`code-reviewer`** + **`security-reviewer`** subagents now live in
   `.claude/agents/` (read-only; project-aware checklists — tenant isolation, `PatientAccessGuard`, consent/masking,
   one-tx history, financial accumulators). Invoke by name in a fresh session (agent files load at startup).
@@ -190,6 +196,29 @@
   then `curl -b j.txt localhost:8080/api/v1/me`. Reset DB with `./scripts/db-reset.sh`.
 
 ## Log (newest first)
+
+### 2026-09-16 — Phase 6, slice 12 ✅ (anomaly UI — Anomalies card + Scan button on the claim detail page)
+- **Why:** slice 11 shipped the anomaly-detection backend; this puts it in the browser (the backend-then-UI rhythm),
+  completing anomaly signals end-to-end. **Frontend-only.**
+- **`api/types.ts`:** `AnomalySeverity`, `AnomalySignalType`, `ClaimAnomalySignal` (mirror the DTO).
+- **`api/client.ts`:** `scanClaimAnomalies(id)` (`POST /api/v1/claims/{id}/anomaly-scan`) + `listClaimAnomalies(id)`
+  (`GET .../anomalies`).
+- **`claims/useClaims.ts`:** `anomaliesKey`, `useAnomalies(id)`, `useScanAnomalies(id)` (invalidates the signals on
+  success).
+- **`claims/statusColor.ts`:** `anomalySeverityColor` (HIGH→error, MEDIUM→warning, LOW→info).
+- **`claims/ClaimDetailPage.tsx`:** a new **Anomalies card** (rendered for any claim status, after the version
+  history) — the current signals as severity chip + type + PHI-free detail + detected time, with a **Scan** button
+  gated to CLAIMS_REVIEWER/ORG_ADMIN (client mirror of the backend role gate; the backend still enforces it). Empty
+  state prompts a reviewer to scan.
+- **Tests (+2 → 106 frontend, all green; `typecheck` + `build` green):** in `ClaimDetailPage.test.tsx`, a reviewer
+  scans and sees the returned HIGH DUPLICATE_CLAIM signal; a coordinator sees the signal list but **no Scan button**.
+  Existing tests updated to mock the two new api methods.
+- **Live-verified end-to-end:** created two identical claims for Sam Sample via the API, logged in as
+  `reviewer@northcare` in the browser, opened the second claim, clicked **Scan** → a red **HIGH** `DUPLICATE_CLAIM`
+  chip appeared naming the first claim (same service date, shared procedure 99213). Fresh backend boot applied
+  migration V30.
+- **Docs:** CLAUDE.md claims-frontend blurb (+Anomalies card) + anomaly blurb (UI shipped) + Phase-6 header 1–11 →
+  1–12. **No backend change.**
 
 ### 2026-09-16 — Phase 6, slice 11 ✅ (claim anomaly signals — a deterministic detector + reviewer scan)
 - **Why:** the "anomaly signals" item on Phase 6's advanced-claims list (flag suspicious claims). A self-contained
