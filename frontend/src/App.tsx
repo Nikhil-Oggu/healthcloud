@@ -19,6 +19,8 @@ import { AppealsPage } from './appeal/AppealsPage'
 import { AppealDetailPage } from './appeal/AppealDetailPage'
 import { ClaimReviewsPage } from './claimreview/ClaimReviewsPage'
 import { ClaimReviewDetailPage } from './claimreview/ClaimReviewDetailPage'
+import { ReprocessingBatchesPage } from './reprocessing/ReprocessingBatchesPage'
+import { ReprocessingBatchDetailPage } from './reprocessing/ReprocessingBatchDetailPage'
 import { DeniedPage } from './pages/DeniedPage'
 import { NotFoundPage } from './pages/NotFoundPage'
 
@@ -49,6 +51,8 @@ const router = createBrowserRouter([
       { path: 'appeals/:id', element: <AppealDetailPage /> },
       { path: 'claim-reviews', element: <ClaimReviewsPage /> },
       { path: 'claim-reviews/:id', element: <ClaimReviewDetailPage /> },
+      { path: 'reprocessing', element: <ReprocessingBatchesPage /> },
+      { path: 'reprocessing/:id', element: <ReprocessingBatchDetailPage /> },
       { path: 'denied', element: <DeniedPage /> },
     ],
   },

@@ -56,6 +56,9 @@ import type {
   ClaimReviewStatusChange,
   ClaimReviewStatusHistory,
   CreateClaimReviewRequest,
+  ReprocessingBatch,
+  ReprocessingBatchSummary,
+  CreateReprocessingBatchRequest,
   RequestAssignment,
   RequestComment,
   RequestStatusHistory,
@@ -462,6 +465,20 @@ export const api = {
   changeClaimReviewStatus: (id: string, body: ClaimReviewStatusChange) =>
     request<ClaimReview>(`/api/v1/claim-reviews/${id}/status`, {
       method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }),
+
+  // --- Reprocessing batches (§Phase 6) ---
+  listReprocessingBatches: () =>
+    request<ReprocessingBatchSummary[]>('/api/v1/reprocessing-batches'),
+
+  getReprocessingBatch: (id: string) =>
+    request<ReprocessingBatch>(`/api/v1/reprocessing-batches/${id}`),
+
+  runReprocessingBatch: (body: CreateReprocessingBatchRequest) =>
+    request<ReprocessingBatch>('/api/v1/reprocessing-batches', {
+      method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     }),

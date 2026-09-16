@@ -138,7 +138,13 @@
   **Deliberate tx-shape departure:** `createAndRun` is `NOT_SUPPORTED`, so each claim's re-adjudication is its own
   transaction — one failure is caught + recorded, never rolling back the batch or the others. Migration V32.
   Backend-only (reprocessing UI is a later slice).
-  **Next Phase-6 slices (not yet built, plan each first):** reprocessing UI, provider network.
+  slice 16 ✅ — **reprocessing UI**: a new `src/reprocessing/` feature folder (a **job**, not a state machine — no
+  transition buttons/reason prompts/optimistic locking) — a work queue (`/reprocessing`: Batch # · plan · status ·
+  succeeded/failed/total) + detail with a header and a per-claim items table (claim # resolved via `useClaims`,
+  outcome chip, new version / PHI-free message), a **Run batch** form (plan `<select>` from `useCoveragePlans`, RHF+
+  Zod) gated to CLAIMS_REVIEWER/ORG_ADMIN, a **Reprocessing** nav button (same roles), `statusColor.ts`,
+  `useReprocessing.ts`, and `api`/`types` methods. Reprocessing is now complete end-to-end. Frontend-only.
+  **Next Phase-6 slices (not yet built, plan each first):** provider network (the last Phase-6 area).
 - **Tooling:** HealthCloud-specific **`code-reviewer`** + **`security-reviewer`** subagents now live in
   `.claude/agents/` (read-only; project-aware checklists — tenant isolation, `PatientAccessGuard`, consent/masking,
   one-tx history, financial accumulators). Invoke by name in a fresh session (agent files load at startup).
@@ -218,6 +224,39 @@
   then `curl -b j.txt localhost:8080/api/v1/me`. Reset DB with `./scripts/db-reset.sh`.
 
 ## Log (newest first)
+
+### 2026-09-16 — Phase 6, slice 16 ✅ (reprocessing UI — batch queue + detail + Run form)
+- **Why:** slice 15 shipped the reprocessing backend; this puts it in the browser (the backend-then-UI rhythm),
+  completing reprocessing end-to-end. **Frontend-only.**
+- **New feature folder `src/reprocessing/`** — deliberately simpler than the decision-aggregate UIs because a batch
+  is a **job, not a state machine**: no `transitions.ts`, no decision buttons, no reason prompts, no optimistic
+  locking. Files: `statusColor.ts` (`reprocessingStatusColor` COMPLETED→success / COMPLETED_WITH_ERRORS→warning /
+  RUNNING→info; `itemOutcomeColor` SUCCEEDED→success / FAILED→error), `useReprocessing.ts`
+  (`useReprocessingBatches`/`useReprocessingBatch`/`useRunReprocessingBatch`), `ReprocessingBatchesPage.tsx` (work
+  queue: Batch # · plan name from the summary DTO · status chip · succeeded/failed/total · run time; + the Run form
+  for run roles), `ReprocessingBatchDetailPage.tsx` (header — plan · status · counts · started/finished — + a
+  per-claim items table: claim # resolved via `useClaims` and linked to `/claims/:id`, an outcome chip, the new
+  adjudication version on success, the PHI-free message on failure), `CreateReprocessingBatchForm.tsx` (a single
+  coverage-plan `<select>` from `useCoveragePlans`, RHF+Zod; on run navigates to the new batch; the button shows a
+  running state — the backend batch is synchronous).
+- **`api/types.ts` + `api/client.ts`:** `ReprocessingBatchStatus`/`ReprocessingItemOutcome`/`ReprocessingItem`/
+  `ReprocessingBatch`/`ReprocessingBatchSummary`/`CreateReprocessingBatchRequest` + `listReprocessingBatches`/
+  `getReprocessingBatch`/`runReprocessingBatch`.
+- **`App.tsx`** (+2 routes: `reprocessing`, `reprocessing/:id`); **`layout/AppLayout.tsx`** (+ a **Reprocessing**
+  nav button gated to **CLAIMS_REVIEWER/ORG_ADMIN** — the run/monitor audience).
+- **Role-aware UI (convenience; backend still enforces):** the Run form + nav are shown only to CLAIMS_REVIEWER/
+  ORG_ADMIN, mirroring the backend `REPROCESS_ROLES`.
+- **Tests (+8 → 128 frontend, all green; `typecheck` + `build` green):** `statusColor.test.ts` (2), plus
+  `ReprocessingBatchesPage` (lists batches; empty state; reviewer sees the Run form, a provider does not),
+  `ReprocessingBatchDetailPage` (header + items table — claim resolved, outcomes, version, failure message), and
+  `CreateReprocessingBatchForm` (picking a plan runs with that plan id; blocks submit with no plan).
+- **Live check:** DB reset → backend restarted (Flyway applied through **V32**, both reprocessing tables present).
+  Verified the exact same-origin path the SPA uses: adjudicated the seeded PPO claim, then **through the Vite
+  `:5173` proxy** ran `POST /api/v1/reprocessing-batches` → COMPLETED, total/succeeded 1, item SUCCEEDED with
+  `adjudicationVersion: 2` and `coveragePlanName: "Standard PPO"` (matching the client types), and the batch listed
+  back. (The in-app browser wouldn't render `localhost` in this environment; component rendering/role-gating/forms
+  are covered by the RTL tests, and the proxy/data path by this check.)
+- **Next:** provider network — the last Phase-6 area (in/out-of-network providers affecting adjudication).
 
 ### 2026-09-16 — Phase 6, slice 15 ✅ (reprocessing — batch re-adjudication of a plan's claims after a config change, backend)
 - **Why:** the "reprocessing" item on Phase 6's advanced-claims list, and the natural build-on from slice 11's

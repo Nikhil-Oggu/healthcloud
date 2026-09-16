@@ -78,7 +78,7 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   Checks: `npm run typecheck`, `npm test` (Vitest), `npm run build`. Node runs from `openjdk@25`'s
   sibling `node@24` — use `export PATH="/opt/homebrew/opt/node@24/bin:$PATH"` in non-interactive shells.
 
-## Current implementation (Phase 1–4 COMPLETE; Phase 5 COMPLETE — slices 1–12 done; MVP (Phase 0–5) feature-complete, engine AND UI. Phase 6 (advanced claims) IN PROGRESS — slices 1–15 done: prior authorization, wired into adjudication, + prior-auth UI (queue/detail/decisions + request form) + plan-prior-auth-requirement admin card, + referrals (backend: care-coordination aggregate + decision lifecycle; + UI: queue/detail/decisions + request form), + appeals (backend: dispute a claim's decision + resolution lifecycle; + UI: queue/detail/decisions + submit form; + overturn wired into re-adjudication), + claim anomaly signals (backend: a deterministic detector + reviewer scan; + UI: Anomalies card + Scan button on the claim detail page), + claim manual review (backend: open/resolve/cancel a review case on a claim; + UI: queue/detail/decisions + open form), + reprocessing (backend: batch re-adjudication of a coverage plan's claims after a config change) — see docs/PROGRESS.md for status)
+## Current implementation (Phase 1–4 COMPLETE; Phase 5 COMPLETE — slices 1–12 done; MVP (Phase 0–5) feature-complete, engine AND UI. Phase 6 (advanced claims) IN PROGRESS — slices 1–16 done: prior authorization, wired into adjudication, + prior-auth UI (queue/detail/decisions + request form) + plan-prior-auth-requirement admin card, + referrals (backend: care-coordination aggregate + decision lifecycle; + UI: queue/detail/decisions + request form), + appeals (backend: dispute a claim's decision + resolution lifecycle; + UI: queue/detail/decisions + submit form; + overturn wired into re-adjudication), + claim anomaly signals (backend: a deterministic detector + reviewer scan; + UI: Anomalies card + Scan button on the claim detail page), + claim manual review (backend: open/resolve/cancel a review case on a claim; + UI: queue/detail/decisions + open form), + reprocessing (backend: batch re-adjudication of a coverage plan's claims after a config change; + UI: batch queue/detail + Run form) — see docs/PROGRESS.md for status)
 - **Backend packages** under `com.healthcloud`: `organization` (Organization, Facility, FacilityMembership),
   `identity` (AppUser, Role, OrganizationMembership, UserRole), `auth` (SecurityConfig, DevLoginController,
   CurrentUserController/Service, CsrfCookieFilter), `context` (UserContext + UserContextAccessor/Filter),
@@ -654,6 +654,18 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   navigates to the new review. A **Reviews** nav button gated to CARE_COORDINATOR/CLAIMS_REVIEWER/ORG_ADMIN (the
   opener/resolver audience; no PROVIDER — providers can't open, though an assigned provider can still reach one by
   link).
+  Plus **`src/reprocessing/`** (Phase 6 slice 16 — the reprocessing UI; a **job**, not a state machine, so it is
+  simpler than the decision-aggregate UIs — no transition buttons, no reason prompts, no optimistic locking):
+  a work queue `reprocessing` (Batch # · plan name from `coveragePlanName` · status chip · succeeded/failed/total
+  counts · run time) and a **detail** `reprocessing/:id` (header — plan · status · counts · started/finished — plus
+  a per-claim **items table**: claim # resolved via `useClaims` and linked to `/claims/:id` · an outcome chip
+  (`itemOutcomeColor`) · the new adjudication version on success · the PHI-free message on failure). A **Run batch**
+  form (`CreateReprocessingBatchForm`, RHF+Zod, a single coverage-plan `<select>` from `useCoveragePlans`) shown to
+  **CLAIMS_REVIEWER/ORG_ADMIN**; on run it navigates to the new batch (the button shows a running state — the
+  backend batch is synchronous). `statusColor.ts` (`reprocessingStatusColor` COMPLETED→success /
+  COMPLETED_WITH_ERRORS→warning / RUNNING→info; `itemOutcomeColor` SUCCEEDED→success / FAILED→error),
+  `useReprocessing.ts` (`useReprocessingBatches`/`useReprocessingBatch`/`useRunReprocessingBatch`), and `api`/`types`
+  additions. A **Reprocessing** nav button gated to CLAIMS_REVIEWER/ORG_ADMIN (the run/monitor audience).
 - **Consent/field masking in the UI (Phase 3+):** the backend already withholds masked values, so the SPA only
   *displays* the state — render a "Restricted"/placeholder for a `null` consent-controlled field (named in
   `maskedFields`); never assume a field is present. This is display-only, not a security control.

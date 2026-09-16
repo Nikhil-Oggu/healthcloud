@@ -726,3 +726,54 @@ export interface CreateClaimReviewRequest {
   claimId: string
   reason?: string
 }
+
+/** The reprocessing-batch lifecycle (mirrors ReprocessingBatchStatus). A job record, not a state machine. */
+export type ReprocessingBatchStatus = 'RUNNING' | 'COMPLETED' | 'COMPLETED_WITH_ERRORS'
+
+/** The per-claim outcome within a batch (mirrors ReprocessingItemOutcome). */
+export type ReprocessingItemOutcome = 'SUCCEEDED' | 'FAILED'
+
+/** One claim's result within a reprocessing batch (mirrors ReprocessingItemDto). */
+export interface ReprocessingItem {
+  id: string
+  claimId: string
+  outcome: ReprocessingItemOutcome
+  adjudicationVersion: number | null
+  message: string | null
+  createdAt: string
+}
+
+/** A reprocessing-batch header row for the work queue (mirrors ReprocessingBatchSummaryDto). */
+export interface ReprocessingBatchSummary {
+  id: string
+  batchNumber: string
+  coveragePlanId: string
+  coveragePlanName: string | null
+  status: ReprocessingBatchStatus
+  totalCount: number
+  succeededCount: number
+  failedCount: number
+  createdAt: string
+  finishedAt: string | null
+}
+
+/** A reprocessing batch — header plus per-claim items (mirrors ReprocessingBatchDto). Not consent-masked. */
+export interface ReprocessingBatch {
+  id: string
+  batchNumber: string
+  coveragePlanId: string
+  coveragePlanName: string | null
+  status: ReprocessingBatchStatus
+  totalCount: number
+  succeededCount: number
+  failedCount: number
+  requestedBy: string
+  createdAt: string
+  finishedAt: string | null
+  items: ReprocessingItem[]
+}
+
+/** Payload to run a reprocessing batch for a coverage plan (mirrors CreateReprocessingBatchRequest). */
+export interface CreateReprocessingBatchRequest {
+  coveragePlanId: string
+}
