@@ -78,7 +78,7 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   Checks: `npm run typecheck`, `npm test` (Vitest), `npm run build`. Node runs from `openjdk@25`'s
   sibling `node@24` — use `export PATH="/opt/homebrew/opt/node@24/bin:$PATH"` in non-interactive shells.
 
-## Current implementation (Phase 1–4 COMPLETE; Phase 5 COMPLETE — slices 1–12 done; MVP (Phase 0–5) feature-complete, engine AND UI. Phase 6 (advanced claims) IN PROGRESS — slices 1–2 done: prior authorization + wired into adjudication — see docs/PROGRESS.md for status)
+## Current implementation (Phase 1–4 COMPLETE; Phase 5 COMPLETE — slices 1–12 done; MVP (Phase 0–5) feature-complete, engine AND UI. Phase 6 (advanced claims) IN PROGRESS — slices 1–3 done: prior authorization, wired into adjudication, + prior-auth UI — see docs/PROGRESS.md for status)
 - **Backend packages** under `com.healthcloud`: `organization` (Organization, Facility, FacilityMembership),
   `identity` (AppUser, Role, OrganizationMembership, UserRole), `auth` (SecurityConfig, DevLoginController,
   CurrentUserController/Service, CsrfCookieFilter), `context` (UserContext + UserContextAccessor/Filter),
@@ -482,6 +482,15 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   in-tenant-plan (400) and non-overlap (409) checks are the server's. No edit/terminate-eligibility UI yet (no
   backend update endpoint). All
   follow the feature-folder + hooks + RHF/Zod pattern.
+  Plus **`src/priorauth/`** (Phase 6 slice 3 — the prior-authorization UI, mirroring the claims UI): a work
+  queue `prior-authorizations` (auth # · patient · procedure · requested-from · status) and a **detail**
+  `prior-authorizations/:id` with the header (procedure · plan · service window · decision reason when present), a
+  status timeline, and **decision action buttons** driven by a client mirror of `PriorAuthTransitions` in
+  `src/priorauth/transitions.ts` — **Approve/Deny** for CLAIMS_REVIEWER/ORG_ADMIN (reason prompt on Deny) and
+  **Cancel** for the requester roles (reason prompt), optimistic-locked via the loaded `version` through
+  `useChangePriorAuthStatus`. A **Prior auth** nav button (staff roles). No request (create) form yet — a later
+  slice. Slice 3 also taught the claims adjudication card the new **`AUTH_REQUIRED`** line outcome (a `warning`
+  chip via `lineOutcomeColor`), so slice 2's effect is visible.
 - **Consent/field masking in the UI (Phase 3+):** the backend already withholds masked values, so the SPA only
   *displays* the state — render a "Restricted"/placeholder for a `null` consent-controlled field (named in
   `maskedFields`); never assume a field is present. This is display-only, not a security control.

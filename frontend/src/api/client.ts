@@ -22,6 +22,11 @@ import type {
   PatientEligibility,
   PlanExclusion,
   PlanFeeScheduleEntry,
+  PriorAuthorization,
+  PriorAuthorizationStatus,
+  PriorAuthorizationSummary,
+  PriorAuthStatusChange,
+  PriorAuthStatusHistory,
   CoordinatorAssignment,
   CurrentUser,
   Patient,
@@ -318,6 +323,28 @@ export const api = {
 
   getAdjudicationVersions: (id: string) =>
     request<Adjudication[]>(`/api/v1/claims/${id}/adjudication/versions`),
+
+  // --- Prior authorization (§Phase 6) ---
+  listPriorAuthorizations: (params?: { patientId?: string; status?: PriorAuthorizationStatus }) => {
+    const q = new URLSearchParams()
+    if (params?.patientId) q.set('patientId', params.patientId)
+    if (params?.status) q.set('status', params.status)
+    const suffix = q.toString() ? `?${q.toString()}` : ''
+    return request<PriorAuthorizationSummary[]>(`/api/v1/prior-authorizations${suffix}`)
+  },
+
+  getPriorAuthorization: (id: string) =>
+    request<PriorAuthorization>(`/api/v1/prior-authorizations/${id}`),
+
+  getPriorAuthHistory: (id: string) =>
+    request<PriorAuthStatusHistory[]>(`/api/v1/prior-authorizations/${id}/history`),
+
+  changePriorAuthStatus: (id: string, body: PriorAuthStatusChange) =>
+    request<PriorAuthorization>(`/api/v1/prior-authorizations/${id}/status`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }),
 
   // --- Coverage plans + exclusions (§Phase 4/5) ---
   listCoveragePlans: () => request<CoveragePlan[]>('/api/v1/coverage-plans'),

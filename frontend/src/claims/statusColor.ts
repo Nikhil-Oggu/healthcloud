@@ -1,4 +1,4 @@
-import type { ClaimStatus } from '../api/types'
+import type { ClaimStatus, LineOutcome } from '../api/types'
 
 type ChipColor = 'default' | 'primary' | 'secondary' | 'success' | 'error' | 'warning' | 'info'
 
@@ -19,6 +19,13 @@ export function claimStatusColor(status: ClaimStatus): ChipColor {
 }
 
 /** Colour for a per-line adjudication outcome. */
-export function lineOutcomeColor(outcome: 'COVERED' | 'NOT_COVERED'): ChipColor {
-  return outcome === 'COVERED' ? 'success' : 'default'
+export function lineOutcomeColor(outcome: LineOutcome): ChipColor {
+  switch (outcome) {
+    case 'COVERED':
+      return 'success'
+    case 'AUTH_REQUIRED':
+      return 'warning'
+    default:
+      return 'default'
+  }
 }

@@ -52,9 +52,13 @@
   `.../coverage-plans/{id}/prior-auth-requirements`); the engine marks a covered line **`AUTH_REQUIRED`** (member
   owes the charge, no deductible/OOP consumed) when its procedure requires prior auth and no APPROVED
   authorization covers the service date — approving a covering auth + re-adjudicating (slice 11) flips it to
-  COVERED. Backend-only. **Next Phase-6 slices (not yet built, plan each first):** a prior-auth **frontend**
-  (queue + request/approve + the AUTH_REQUIRED breakdown); then referrals, provider network, anomaly signals,
-  manual review, appeals, reprocessing.
+  COVERED. Backend-only.
+  slice 3 ✅ — **prior-auth frontend**: a work queue (`/prior-authorizations`) + detail with a status timeline and
+  **Approve/Deny/Cancel** decision buttons (client mirror of `PriorAuthTransitions`, optimistic-locked), a **Prior
+  auth** nav button, and the claims adjudication card now renders the **`AUTH_REQUIRED`** line outcome (surfacing
+  slice 2). Frontend-only; no request (create) form yet. **Next Phase-6 slices (not yet built, plan each first):**
+  the prior-auth **request form** (+ optionally a plan-prior-auth-requirement admin card); then referrals,
+  provider network, anomaly signals, manual review, appeals, reprocessing.
 - **Tooling:** HealthCloud-specific **`code-reviewer`** + **`security-reviewer`** subagents now live in
   `.claude/agents/` (read-only; project-aware checklists — tenant isolation, `PatientAccessGuard`, consent/masking,
   one-tx history, financial accumulators). Invoke by name in a fresh session (agent files load at startup).
@@ -134,6 +138,40 @@
   then `curl -b j.txt localhost:8080/api/v1/me`. Reset DB with `./scripts/db-reset.sh`.
 
 ## Log (newest first)
+
+### 2026-09-15 — Phase 6, slice 3 ✅ (prior-authorization frontend — queue + detail + decision actions)
+- **Why:** slices 1–2 were backend-only. This surfaces prior auth in the browser (a reviewer sees the queue and
+  approves/denies) and renders slice 2's new `AUTH_REQUIRED` line outcome on the claim breakdown. **Frontend-only**
+  — mirrors the claims UI (slice 5). Following the claims precedent, the request (create) form is a later slice.
+- **New `src/priorauth/`:** `usePriorAuth.ts` (list/detail/history queries + a change-status mutation that
+  invalidates the auth, its history, and the list), `transitions.ts` (client mirror of `PriorAuthTransitions` —
+  Approve/Deny for reviewer/admin, Cancel for requester roles; reason required to deny/cancel), `statusColor.ts`,
+  `PriorAuthorizationsPage.tsx` (the work queue: auth # · patient · procedure · requested-from · status) and
+  `PriorAuthorizationDetailPage.tsx` (header + decision info + a status timeline + Approve/Deny/Cancel buttons
+  with a reason prompt, optimistic-locked via the loaded `version`). Role-aware UI (the backend still enforces).
+- **Surfacing slice 2:** added `AUTH_REQUIRED` to the frontend `LineOutcome` type and to
+  `claims/statusColor.ts`'s `lineOutcomeColor` (a `warning` chip), so a claim with an auth-required line renders
+  the outcome in the adjudication breakdown.
+- **Plumbing:** `api/types.ts` (+`PriorAuthorizationStatus`, `PriorAuthorizationSummary`, `PriorAuthorization`,
+  `PriorAuthStatusHistory`, `PriorAuthStatusChange`; `AUTH_REQUIRED` on `LineOutcome`), `api/client.ts`
+  (`listPriorAuthorizations`, `getPriorAuthorization`, `getPriorAuthHistory`, `changePriorAuthStatus`), `App.tsx`
+  (+2 routes), `layout/AppLayout.tsx` (a **Prior auth** nav button for staff roles).
+- **Scope boundary:** no request (create) form yet (slice 4); no plan-prior-auth-requirement **admin UI** (a
+  later coverage-UI touch); no NEEDS_INFO/edit.
+- **Verified — automated:** frontend `npm run typecheck` clean, `npm test` → **71 pass** (+11:
+  `PriorAuthorizationsPage.test.tsx` ×2 — lists auths with patient/procedure/status, empty state;
+  `PriorAuthorizationDetailPage.test.tsx` ×5 — renders header + timeline, a reviewer sees Approve/Deny, a
+  coordinator sees Cancel not Approve, approve sends the loaded version, deny prompts for a reason;
+  `transitions.test.ts` ×4). `npm run build` OK (pre-existing chunk-size advisory).
+- **Verified — live in browser** (reviewer@northcare, backend + Vite): the **Prior auth** queue listed the seeded
+  REQUESTED auth (PA-…01, 99213); opened it → header (Standard PPO · service window) + **Approve/Deny**; clicked
+  **Approve** → the chip flipped to **APPROVED** (green), the buttons disappeared (terminal), and the timeline
+  showed `REQUESTED → APPROVED`. Also drove a $220 99214 claim for Sam Sample on 2025-11-01 (inside eligibility,
+  outside his approved 2026 auth window) → adjudicated **AUTH_REQUIRED** → the claim's adjudication breakdown
+  rendered the AUTH_REQUIRED line chip.
+- **Files:** +`src/priorauth/` (statusColor, transitions, usePriorAuth, PriorAuthorizationsPage,
+  PriorAuthorizationDetailPage) +3 test files; changed `api/types.ts`, `api/client.ts`, `App.tsx`,
+  `layout/AppLayout.tsx`, `claims/statusColor.ts`, `CLAUDE.md`, `docs/PROGRESS.md`.
 
 ### 2026-09-15 — Phase 6, slice 2 ✅ (prior authorization wired into the adjudication engine — AUTH_REQUIRED)
 - **Why:** slice 1 gave a prior-auth lifecycle that was **inert** — approving/denying an auth affected nothing.

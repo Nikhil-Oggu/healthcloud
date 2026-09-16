@@ -11,6 +11,8 @@ import { ClaimsPage } from './claims/ClaimsPage'
 import { ClaimDetailPage } from './claims/ClaimDetailPage'
 import { CoveragePlansPage } from './coverage/CoveragePlansPage'
 import { CoveragePlanDetailPage } from './coverage/CoveragePlanDetailPage'
+import { PriorAuthorizationsPage } from './priorauth/PriorAuthorizationsPage'
+import { PriorAuthorizationDetailPage } from './priorauth/PriorAuthorizationDetailPage'
 import { DeniedPage } from './pages/DeniedPage'
 import { NotFoundPage } from './pages/NotFoundPage'
 
@@ -33,6 +35,8 @@ const router = createBrowserRouter([
       { path: 'claims/:id', element: <ClaimDetailPage /> },
       { path: 'coverage-plans', element: <CoveragePlansPage /> },
       { path: 'coverage-plans/:id', element: <CoveragePlanDetailPage /> },
+      { path: 'prior-authorizations', element: <PriorAuthorizationsPage /> },
+      { path: 'prior-authorizations/:id', element: <PriorAuthorizationDetailPage /> },
       { path: 'denied', element: <DeniedPage /> },
     ],
   },

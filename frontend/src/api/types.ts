@@ -321,8 +321,11 @@ export interface ClaimStatusChange {
 /** The claim-level adjudication outcome. */
 export type AdjudicationOutcome = 'ADJUDICATED' | 'DENIED_NO_ELIGIBILITY'
 
-/** The per-line adjudication outcome. */
-export type LineOutcome = 'COVERED' | 'NOT_COVERED'
+/**
+ * The per-line adjudication outcome. AUTH_REQUIRED (§Phase 6) means the procedure requires prior authorization
+ * under the covering plan and no APPROVED authorization covered the service date.
+ */
+export type LineOutcome = 'COVERED' | 'NOT_COVERED' | 'AUTH_REQUIRED'
 
 /** The explainable per-line breakdown (mirrors AdjudicationLineDto). All amounts are numbers. */
 export interface AdjudicationLine {
@@ -464,4 +467,58 @@ export interface PlanFeeScheduleEntry {
 export interface AddFeeScheduleRequest {
   procedureCode: string
   allowedAmount: number
+}
+
+// --- Prior authorization (§Phase 6) --------------------------------------
+
+/** The prior-authorization lifecycle states (mirrors PriorAuthorizationStatus). */
+export type PriorAuthorizationStatus = 'REQUESTED' | 'APPROVED' | 'DENIED' | 'CANCELLED'
+
+/** A prior-authorization header row for the work queue (mirrors PriorAuthorizationSummaryDto). */
+export interface PriorAuthorizationSummary {
+  id: string
+  patientId: string
+  authNumber: string
+  procedureCodeSystem: CodeSystem
+  procedureCode: string
+  status: PriorAuthorizationStatus
+  requestedServiceFrom: string // ISO date
+  createdAt: string
+}
+
+/** A prior authorization (mirrors PriorAuthorizationDto). Coded, claim-relevant data — not consent-masked. */
+export interface PriorAuthorization {
+  id: string
+  patientId: string
+  authNumber: string
+  coveragePlanId: string
+  coveragePlanName: string | null
+  procedureCodeSystem: CodeSystem
+  procedureCode: string
+  requestedServiceFrom: string
+  requestedServiceTo: string | null
+  status: PriorAuthorizationStatus
+  decisionReason: string | null
+  decidedBy: string | null
+  decidedAt: string | null
+  requestedBy: string
+  createdAt: string
+  version: number
+}
+
+/** One prior-auth status-history entry (mirrors PriorAuthStatusHistoryDto). */
+export interface PriorAuthStatusHistory {
+  id: string
+  fromStatus: PriorAuthorizationStatus | null
+  toStatus: PriorAuthorizationStatus
+  actorUserId: string
+  reason: string | null
+  createdAt: string
+}
+
+/** Payload to apply a controlled prior-auth transition (approve/deny/cancel), optimistic-locked. */
+export interface PriorAuthStatusChange {
+  targetStatus: PriorAuthorizationStatus
+  expectedVersion: number
+  reason?: string
 }
