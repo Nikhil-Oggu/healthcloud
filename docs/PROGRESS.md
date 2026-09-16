@@ -78,8 +78,17 @@
   requester), a **New request** form (patient + specialty + a **diagnosis** `MedicalCodePicker`), a **Referrals**
   nav button (staff, no reviewer), and `api`/`types` methods. The reusable `MedicalCodePicker` gained an optional
   `category` prop (default Procedure; `Diagnosis` for the referral reason). Referrals are now complete end-to-end
-  in the browser. Frontend-only. **Next Phase-6 slices (not yet built, plan each first):** provider network,
-  anomaly signals, manual review, appeals, reprocessing.
+  in the browser. Frontend-only.
+  slice 8 ✅ — **appeals (backend)**: a new top-level, patient-gated `appeal` aggregate — a dispute of a
+  **claim's** decision (FK-with-org to `claim`, with the claim's `patient_id` denormalized onto the row for the
+  gate + list scoping) — with a pure `AppealTransitions` state machine (SUBMITTED → UPHELD/OVERTURNED by
+  **CLAIMS_REVIEWER**/ORG_ADMIN or WITHDRAWN by the submitter; **a reason is required on every transition**),
+  one-tx status + history, `GET/POST /api/v1/appeals` + `.../{id}` + `.../{id}/status` + `.../{id}/history`
+  (+ `?claimId=` filter), server-allocated `APL-XXXXXXXX`. Submit is gated through the parent claim and validates
+  that the claim is **appealable** (ADJUDICATED/REJECTED → else 400) with **no existing open appeal** (→ 409). Not
+  consent field-masked (claims-domain data). An OVERTURNED appeal records the outcome only — wiring it into
+  re-adjudication is a later slice. Backend-only. **Next Phase-6 slices (not yet built, plan each first):** the
+  appeal UI, then provider network, anomaly signals, manual review, reprocessing.
 - **Tooling:** HealthCloud-specific **`code-reviewer`** + **`security-reviewer`** subagents now live in
   `.claude/agents/` (read-only; project-aware checklists — tenant isolation, `PatientAccessGuard`, consent/masking,
   one-tx history, financial accumulators). Invoke by name in a fresh session (agent files load at startup).
@@ -159,6 +168,47 @@
   then `curl -b j.txt localhost:8080/api/v1/me`. Reset DB with `./scripts/db-reset.sh`.
 
 ## Log (newest first)
+
+### 2026-09-16 — Phase 6, slice 8 ✅ (appeals — dispute a claim's decision + resolution lifecycle, backend)
+- **Why:** referrals are complete end-to-end; appeals are the next Phase-6 area and round out the claims
+  lifecycle (submit → adjudicate → **appeal**). A third instance of the proven decision-aggregate pattern
+  (prior-auth → referral → appeal), so low-risk. **Backend-only** (like the other aggregates' first slices);
+  the appeal UI is the next slice.
+- **New package `com.healthcloud.appeal`** (13 classes mirroring `referral`): `AppealStatus`, `Appeal` (entity +
+  `decide(...)`), `AppealStatusHistory`, `AppealTransitions` (pure policy — the 6th exemplar), `AppealRepository`,
+  `AppealStatusHistoryRepository`, `AppealDto`, `AppealSummaryDto`, `AppealStatusHistoryDto`, `CreateAppealRequest`,
+  `AppealStatusChangeRequest`, `AppealService`, `AppealController`. Endpoints `GET/POST /api/v1/appeals`,
+  `GET .../{id}`, `PATCH .../{id}/status`, `GET .../{id}/history` (+ `?claimId=`/`?status=`).
+- **Domain:** an appeal disputes a **claim** — `claim_id` (FK-with-org to `claim`), `patient_id` (**denormalized
+  from the loaded claim**, never the client, so gating + `accessiblePatientIdsIfGated` list scoping reuse the
+  patient machinery), `appeal_number` (`APL-XXXXXXXX`, unique per tenant, server-allocated), `reason` (required,
+  the dispute rationale — claims-domain, not PHI), lifecycle fields. **Not consent field-masked** (like a claim).
+- **State machine (`AppealTransitions`, pure):** SUBMITTED → UPHELD/OVERTURNED (**CLAIMS_REVIEWER**/ORG_ADMIN —
+  a decision stamps `decidedBy`/`decidedAt`) or WITHDRAWN (submitter roles); terminal. **A reason is required on
+  EVERY transition** (a small per-domain variation — an appeal outcome/withdrawal always needs a rationale). Same
+  check order as the claim/referral machine (exists → legal move → role → reason → optimistic version), one-tx
+  status + `appeal_status_history` (null → SUBMITTED on creation). **Submit** gates through the parent claim
+  (`PatientAccessGuard` via the claim's patient → secure 404), and validates the claim is **appealable**
+  (ADJUDICATED/REJECTED → else 400) with **no existing open (SUBMITTED) appeal** (→ 409). Top-level but gated by
+  patient; provider sees only assigned patients' appeals, broad roles get the tenant queue.
+- **Migration `V29__appeal.sql`:** two tables (`appeal`, `appeal_status_history`) mirroring V28 — FK-with-org to
+  **both** `claim` and `patient`, `UNIQUE(org, appeal_number)` + `UNIQUE(id, org)`, status CHECK, indexes on
+  `(org, status)`/`(org, claim_id)`/`(org, patient_id)`. **Seeder:** `seedAppeal` — one additional REJECTED sample
+  claim (full null→DRAFT→SUBMITTED→REJECTED history) + one SUBMITTED appeal on it per org's first patient, so a
+  demo appeal queue returns something (and the claims queue now shows a realistic 2 claims).
+- **Verified — automated:** `./mvnw -B clean verify` → **331 tests pass** (+21: `AppealTransitionsTest` ×5,
+  `AppealRepositoryTest` ×4 — tenant-scoped lookup, per-tenant number uniqueness + cross-tenant reuse, the
+  open-appeal existence check, history order, claim-FK integrity; `AppealApiIntegrationTest` ×12 — auth required,
+  submit→SUBMITTED+number+claim link, reviewer uphold (decider stamped), deciding needs a reason, non-appealable
+  claim 400, duplicate open appeal 409, a submitter cannot decide 403, submitter withdraw, illegal transition 409,
+  stale version 409, provider sees only assigned patients' appeals + secure 404, cross-tenant secure 404).
+  BUILD SUCCESS.
+- **Verified — live** (backend on V29, fresh db-reset): the reviewer's queue showed the seeded `APL-…` (SUBMITTED);
+  uphold without a reason → 400, with a reason → UPHELD + `decidedBy` set, v→1; appealing a fresh DRAFT claim → 400
+  (not appealable); a second open appeal on the same claim → 409; a Green Valley admin GET of a NorthCare appeal
+  → 404 (tenant isolation).
+- **Files:** +`backend/.../appeal/` (13 classes) +`V29__appeal.sql` +3 test classes; changed `DevDataSeeder.java`,
+  `CLAUDE.md`, `docs/PROGRESS.md`.
 
 ### 2026-09-16 — Phase 6, slice 7 ✅ (referral UI — queue + detail + decisions + request form)
 - **Why:** slice 6 shipped the referral backend; this puts it in the browser, mirroring the prior-auth frontend

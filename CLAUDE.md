@@ -78,7 +78,7 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   Checks: `npm run typecheck`, `npm test` (Vitest), `npm run build`. Node runs from `openjdk@25`'s
   sibling `node@24` — use `export PATH="/opt/homebrew/opt/node@24/bin:$PATH"` in non-interactive shells.
 
-## Current implementation (Phase 1–4 COMPLETE; Phase 5 COMPLETE — slices 1–12 done; MVP (Phase 0–5) feature-complete, engine AND UI. Phase 6 (advanced claims) IN PROGRESS — slices 1–7 done: prior authorization, wired into adjudication, + prior-auth UI (queue/detail/decisions + request form) + plan-prior-auth-requirement admin card, + referrals (backend: care-coordination aggregate + decision lifecycle; + UI: queue/detail/decisions + request form) — see docs/PROGRESS.md for status)
+## Current implementation (Phase 1–4 COMPLETE; Phase 5 COMPLETE — slices 1–12 done; MVP (Phase 0–5) feature-complete, engine AND UI. Phase 6 (advanced claims) IN PROGRESS — slices 1–8 done: prior authorization, wired into adjudication, + prior-auth UI (queue/detail/decisions + request form) + plan-prior-auth-requirement admin card, + referrals (backend: care-coordination aggregate + decision lifecycle; + UI: queue/detail/decisions + request form), + appeals (backend: dispute a claim's decision + resolution lifecycle) — see docs/PROGRESS.md for status)
 - **Backend packages** under `com.healthcloud`: `organization` (Organization, Facility, FacilityMembership),
   `identity` (AppUser, Role, OrganizationMembership, UserRole), `auth` (SecurityConfig, DevLoginController,
   CurrentUserController/Service, CsrfCookieFilter), `context` (UserContext + UserContextAccessor/Filter),
@@ -317,6 +317,26 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   (unknown/non-diagnosis → 400). **Honest MVP limitation:** no named target-provider (`to_provider_id`), no
   SCHEDULED/COMPLETED steps, no expiry. The referral UI (queue/detail/decisions + request form) shipped in
   slice 7 (see `src/referral/` under Frontend below)),
+  `appeal` (Phase 6 slice 8 — an advanced-claims aggregate: a dispute of a **claim's** decision. `GET/POST
+  /api/v1/appeals`, `GET /api/v1/appeals/{id}`, `PATCH .../{id}/status`, `GET .../{id}/history` (+ `?claimId=`),
+  with a server-allocated `appeal_number` (`APL-XXXXXXXX`, unique per tenant). Carries the disputed `claimId`
+  (FK-with-org to `claim`), a required free-text `reason` (the rationale — claims-domain data, not PHI), and the
+  patient's id **denormalized from the loaded claim** (never the client) so the gate + list scoping reuse the
+  patient machinery. **Top-level but gated by its patient** (like `claim`/`prior_authorization`/`referral`): every
+  read routes through `PatientAccessGuard` and the list scopes via `accessiblePatientIdsIfGated` — a provider sees
+  only assigned patients' appeals, a broad role (coordinator/admin/reviewer) sees the tenant's as a work queue;
+  another tenant's is a secure 404. **Not consent field-masked** (like a claim). **State machine** driven by the
+  pure `AppealTransitions` policy (the 6th pure-policy exemplar): SUBMITTED → UPHELD/OVERTURNED (the
+  **CLAIMS_REVIEWER**/ORG_ADMIN decision — stamps `decidedBy`/`decidedAt`) or WITHDRAWN (the submitter roles
+  PROVIDER-assigned/CARE_COORDINATOR/ORG_ADMIN); terminal. **A reason is required on EVERY transition** (a
+  per-domain variation — an appeal outcome or withdrawal always needs a rationale). Same check order as the claim
+  machine (exists → legal move → role → reason → optimistic `expectedVersion`), status change + an
+  `appeal_status_history` row in one tx (§31.6, null → SUBMITTED on creation). **Submit** loads the claim (gated
+  by its patient → secure 404), validates it is **appealable** (`ADJUDICATED`/`REJECTED` → else 400
+  `VALIDATION_FAILED`) and has **no existing open (SUBMITTED) appeal** (→ 409), then stamps the patient from the
+  claim. **Honest MVP limitation:** an OVERTURNED appeal records the outcome only — wiring it into re-adjudication
+  (the engine already supports versioned re-adjudication, Phase 5 slice 11) is a later slice; no UNDER_REVIEW step.
+  Backend-only so far — the appeal UI is a later slice),
   `devdata` (DevDataSeeder, local-only — also seeds the global `medical_code` catalog once, then a couple of
   synthetic `clinical_summary` rows per assigned patient, one sample DRAFT `claim` (header + two procedure
   lines + its null→DRAFT status-history row) for the first patient, and two `coverage_plan` rows per org (a PPO
@@ -327,7 +347,9 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   requiring prior auth on the PPO (`plan_prior_auth_requirement`) so a demo 99214 claim adjudicates AUTH_REQUIRED
   until approved — deliberately NOT 99213/80053, which the accumulator/fee-schedule tests assert exact amounts for
   on the seeded PPO, and requests one sample REQUESTED `referral` (to Cardiology, reason I10, + its null→REQUESTED
-  status-history row) for the first patient so a demo referral queue returns something; reference codes are
+  status-history row) for the first patient so a demo referral queue returns something, and seeds one additional
+  REJECTED `claim` (full null→DRAFT→SUBMITTED→REJECTED history — a claim needs a decision to be appealable) plus a
+  SUBMITTED `appeal` on it for the first patient so a demo appeal queue returns something; reference codes are
   seeded before the orgs so the clinical-summary/claim/referral→catalog FKs are satisfied).
 - **Tenant-owned entity pattern (Phase 2+):** hold `organizationId` as the tenant key; repositories expose
   only org-scoped finders (`findByIdAndOrganizationId`, `findByOrganizationId…`) — no bare `findById` in
@@ -346,8 +368,8 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   actor and `CorrelationId.current()` on each row. State-machine transitions are validated on the backend.
 - **Pure policy classes:** keep decision logic (state-machine transition tables, the consent evaluator) in a
   pure, unit-testable class with no Spring/DB deps — the exemplars are `RequestTransitions` (§14.6 moves),
-  `ClaimTransitions`, `PriorAuthTransitions`, `ReferralTransitions` (the four state machines) and `ConsentPolicy`
-  (§22.5 consent+purpose); a thin service loads data and applies the policy.
+  `ClaimTransitions`, `PriorAuthTransitions`, `ReferralTransitions`, `AppealTransitions` (the five state machines)
+  and `ConsentPolicy` (§22.5 consent+purpose); a thin service loads data and applies the policy.
 - **State machines:** with the transition table in a pure policy class (`RequestTransitions`, above), the
   service checks, in order, **exists → legal move → role → reason → version**, then
   updates status + appends history in one tx. An illegal move is `INVALID_STATE_TRANSITION` (409), distinct

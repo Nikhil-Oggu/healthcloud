@@ -7,6 +7,11 @@ import com.healthcloud.identity.OrganizationMembership;
 import com.healthcloud.identity.OrganizationMembershipRepository;
 import com.healthcloud.identity.Role;
 import com.healthcloud.identity.RoleRepository;
+import com.healthcloud.appeal.Appeal;
+import com.healthcloud.appeal.AppealRepository;
+import com.healthcloud.appeal.AppealStatus;
+import com.healthcloud.appeal.AppealStatusHistory;
+import com.healthcloud.appeal.AppealStatusHistoryRepository;
 import com.healthcloud.claim.Claim;
 import com.healthcloud.claim.ClaimLine;
 import com.healthcloud.claim.ClaimLineRepository;
@@ -103,6 +108,8 @@ public class DevDataSeeder implements ApplicationRunner {
     private final PriorAuthorizationStatusHistoryRepository priorAuthorizationStatusHistoryRepository;
     private final ReferralRepository referralRepository;
     private final ReferralStatusHistoryRepository referralStatusHistoryRepository;
+    private final AppealRepository appealRepository;
+    private final AppealStatusHistoryRepository appealStatusHistoryRepository;
 
     public DevDataSeeder(OrganizationRepository organizationRepository,
                          AppUserRepository appUserRepository,
@@ -126,7 +133,9 @@ public class DevDataSeeder implements ApplicationRunner {
                          PriorAuthorizationRepository priorAuthorizationRepository,
                          PriorAuthorizationStatusHistoryRepository priorAuthorizationStatusHistoryRepository,
                          ReferralRepository referralRepository,
-                         ReferralStatusHistoryRepository referralStatusHistoryRepository) {
+                         ReferralStatusHistoryRepository referralStatusHistoryRepository,
+                         AppealRepository appealRepository,
+                         AppealStatusHistoryRepository appealStatusHistoryRepository) {
         this.organizationRepository = organizationRepository;
         this.appUserRepository = appUserRepository;
         this.roleRepository = roleRepository;
@@ -150,6 +159,8 @@ public class DevDataSeeder implements ApplicationRunner {
         this.priorAuthorizationStatusHistoryRepository = priorAuthorizationStatusHistoryRepository;
         this.referralRepository = referralRepository;
         this.referralStatusHistoryRepository = referralStatusHistoryRepository;
+        this.appealRepository = appealRepository;
+        this.appealStatusHistoryRepository = appealStatusHistoryRepository;
     }
 
     @Override
@@ -268,6 +279,43 @@ public class DevDataSeeder implements ApplicationRunner {
         // A sample REQUESTED referral (Phase 6) for the first patient to Cardiology, so a demo referral queue
         // returns something a coordinator can approve/deny. Synthetic; coded reason only (no narrative).
         seedReferral(org, patients.get(0), provider);
+
+        // A sample REJECTED claim (its own claim, distinct from the DRAFT one above) + a SUBMITTED appeal on it
+        // (Phase 6) for the first patient, so a demo appeal queue returns something a reviewer can uphold/overturn.
+        seedAppeal(org, patients.get(0), provider);
+    }
+
+    /**
+     * A synthetic REJECTED claim (a claim needs a decision to be appealable) with its full history
+     * (null → DRAFT → SUBMITTED → REJECTED), plus one SUBMITTED appeal against it with its creation history row
+     * (null → SUBMITTED), consistent with the claim + appeal state machines (§31.6).
+     */
+    private void seedAppeal(Organization org, Patient patient, AppUser author) {
+        BigDecimal officeVisit = new BigDecimal("150.00");
+        Claim claim = claimRepository.save(new Claim(
+                org.getId(), patient.getId(),
+                "CLM-" + org.getId().toString().substring(0, 4).toUpperCase() + "02",
+                LocalDate.now().minusWeeks(6), officeVisit, author.getId()));
+        claimLineRepository.save(new ClaimLine(
+                org.getId(), claim.getId(), 1, CodeSystem.CPT, "99213", 1, officeVisit));
+        claim.setStatus(ClaimStatus.REJECTED);
+        claimRepository.save(claim);
+        claimStatusHistoryRepository.save(new ClaimStatusHistory(
+                org.getId(), claim.getId(), null, ClaimStatus.DRAFT, author.getId(), "Claim created", null));
+        claimStatusHistoryRepository.save(new ClaimStatusHistory(
+                org.getId(), claim.getId(), ClaimStatus.DRAFT, ClaimStatus.SUBMITTED, author.getId(),
+                "Claim submitted", null));
+        claimStatusHistoryRepository.save(new ClaimStatusHistory(
+                org.getId(), claim.getId(), ClaimStatus.SUBMITTED, ClaimStatus.REJECTED, author.getId(),
+                "Missing supporting documentation", null));
+
+        Appeal appeal = appealRepository.save(new Appeal(
+                org.getId(), claim.getId(), patient.getId(),
+                "APL-" + org.getId().toString().substring(0, 4).toUpperCase() + "01",
+                "The claim was rejected in error; supporting documentation is attached.", author.getId()));
+        appealStatusHistoryRepository.save(new AppealStatusHistory(
+                org.getId(), appeal.getId(), null, AppealStatus.SUBMITTED, author.getId(),
+                "Appeal submitted", null));
     }
 
     /**
