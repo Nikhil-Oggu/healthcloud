@@ -78,7 +78,7 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   Checks: `npm run typecheck`, `npm test` (Vitest), `npm run build`. Node runs from `openjdk@25`'s
   sibling `node@24` — use `export PATH="/opt/homebrew/opt/node@24/bin:$PATH"` in non-interactive shells.
 
-## Current implementation (Phase 1–4 COMPLETE; Phase 5 COMPLETE — slices 1–12 done; MVP (Phase 0–5) feature-complete, engine AND UI. Phase 6 (advanced claims) IN PROGRESS — slices 1–13 done: prior authorization, wired into adjudication, + prior-auth UI (queue/detail/decisions + request form) + plan-prior-auth-requirement admin card, + referrals (backend: care-coordination aggregate + decision lifecycle; + UI: queue/detail/decisions + request form), + appeals (backend: dispute a claim's decision + resolution lifecycle; + UI: queue/detail/decisions + submit form; + overturn wired into re-adjudication), + claim anomaly signals (backend: a deterministic detector + reviewer scan; + UI: Anomalies card + Scan button on the claim detail page), + claim manual review (backend: open/resolve/cancel a review case on a claim) — see docs/PROGRESS.md for status)
+## Current implementation (Phase 1–4 COMPLETE; Phase 5 COMPLETE — slices 1–12 done; MVP (Phase 0–5) feature-complete, engine AND UI. Phase 6 (advanced claims) IN PROGRESS — slices 1–14 done: prior authorization, wired into adjudication, + prior-auth UI (queue/detail/decisions + request form) + plan-prior-auth-requirement admin card, + referrals (backend: care-coordination aggregate + decision lifecycle; + UI: queue/detail/decisions + request form), + appeals (backend: dispute a claim's decision + resolution lifecycle; + UI: queue/detail/decisions + submit form; + overturn wired into re-adjudication), + claim anomaly signals (backend: a deterministic detector + reviewer scan; + UI: Anomalies card + Scan button on the claim detail page), + claim manual review (backend: open/resolve/cancel a review case on a claim; + UI: queue/detail/decisions + open form) — see docs/PROGRESS.md for status)
 - **Backend packages** under `com.healthcloud`: `organization` (Organization, Facility, FacilityMembership),
   `identity` (AppUser, Role, OrganizationMembership, UserRole), `auth` (SecurityConfig, DevLoginController,
   CurrentUserController/Service, CsrfCookieFilter), `context` (UserContext + UserContextAccessor/Filter),
@@ -380,8 +380,8 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   most one OPEN review per claim** (a partial unique index `WHERE status='OPEN'` → 409), then stamps the patient
   from the claim. **Honest MVP limitation:** a review is a **tracking** record — opening one neither holds the claim
   nor changes its status (the reviewer still uses accept/reject/adjudicate), and it is not structurally linked to
-  specific anomaly signals (signals inform the human). Backend-only so far — the manual-review UI (queue/detail/
-  decisions + open form) is a later slice),
+  specific anomaly signals (signals inform the human). The manual-review UI (queue/detail/decisions + open form)
+  shipped in slice 14 (see `src/claimreview/` under Frontend below)),
   `devdata` (DevDataSeeder, local-only — also seeds the global `medical_code` catalog once, then a couple of
   synthetic `clinical_summary` rows per assigned patient, one sample DRAFT `claim` (header + two procedure
   lines + its null→DRAFT status-history row) for the first patient, and two `coverage_plan` rows per org (a PPO
@@ -620,6 +620,18 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   on create navigates to the new appeal. An **Appeals** nav button gated to
   PROVIDER/CARE_COORDINATOR/CLAIMS_REVIEWER/ORG_ADMIN (the reviewer is included — appeals are a claims-review
   function — unlike the referrals nav).
+  Plus **`src/claimreview/`** (Phase 6 slice 14 — the manual-review UI, mirroring the appeal UI): a work queue
+  `claim-reviews` (Review # · patient · claim # · status — resolving `patientId→name` via `usePatients` and
+  `claimId→claimNumber` via `useClaims`) and a **detail** `claim-reviews/:id` with the header (a link to the
+  reviewed claim + why opened + the resolution when present), a status timeline, and **decision action buttons**
+  driven by a client mirror of `ClaimReviewTransitions` in `src/claimreview/transitions.ts` — **Resolve** for
+  **CLAIMS_REVIEWER/ORG_ADMIN** and **Cancel** for the opener roles (CARE_COORDINATOR/CLAIMS_REVIEWER/ORG_ADMIN),
+  **each with a reason prompt** (every review transition needs a rationale), optimistic-locked via the loaded
+  `version` through `useChangeClaimReviewStatus`. A **New review** form on the queue (`CreateClaimReviewForm`,
+  opener roles) — a claim select populated from `useClaims()` (any claim) + an optional reason; RHF+Zod, on create
+  navigates to the new review. A **Reviews** nav button gated to CARE_COORDINATOR/CLAIMS_REVIEWER/ORG_ADMIN (the
+  opener/resolver audience; no PROVIDER — providers can't open, though an assigned provider can still reach one by
+  link).
 - **Consent/field masking in the UI (Phase 3+):** the backend already withholds masked values, so the SPA only
   *displays* the state — render a "Restricted"/placeholder for a `null` consent-controlled field (named in
   `maskedFields`); never assume a field is present. This is display-only, not a security control.

@@ -17,6 +17,8 @@ import { ReferralsPage } from './referral/ReferralsPage'
 import { ReferralDetailPage } from './referral/ReferralDetailPage'
 import { AppealsPage } from './appeal/AppealsPage'
 import { AppealDetailPage } from './appeal/AppealDetailPage'
+import { ClaimReviewsPage } from './claimreview/ClaimReviewsPage'
+import { ClaimReviewDetailPage } from './claimreview/ClaimReviewDetailPage'
 import { DeniedPage } from './pages/DeniedPage'
 import { NotFoundPage } from './pages/NotFoundPage'
 
@@ -45,6 +47,8 @@ const router = createBrowserRouter([
       { path: 'referrals/:id', element: <ReferralDetailPage /> },
       { path: 'appeals', element: <AppealsPage /> },
       { path: 'appeals/:id', element: <AppealDetailPage /> },
+      { path: 'claim-reviews', element: <ClaimReviewsPage /> },
+      { path: 'claim-reviews/:id', element: <ClaimReviewDetailPage /> },
       { path: 'denied', element: <DeniedPage /> },
     ],
   },

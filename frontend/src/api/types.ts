@@ -672,3 +672,57 @@ export interface CreateAppealRequest {
   claimId: string
   reason: string
 }
+
+// --- Claim manual review (§Phase 6) --------------------------------------
+
+/** The manual-review lifecycle states (mirrors ClaimReviewStatus). */
+export type ClaimReviewStatus = 'OPEN' | 'RESOLVED' | 'CANCELLED'
+
+/** A claim-review header row for the work queue (mirrors ClaimReviewSummaryDto). */
+export interface ClaimReviewSummary {
+  id: string
+  claimId: string
+  patientId: string
+  reviewNumber: string
+  status: ClaimReviewStatus
+  createdAt: string
+}
+
+/** A claim review (mirrors ClaimReviewDto). Claims-domain data (a review case on a claim) — not consent-masked. */
+export interface ClaimReview {
+  id: string
+  claimId: string
+  patientId: string
+  reviewNumber: string
+  reason: string | null
+  status: ClaimReviewStatus
+  resolution: string | null
+  openedBy: string
+  resolvedBy: string | null
+  resolvedAt: string | null
+  createdAt: string
+  version: number
+}
+
+/** One claim-review status-history entry (mirrors ClaimReviewStatusHistoryDto). */
+export interface ClaimReviewStatusHistory {
+  id: string
+  fromStatus: ClaimReviewStatus | null
+  toStatus: ClaimReviewStatus
+  actorUserId: string
+  reason: string | null
+  createdAt: string
+}
+
+/** Payload to apply a controlled review transition (resolve/cancel), optimistic-locked. */
+export interface ClaimReviewStatusChange {
+  targetStatus: ClaimReviewStatus
+  expectedVersion: number
+  reason?: string
+}
+
+/** Payload to open a manual review on a claim (mirrors CreateClaimReviewRequest). */
+export interface CreateClaimReviewRequest {
+  claimId: string
+  reason?: string
+}

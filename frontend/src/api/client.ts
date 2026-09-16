@@ -50,6 +50,12 @@ import type {
   AppealStatusChange,
   AppealStatusHistory,
   CreateAppealRequest,
+  ClaimReview,
+  ClaimReviewStatus,
+  ClaimReviewSummary,
+  ClaimReviewStatusChange,
+  ClaimReviewStatusHistory,
+  CreateClaimReviewRequest,
   RequestAssignment,
   RequestComment,
   RequestStatusHistory,
@@ -427,6 +433,34 @@ export const api = {
 
   changeAppealStatus: (id: string, body: AppealStatusChange) =>
     request<Appeal>(`/api/v1/appeals/${id}/status`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }),
+
+  // --- Claim manual review (§Phase 6) ---
+  listClaimReviews: (params?: { claimId?: string; status?: ClaimReviewStatus }) => {
+    const q = new URLSearchParams()
+    if (params?.claimId) q.set('claimId', params.claimId)
+    if (params?.status) q.set('status', params.status)
+    const suffix = q.toString() ? `?${q.toString()}` : ''
+    return request<ClaimReviewSummary[]>(`/api/v1/claim-reviews${suffix}`)
+  },
+
+  createClaimReview: (body: CreateClaimReviewRequest) =>
+    request<ClaimReview>('/api/v1/claim-reviews', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }),
+
+  getClaimReview: (id: string) => request<ClaimReview>(`/api/v1/claim-reviews/${id}`),
+
+  getClaimReviewHistory: (id: string) =>
+    request<ClaimReviewStatusHistory[]>(`/api/v1/claim-reviews/${id}/history`),
+
+  changeClaimReviewStatus: (id: string, body: ClaimReviewStatusChange) =>
+    request<ClaimReview>(`/api/v1/claim-reviews/${id}/status`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),

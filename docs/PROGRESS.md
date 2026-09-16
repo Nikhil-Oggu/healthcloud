@@ -122,8 +122,13 @@
   history, `MRV-XXXXXXXX` number, **at most one OPEN review per claim** (partial unique index → 409). `GET/POST
   /api/v1/claim-reviews` + `.../{id}` + `PATCH .../{id}/status` + `.../{id}/history`. Migration V31. A **tracking**
   record: doesn't hold the claim or change its status. Seeder opens one demo review. Backend-only.
-  **Next Phase-6 slices (not yet built, plan each first):** provider network, reprocessing; + a manual-review UI
-  (queue/detail/decisions + open form).
+  slice 14 ✅ — **manual-review UI**: a new `src/claimreview/` feature folder mirroring `src/appeal/` — a work queue
+  (`/claim-reviews`: Review # · patient · claim # · status) + detail with a status timeline and **Resolve/Cancel**
+  decision buttons (client mirror of `ClaimReviewTransitions`, optimistic-locked; Resolve gated to CLAIMS_REVIEWER/
+  ORG_ADMIN, Cancel to the opener roles; **every transition prompts for a reason**), a link to the reviewed claim, a
+  **New review** form (any claim + an optional reason), a **Reviews** nav button (CARE_COORDINATOR/CLAIMS_REVIEWER/
+  ORG_ADMIN), and `api`/`types` methods. Manual review is now complete end-to-end in the browser. Frontend-only.
+  **Next Phase-6 slices (not yet built, plan each first):** provider network, reprocessing.
 - **Tooling:** HealthCloud-specific **`code-reviewer`** + **`security-reviewer`** subagents now live in
   `.claude/agents/` (read-only; project-aware checklists — tenant isolation, `PatientAccessGuard`, consent/masking,
   one-tx history, financial accumulators). Invoke by name in a fresh session (agent files load at startup).
@@ -203,6 +208,35 @@
   then `curl -b j.txt localhost:8080/api/v1/me`. Reset DB with `./scripts/db-reset.sh`.
 
 ## Log (newest first)
+
+### 2026-09-16 — Phase 6, slice 14 ✅ (manual-review UI — queue + detail + decisions + open form)
+- **Why:** slice 13 shipped the claim-review backend; this puts it in the browser (the backend-then-UI rhythm),
+  completing manual review end-to-end. **Frontend-only.**
+- **New feature folder `src/claimreview/`** (mirrors `src/appeal/`): `statusColor.ts` (`claimReviewStatusColor` —
+  RESOLVED→success, OPEN→info, CANCELLED→default), `transitions.ts` (client mirror of `ClaimReviewTransitions` —
+  Resolve gated to **CLAIMS_REVIEWER/ORG_ADMIN**, Cancel to the opener roles; **`reasonRequired` true for all**),
+  `useClaimReview.ts` (`useClaimReviews`/`useClaimReview`/`useClaimReviewHistory`/`useCreateClaimReview`/
+  `useChangeClaimReviewStatus`), `ClaimReviewsPage.tsx` (queue Review # · patient · claim # · status, resolving names
+  via `usePatients`/`useClaims`, + the New-review form for opener roles), `ClaimReviewDetailPage.tsx` (header + a
+  link to the reviewed claim + reason + resolution + status timeline + optimistic-locked decision buttons that always
+  prompt for a reason), `CreateClaimReviewForm.tsx` (a claim select — any claim — + an optional multiline reason,
+  RHF+Zod).
+- **`api/types.ts` + `api/client.ts`:** `ClaimReviewStatus`/`ClaimReview`/`ClaimReviewSummary`/`ClaimReviewStatusHistory`/
+  `ClaimReviewStatusChange`/`CreateClaimReviewRequest` + `listClaimReviews`/`getClaimReview`/`createClaimReview`/
+  `changeClaimReviewStatus`/`getClaimReviewHistory`.
+- **`App.tsx`** (+2 routes: `claim-reviews`, `claim-reviews/:id`); **`layout/AppLayout.tsx`** (+ a **Reviews** nav
+  button, CARE_COORDINATOR/CLAIMS_REVIEWER/ORG_ADMIN — no PROVIDER, mirroring who can open/resolve).
+- **Tests (+14 → 120 frontend, all green; `typecheck` + `build` green):** `transitions.test.ts` (5), plus
+  `ClaimReviewsPage`/`ClaimReviewDetailPage`/`CreateClaimReviewForm` tests (reviewer sees Resolve+Cancel; coordinator
+  sees Cancel only; a provider sees the queue but no open form; resolve prompts for a reason then PATCHes; the form
+  submits {claimId, reason} and blocks when no claim is chosen).
+- **Live-verified end-to-end:** fresh backend boot applied V31; logged in as `reviewer@northcare`, opened the
+  **Reviews** queue (seeded MRV-6AD801 for Sam Sample, OPEN), opened its detail (link to the reviewed claim + reason
+  + Resolve/Cancel + timeline), used the Resolve reason prompt; the resolve endpoint returned OPEN → RESOLVED (the
+  in-browser PATCH hit a flaky Vite dev-proxy timeout, so the transition was confirmed via the API directly and the
+  reloaded queue then showed RESOLVED).
+- **Docs:** CLAUDE.md `claimreview` blurb (UI shipped) + new `src/claimreview/` frontend blurb + Phase-6 header
+  1–13 → 1–14. **No backend change.**
 
 ### 2026-09-16 — Phase 6, slice 13 ✅ (claim manual review — open/resolve/cancel a review case on a claim, backend)
 - **Why:** the "manual review" item on Phase 6's advanced-claims list, and the durable human workflow on top of

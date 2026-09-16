@@ -86,6 +86,11 @@ export function AppLayout() {
                 Appeals
               </Button>
             )}
+            {roles.some((r) => ['CARE_COORDINATOR', 'CLAIMS_REVIEWER', 'ORG_ADMIN'].includes(r)) && (
+              <Button color="inherit" onClick={() => navigate('/claim-reviews')}>
+                Reviews
+              </Button>
+            )}
             {roles.includes('ORG_ADMIN') && (
               <Button color="inherit" disabled>
                 Administration
