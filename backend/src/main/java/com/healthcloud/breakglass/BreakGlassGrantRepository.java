@@ -27,4 +27,11 @@ public interface BreakGlassGrantRepository extends JpaRepository<BreakGlassGrant
 
     /** One grant scoped to the tenant (for revocation) — another tenant's grant is simply not found. */
     Optional<BreakGlassGrant> findByIdAndOrganizationId(UUID id, UUID organizationId);
+
+    /**
+     * Retention purge (§Phase 7): delete this tenant's grants that expired before {@code cutoff}, returning the
+     * number removed. Tenant-scoped by {@code organizationId}; the cutoff is strictly in the past, so only
+     * long-expired operational data is removed — a live grant is never touched. Must run inside a transaction.
+     */
+    long deleteByOrganizationIdAndExpiresAtBefore(UUID organizationId, OffsetDateTime cutoff);
 }

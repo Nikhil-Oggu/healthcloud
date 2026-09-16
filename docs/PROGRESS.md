@@ -65,7 +65,13 @@
   a grant early (`POST /api/v1/break-glass/{id}/revoke`) — access ends at once and a `BREAK_GLASS_REVOKED` event is
   audited. slice 7 ✅ — **access-review UI** (frontend): an **Access review** page (`/access-review`, nav gated to
   AUDITOR/ORG_ADMIN) listing every live grant (provider name · patient link · reason · window), with a **Revoke**
-  button (inline confirm) shown only to ORG_ADMIN. Next: retention (the last Phase 7 area).
+  button (inline confirm) shown only to ORG_ADMIN. slice 8 ✅ — **data retention** (backend, the last Phase 7
+  area): an ORG_ADMIN purges long-expired break-glass grants for their tenant (`POST /api/v1/retention/break-glass/run`),
+  removing the sensitive free-text reason once a grant is past a configurable window
+  (`healthcloud.retention.break-glass-days`, default 90) — while the **audit trail is preserved** (the
+  `BREAK_GLASS_INVOKED`/`REVOKED` events are permanent — never purged, that would break the hash chain), and the
+  purge itself is audited as a `RETENTION_PURGED` event in the same transaction (§31.6). Tenant-scoped; a live or
+  recently-expired grant is never touched. Manual trigger (a scheduled purge is Phase 8). **Phase 7 COMPLETE ✅.**
 - **Phase 6 COMPLETE ✅ (advanced claims, slices 1–21):** all seven roadmap areas done — prior auth, referrals,
   appeals, anomaly signals, manual review, reprocessing, provider network. slice 1 ✅ — **prior authorization**: a top-level,
   patient-gated `prior_authorization` aggregate (request a planned procedure be pre-approved under a coverage

@@ -51,6 +51,12 @@ healthcloud:
     # How long a break-glass emergency-access grant stays in force (§Phase 7). Time-boxed on purpose: emergency
     # access is temporary and every grant is audited + reviewable. Minutes. Override with HEALTHCLOUD_BREAK_GLASS_GRANT_DURATION_MINUTES.
     grant-duration-minutes: ${HEALTHCLOUD_BREAK_GLASS_GRANT_DURATION_MINUTES:60}
+  retention:
+    # Data retention (§Phase 7): how long an EXPIRED break-glass grant is kept before an admin purge removes it,
+    # in days. The grant holds the sensitive free-text emergency reason; once it is long expired and reviewed, the
+    # reason no longer needs to live in the database. The audit trail is NEVER purged (its BREAK_GLASS_INVOKED /
+    # REVOKED events are permanent) — only this operational row is. Override with HEALTHCLOUD_RETENTION_BREAK_GLASS_DAYS.
+    break-glass-days: ${HEALTHCLOUD_RETENTION_BREAK_GLASS_DAYS:90}
 
 logging:
   pattern:

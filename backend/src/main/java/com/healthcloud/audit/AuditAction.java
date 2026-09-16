@@ -17,5 +17,8 @@ public enum AuditAction {
     BREAK_GLASS_INVOKED,
 
     /** An admin revoked a break-glass grant early during an access review (§Phase 7). */
-    BREAK_GLASS_REVOKED
+    BREAK_GLASS_REVOKED,
+
+    /** A retention purge removed expired operational data (e.g. old break-glass grants) — a governance action (§Phase 7). */
+    RETENTION_PURGED
 }
