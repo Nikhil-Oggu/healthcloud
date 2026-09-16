@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api/client'
 import type {
   AddFeeScheduleRequest,
+  AddNetworkProviderRequest,
   AddPlanExclusionRequest,
   AddPriorAuthRequirementRequest,
   CreateCoveragePlanRequest,
@@ -13,6 +14,9 @@ export const exclusionsKey = (id: string) => ['coverage-plans', id, 'exclusions'
 export const feeScheduleKey = (id: string) => ['coverage-plans', id, 'fee-schedule'] as const
 export const priorAuthRequirementsKey = (id: string) =>
   ['coverage-plans', id, 'prior-auth-requirements'] as const
+export const networkProvidersKey = (id: string) => ['coverage-plans', id, 'network-providers'] as const
+export const networkCandidatesKey = (id: string) =>
+  ['coverage-plans', id, 'network-providers', 'candidates'] as const
 
 /** The current tenant's coverage plans (reads open to any same-tenant user). */
 export function useCoveragePlans() {
@@ -98,5 +102,49 @@ export function useRemovePriorAuthRequirement(planId: string) {
   return useMutation({
     mutationFn: (requirementId: string) => api.removePriorAuthRequirement(planId, requirementId),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: priorAuthRequirementsKey(planId) }),
+  })
+}
+
+/** A plan's network providers (reads open to any same-tenant user). */
+export function useNetworkProviders(planId: string) {
+  return useQuery({
+    queryKey: networkProvidersKey(planId),
+    queryFn: () => api.listNetworkProviders(planId),
+  })
+}
+
+/**
+ * Same-tenant PROVIDERs not already in the plan's network — the add picker source (ORG_ADMIN). Pass
+ * {@code enabled: false} for a non-admin viewer so the ORG_ADMIN-only endpoint is not called (avoids a 403).
+ */
+export function useNetworkProviderCandidates(planId: string, enabled = true) {
+  return useQuery({
+    queryKey: networkCandidatesKey(planId),
+    queryFn: () => api.listNetworkProviderCandidates(planId),
+    enabled,
+  })
+}
+
+/** Add a provider to a plan's network, then refresh that plan's network list + candidates. */
+export function useAddNetworkProvider(planId: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (body: AddNetworkProviderRequest) => api.addNetworkProvider(planId, body),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: networkProvidersKey(planId) })
+      queryClient.invalidateQueries({ queryKey: networkCandidatesKey(planId) })
+    },
+  })
+}
+
+/** Remove a provider from a plan's network, then refresh that plan's network list + candidates. */
+export function useRemoveNetworkProvider(planId: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (networkProviderId: string) => api.removeNetworkProvider(planId, networkProviderId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: networkProvidersKey(planId) })
+      queryClient.invalidateQueries({ queryKey: networkCandidatesKey(planId) })
+    },
   })
 }

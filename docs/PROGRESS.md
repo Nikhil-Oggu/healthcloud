@@ -161,8 +161,12 @@
   deductible/OOP), a claim-level determination. Precedence exclusion > out-of-network > auth > covered; a null
   rendering provider or a plan with no network imposes no penalty (opt-in, backward-compatible). Seeder adds a 2nd
   provider per org (`provider2@`/Morgan) + the PPO network = {Dana}. Backend-only.
-  **Next provider-network slice (not yet built, plan first):** UI (20) — rendering-provider picker on claim create,
-  the plan network admin card, and the OUT_OF_NETWORK line chip. **This completes Phase 6's advanced-claims areas.**
+  slice 20 ✅ — **provider-network UI (part 1)**: the **`OUT_OF_NETWORK` line chip** (`LineOutcome` type +
+  `lineOutcomeColor` → error) so the slice-19 engine rule is visible on the adjudication card, and a **Network
+  providers card** on the coverage-plan detail page (list in-network PROVIDERs by name + add via a provider select
+  from the candidates endpoint / remove, ORG_ADMIN) — the slice-17 config is now browser-manageable. Frontend-only.
+  **Next provider-network slice (plan first):** UI part 2 (21) — the rendering-provider picker on claim create
+  (needs a small new `GET /api/v1/providers` read). That completes Phase 6's advanced-claims areas.
 - **Tooling:** HealthCloud-specific **`code-reviewer`** + **`security-reviewer`** subagents now live in
   `.claude/agents/` (read-only; project-aware checklists — tenant isolation, `PatientAccessGuard`, consent/masking,
   one-tx history, financial accumulators). Invoke by name in a fresh session (agent files load at startup).
@@ -242,6 +246,30 @@
   then `curl -b j.txt localhost:8080/api/v1/me`. Reset DB with `./scripts/db-reset.sh`.
 
 ## Log (newest first)
+
+### 2026-09-16 — Phase 6, slice 20 ✅ (provider-network UI part 1 — OUT_OF_NETWORK chip + plan network admin card)
+- **Why:** put the slice-17/19 backend in the browser: see out-of-network results, and manage a plan's network.
+  The rendering-provider picker on claim create (which needs a new `GET /api/v1/providers` read) is deferred to
+  slice 21 to keep each slice small and single-concern. **Frontend-only.**
+- **OUT_OF_NETWORK chip:** added `'OUT_OF_NETWORK'` to the `LineOutcome` type and an `error` case to
+  `lineOutcomeColor` — the adjudication breakdown card already renders line outcomes through it, so OON lines get a
+  proper chip automatically (AUTH_REQUIRED stays warning; OON is error — the member owes the full charge).
+- **Network providers card** on `CoveragePlanDetailPage` (mirrors the Exclusions / Prior-auth cards, but the
+  participant is a provider): lists the plan's in-network PROVIDERs by resolved `providerName` with a **Remove**
+  (ORG_ADMIN), and an **Add** control = a native provider `<select>` populated from the candidates endpoint (+ an
+  Add button). Reads open to same-tenant; add/remove/candidates ORG_ADMIN.
+- **Wiring:** `api/types.ts` (`PlanNetworkProvider`, `AddNetworkProviderRequest`; reused the existing
+  `AssignmentCandidate` for candidates), `api/client.ts` (`listNetworkProviders`/`listNetworkProviderCandidates`/
+  `addNetworkProvider`/`removeNetworkProvider`), `src/coverage/useCoverage.ts` (`useNetworkProviders`,
+  `useNetworkProviderCandidates(planId, enabled)` — gated so a non-admin viewer doesn't call the ORG_ADMIN-only
+  candidates endpoint, `useAddNetworkProvider`, `useRemoveNetworkProvider`).
+- **Tests (+4 → 132 frontend, all green; `typecheck` + `build` green):** a `statusColor` test for
+  `lineOutcomeColor('OUT_OF_NETWORK')`, plus `CoveragePlanDetailPage` cases — renders a network provider; an admin
+  adds one via the picker (`addNetworkProvider('pl1', {providerUserId})`); an admin removes one.
+- **Verification note:** the in-app browser can't render `localhost` in this environment, so no browser screenshot;
+  behavior is covered by the RTL tests + typecheck + build (UI), slice-17 integration tests (endpoints), and
+  slice-16's proxy check (the SPA↔backend path).
+- **Next:** slice 21 — the rendering-provider picker on claim create (+ `GET /api/v1/providers`), completing Phase 6.
 
 ### 2026-09-16 — Phase 6, slice 19 ✅ (provider network wired into adjudication — OUT_OF_NETWORK, backend)
 - **Why:** the slice where provider network affects the money. The 3rd of the ~4 provider-network slices (only the

@@ -25,6 +25,8 @@ export function lineOutcomeColor(outcome: LineOutcome): ChipColor {
       return 'success'
     case 'AUTH_REQUIRED':
       return 'warning'
+    case 'OUT_OF_NETWORK':
+      return 'error'
     default:
       return 'default'
   }

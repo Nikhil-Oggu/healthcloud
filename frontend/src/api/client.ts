@@ -25,6 +25,8 @@ import type {
   PlanExclusion,
   PlanFeeScheduleEntry,
   PlanPriorAuthRequirement,
+  PlanNetworkProvider,
+  AddNetworkProviderRequest,
   CreatePriorAuthorizationRequest,
   PriorAuthorization,
   PriorAuthorizationStatus,
@@ -533,6 +535,25 @@ export const api = {
 
   removePriorAuthRequirement: (planId: string, requirementId: string) =>
     request<void>(`/api/v1/coverage-plans/${planId}/prior-auth-requirements/${requirementId}`, {
+      method: 'DELETE',
+    }),
+
+  // --- Plan network providers (§Phase 6 provider network) ---
+  listNetworkProviders: (planId: string) =>
+    request<PlanNetworkProvider[]>(`/api/v1/coverage-plans/${planId}/network-providers`),
+
+  listNetworkProviderCandidates: (planId: string) =>
+    request<AssignmentCandidate[]>(`/api/v1/coverage-plans/${planId}/network-providers/candidates`),
+
+  addNetworkProvider: (planId: string, body: AddNetworkProviderRequest) =>
+    request<PlanNetworkProvider>(`/api/v1/coverage-plans/${planId}/network-providers`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }),
+
+  removeNetworkProvider: (planId: string, networkProviderId: string) =>
+    request<void>(`/api/v1/coverage-plans/${planId}/network-providers/${networkProviderId}`, {
       method: 'DELETE',
     }),
 

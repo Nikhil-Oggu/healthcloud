@@ -325,7 +325,7 @@ export type AdjudicationOutcome = 'ADJUDICATED' | 'DENIED_NO_ELIGIBILITY'
  * The per-line adjudication outcome. AUTH_REQUIRED (§Phase 6) means the procedure requires prior authorization
  * under the covering plan and no APPROVED authorization covered the service date.
  */
-export type LineOutcome = 'COVERED' | 'NOT_COVERED' | 'AUTH_REQUIRED'
+export type LineOutcome = 'COVERED' | 'NOT_COVERED' | 'AUTH_REQUIRED' | 'OUT_OF_NETWORK'
 
 /** The explainable per-line breakdown (mirrors AdjudicationLineDto). All amounts are numbers. */
 export interface AdjudicationLine {
@@ -496,6 +496,19 @@ export interface PlanPriorAuthRequirement {
 /** Payload to require prior auth for a procedure on a plan (ORG_ADMIN); the backend resolves + validates the code. */
 export interface AddPriorAuthRequirementRequest {
   procedureCode: string
+}
+
+/** A provider in a plan's network (mirrors PlanNetworkProviderDto). §Phase 6 provider network. */
+export interface PlanNetworkProvider {
+  id: string
+  coveragePlanId: string
+  providerUserId: string
+  providerName: string
+}
+
+/** Payload to add a provider to a plan's network (ORG_ADMIN); the backend validates the provider. */
+export interface AddNetworkProviderRequest {
+  providerUserId: string
 }
 
 // --- Prior authorization (§Phase 6) --------------------------------------

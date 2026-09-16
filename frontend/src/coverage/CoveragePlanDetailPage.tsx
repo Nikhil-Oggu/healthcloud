@@ -27,13 +27,17 @@ import { percent } from './CoveragePlansPage'
 import {
   useAddExclusion,
   useAddFeeSchedule,
+  useAddNetworkProvider,
   useAddPriorAuthRequirement,
   useCoveragePlan,
   useExclusions,
   useFeeSchedule,
+  useNetworkProviderCandidates,
+  useNetworkProviders,
   usePriorAuthRequirements,
   useRemoveExclusion,
   useRemoveFeeSchedule,
+  useRemoveNetworkProvider,
   useRemovePriorAuthRequirement,
 } from './useCoverage'
 
@@ -76,6 +80,8 @@ export function CoveragePlanDetailPage() {
       <FeeScheduleCard planId={id} canAdmin={canAdmin} />
 
       <PriorAuthRequirementsCard planId={id} canAdmin={canAdmin} />
+
+      <NetworkProvidersCard planId={id} canAdmin={canAdmin} />
     </Stack>
   )
 }
@@ -465,6 +471,149 @@ function PriorAuthRequirementsCard({ planId, canAdmin }: { planId: string; canAd
                 onClick={() => void onAdd()}
               >
                 Add requirement
+              </Button>
+            </Stack>
+          </>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+function NetworkProvidersCard({ planId, canAdmin }: { planId: string; canAdmin: boolean }) {
+  const network = useNetworkProviders(planId)
+  const candidates = useNetworkProviderCandidates(planId, canAdmin)
+  const addProvider = useAddNetworkProvider(planId)
+  const removeProvider = useRemoveNetworkProvider(planId)
+
+  const [providerUserId, setProviderUserId] = useState('')
+  const [actionError, setActionError] = useState<string | null>(null)
+  const [correlationId, setCorrelationId] = useState<string | undefined>(undefined)
+
+  async function onAdd() {
+    if (!providerUserId) return
+    setActionError(null)
+    setCorrelationId(undefined)
+    try {
+      await addProvider.mutateAsync({ providerUserId })
+      setProviderUserId('')
+    } catch (err) {
+      reportError(err, 'Could not add the provider to the network.')
+    }
+  }
+
+  async function onRemove(networkProviderId: string) {
+    setActionError(null)
+    setCorrelationId(undefined)
+    try {
+      await removeProvider.mutateAsync(networkProviderId)
+    } catch (err) {
+      reportError(err, 'Could not remove the provider from the network.')
+    }
+  }
+
+  function reportError(err: unknown, fallback: string) {
+    if (err instanceof ApiClientError) {
+      setActionError(err.message)
+      setCorrelationId(err.correlationId)
+    } else {
+      setActionError(fallback)
+    }
+  }
+
+  return (
+    <Card variant="outlined">
+      <CardContent>
+        <Typography variant="subtitle1" gutterBottom>
+          Network providers
+        </Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          When a plan lists network providers, a claim rendered by a provider outside this list adjudicates as
+          out-of-network (the member owes the charge). An empty list means no network restriction.
+        </Typography>
+
+        {actionError && (
+          <Alert severity="error" sx={{ mb: 2 }} onClose={() => setActionError(null)}>
+            {actionError}
+            {correlationId && (
+              <Typography variant="caption" sx={{ display: 'block', mt: 0.5, opacity: 0.8 }}>
+                Reference ID: {correlationId}
+              </Typography>
+            )}
+          </Alert>
+        )}
+
+        {network.isPending ? (
+          <Typography variant="body2" color="text.secondary">
+            Loading…
+          </Typography>
+        ) : network.isError ? (
+          <Typography variant="body2" color="error">
+            Could not load network providers.
+          </Typography>
+        ) : network.data.length === 0 ? (
+          <Typography variant="body2" color="text.secondary">
+            No network providers — the plan imposes no network restriction.
+          </Typography>
+        ) : (
+          <Table size="small" aria-label="Network providers">
+            <TableHead>
+              <TableRow>
+                <TableCell>Provider</TableCell>
+                {canAdmin && <TableCell align="right">Actions</TableCell>}
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {network.data.map((n) => (
+                <TableRow key={n.id}>
+                  <TableCell>{n.providerName}</TableCell>
+                  {canAdmin && (
+                    <TableCell align="right">
+                      <Button
+                        size="small"
+                        color="error"
+                        disabled={removeProvider.isPending}
+                        onClick={() => void onRemove(n.id)}
+                      >
+                        Remove
+                      </Button>
+                    </TableCell>
+                  )}
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+
+        {canAdmin && (
+          <>
+            <Divider sx={{ my: 2 }} />
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ alignItems: 'flex-start' }}>
+              <TextField
+                select
+                label="Add a provider to the network"
+                size="small"
+                fullWidth
+                value={providerUserId}
+                onChange={(e) => setProviderUserId(e.target.value)}
+                slotProps={{ select: { native: true } }}
+              >
+                <option value="">
+                  {candidates.isPending ? 'Loading…' : 'Select a provider'}
+                </option>
+                {(candidates.data ?? []).map((c) => (
+                  <option key={c.userId} value={c.userId}>
+                    {c.fullName}
+                  </option>
+                ))}
+              </TextField>
+              <Button
+                variant="contained"
+                size="small"
+                disabled={!providerUserId || addProvider.isPending}
+                onClick={() => void onAdd()}
+              >
+                Add provider
               </Button>
             </Stack>
           </>

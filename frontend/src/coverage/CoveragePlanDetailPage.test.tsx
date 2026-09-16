@@ -8,10 +8,12 @@ import { api } from '../api/client'
 import { useCurrentUser } from '../auth/useAuth'
 import { CoveragePlanDetailPage } from './CoveragePlanDetailPage'
 import type {
+  AssignmentCandidate,
   CoveragePlan,
   CurrentUser,
   PlanExclusion,
   PlanFeeScheduleEntry,
+  PlanNetworkProvider,
   PlanPriorAuthRequirement,
 } from '../api/types'
 
@@ -31,6 +33,10 @@ vi.mock('../api/client', async (importOriginal) => {
       listPriorAuthRequirements: vi.fn(),
       addPriorAuthRequirement: vi.fn(),
       removePriorAuthRequirement: vi.fn(),
+      listNetworkProviders: vi.fn(),
+      listNetworkProviderCandidates: vi.fn(),
+      addNetworkProvider: vi.fn(),
+      removeNetworkProvider: vi.fn(),
       searchMedicalCodes: vi.fn(),
     },
   }
@@ -47,6 +53,10 @@ const removeFeeSchedule = vi.mocked(api.removeFeeSchedule)
 const listPriorAuthRequirements = vi.mocked(api.listPriorAuthRequirements)
 const addPriorAuthRequirement = vi.mocked(api.addPriorAuthRequirement)
 const removePriorAuthRequirement = vi.mocked(api.removePriorAuthRequirement)
+const listNetworkProviders = vi.mocked(api.listNetworkProviders)
+const listNetworkProviderCandidates = vi.mocked(api.listNetworkProviderCandidates)
+const addNetworkProvider = vi.mocked(api.addNetworkProvider)
+const removeNetworkProvider = vi.mocked(api.removeNetworkProvider)
 const searchMedicalCodes = vi.mocked(api.searchMedicalCodes)
 const useCurrentUserMock = vi.mocked(useCurrentUser)
 
@@ -63,6 +73,10 @@ const FEE_SCHEDULE: PlanFeeScheduleEntry[] = [
 const PRIOR_AUTH_REQUIREMENTS: PlanPriorAuthRequirement[] = [
   { id: 'pa1', coveragePlanId: 'pl1', codeSystem: 'CPT', code: '99214' },
 ]
+const NETWORK: PlanNetworkProvider[] = [
+  { id: 'np1', coveragePlanId: 'pl1', providerUserId: 'u9', providerName: 'Dana Provider' },
+]
+const NETWORK_CANDIDATES: AssignmentCandidate[] = [{ userId: 'u9', fullName: 'Dana Provider' }]
 
 function mockUser(roles: string[]) {
   useCurrentUserMock.mockReturnValue({
@@ -92,6 +106,8 @@ describe('CoveragePlanDetailPage', () => {
     listExclusions.mockResolvedValue([])
     listFeeSchedule.mockResolvedValue([])
     listPriorAuthRequirements.mockResolvedValue([])
+    listNetworkProviders.mockResolvedValue([])
+    listNetworkProviderCandidates.mockResolvedValue([])
   })
 
   it('renders the plan parameters and its exclusions', async () => {
@@ -219,5 +235,46 @@ describe('CoveragePlanDetailPage', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Remove' }))
 
     await waitFor(() => expect(removePriorAuthRequirement).toHaveBeenCalledWith('pl1', 'pa1'))
+  })
+
+  it('renders a network provider', async () => {
+    mockUser(['CLAIMS_REVIEWER'])
+    listNetworkProviders.mockResolvedValue(NETWORK)
+
+    renderDetail(<CoveragePlanDetailPage />)
+
+    expect(await screen.findByText(/Standard PPO/)).toBeInTheDocument()
+    expect(await screen.findByText('Dana Provider')).toBeInTheDocument()
+    // A non-admin sees no add control.
+    expect(screen.queryByLabelText('Add a provider to the network')).not.toBeInTheDocument()
+  })
+
+  it('an admin can add a provider to the network via the picker', async () => {
+    mockUser(['ORG_ADMIN'])
+    listNetworkProviders.mockResolvedValue([])
+    listNetworkProviderCandidates.mockResolvedValue(NETWORK_CANDIDATES)
+    addNetworkProvider.mockResolvedValue(NETWORK[0])
+
+    renderDetail(<CoveragePlanDetailPage />)
+    await screen.findByText(/Standard PPO/)
+    await screen.findByRole('option', { name: 'Dana Provider' })
+
+    await userEvent.selectOptions(screen.getByLabelText('Add a provider to the network'), 'u9')
+    await userEvent.click(screen.getByRole('button', { name: 'Add provider' }))
+
+    await waitFor(() => expect(addNetworkProvider).toHaveBeenCalledWith('pl1', { providerUserId: 'u9' }))
+  })
+
+  it('an admin can remove a provider from the network', async () => {
+    mockUser(['ORG_ADMIN'])
+    listNetworkProviders.mockResolvedValue(NETWORK)
+    removeNetworkProvider.mockResolvedValue(undefined)
+
+    renderDetail(<CoveragePlanDetailPage />)
+    await screen.findByText('Dana Provider')
+
+    await userEvent.click(screen.getByRole('button', { name: 'Remove' }))
+
+    await waitFor(() => expect(removeNetworkProvider).toHaveBeenCalledWith('pl1', 'np1'))
   })
 })
