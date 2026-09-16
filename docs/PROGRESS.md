@@ -63,7 +63,9 @@
   listing the provider's live grants. slice 6 ✅ — **access review of break-glass** (backend): an admin/auditor sees
   every live grant in the tenant (`GET /api/v1/break-glass/all`, provider name resolved), and an admin can **revoke**
   a grant early (`POST /api/v1/break-glass/{id}/revoke`) — access ends at once and a `BREAK_GLASS_REVOKED` event is
-  audited. Next: access-review UI, then retention.
+  audited. slice 7 ✅ — **access-review UI** (frontend): an **Access review** page (`/access-review`, nav gated to
+  AUDITOR/ORG_ADMIN) listing every live grant (provider name · patient link · reason · window), with a **Revoke**
+  button (inline confirm) shown only to ORG_ADMIN. Next: retention (the last Phase 7 area).
 - **Phase 6 COMPLETE ✅ (advanced claims, slices 1–21):** all seven roadmap areas done — prior auth, referrals,
   appeals, anomaly signals, manual review, reprocessing, provider network. slice 1 ✅ — **prior authorization**: a top-level,
   patient-gated `prior_authorization` aggregate (request a planned procedure be pre-approved under a coverage
@@ -273,6 +275,24 @@
   then `curl -b j.txt localhost:8080/api/v1/me`. Reset DB with `./scripts/db-reset.sh`.
 
 ## Log (newest first)
+
+### 2026-09-16 — Phase 7, slice 7 ✅ (access-review UI — live grants + Revoke, frontend)
+- **Why:** slice 6 built the break-glass oversight backend. This puts it in front of an admin/auditor. Frontend-only.
+- **New `AccessReviewPage.tsx`** (route `/access-review`) in `src/breakglass/`: a table of every live grant in the
+  tenant (`useAllBreakGlassGrants` → `GET /api/v1/break-glass/all`) — Provider (resolved name, id in a tooltip) ·
+  Patient (id → link to `/patients/:id`) · Reason · Granted · Expires · Action. A **Revoke** button (with an inline
+  **Confirm/Cancel**, matching the prior-auth inline-pending idiom — the codebase uses no `window.confirm`) is shown
+  **only to ORG_ADMIN** (`useRevokeBreakGlass` → `POST /api/v1/break-glass/{id}/revoke`, invalidates the list so the
+  grant drops out); an auditor sees the list read-only.
+- **Wiring:** `api.listAllBreakGlass`/`api.revokeBreakGlass` + `BreakGlassGrantAdmin` type; hooks
+  `useAllBreakGlassGrants`/`useRevokeBreakGlass`; the `/access-review` route; an **Access review** nav button gated to
+  AUDITOR/ORG_ADMIN.
+- **Verify:** `npm run typecheck` clean (hit + fixed the documented MUI 9 `Stack` `justifyContent`-in-`sx` gotcha),
+  `npm test` green (145 → **149**; new `AccessReviewPage.test.tsx`, 4 cases — lists grants with provider name + patient
+  link; an admin revokes via the inline confirm (calls `revokeBreakGlass('g1')`); a read-only auditor sees no Revoke
+  button; empty state), `npm run build` succeeds. Live browser check skipped (in-app browser can't reach localhost);
+  RTL exercises the components against the mocked API.
+- **Next:** Phase 7 — **retention** (data lifecycle / purge policy), the final Phase 7 area.
 
 ### 2026-09-16 — Phase 7, slice 6 ✅ (access review of break-glass — oversight + early revocation, backend)
 - **Why:** slice 4 left two gaps (flagged then): admins had no visibility of who holds emergency access, and a grant

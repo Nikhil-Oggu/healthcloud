@@ -5,10 +5,25 @@ import { PATIENTS_QUERY_KEY } from '../patients/usePatients'
 import type { CreateBreakGlassRequest } from '../api/types'
 
 export const BREAK_GLASS_QUERY_KEY = ['break-glass'] as const
+export const BREAK_GLASS_ALL_QUERY_KEY = ['break-glass', 'all'] as const
 
 /** The caller's own live break-glass grants (newest first) — a provider's emergency-access home. */
 export function useMyBreakGlassGrants() {
   return useQuery({ queryKey: BREAK_GLASS_QUERY_KEY, queryFn: () => api.listBreakGlass() })
+}
+
+/** Every live grant in the tenant — the access-review oversight read (AUDITOR/ORG_ADMIN). */
+export function useAllBreakGlassGrants() {
+  return useQuery({ queryKey: BREAK_GLASS_ALL_QUERY_KEY, queryFn: () => api.listAllBreakGlass() })
+}
+
+/** Revoke a grant early (ORG_ADMIN); refresh the oversight list so it drops out immediately. */
+export function useRevokeBreakGlass() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => api.revokeBreakGlass(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: BREAK_GLASS_ALL_QUERY_KEY }),
+  })
 }
 
 /**

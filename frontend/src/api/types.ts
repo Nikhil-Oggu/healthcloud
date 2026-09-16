@@ -852,3 +852,14 @@ export interface CreateBreakGlassRequest {
   patientId: string
   reason: string
 }
+
+/** The access-review view of a live break-glass grant (mirrors BreakGlassGrantAdminDto). Admin/auditor only. */
+export interface BreakGlassGrantAdmin {
+  id: string
+  providerUserId: string
+  providerName: string | null
+  patientId: string
+  reason: string
+  createdAt: string
+  expiresAt: string
+}

@@ -13,6 +13,7 @@ import type {
   AuditChainVerification,
   AuditEvent,
   BreakGlassGrant,
+  BreakGlassGrantAdmin,
   CreateBreakGlassRequest,
   Claim,
   ClaimStatusChange,
@@ -507,6 +508,11 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     }),
+
+  listAllBreakGlass: () => request<BreakGlassGrantAdmin[]>('/api/v1/break-glass/all'),
+
+  revokeBreakGlass: (id: string) =>
+    request<BreakGlassGrantAdmin>(`/api/v1/break-glass/${id}/revoke`, { method: 'POST' }),
 
   // --- Coverage plans + exclusions (§Phase 4/5) ---
   listCoveragePlans: () => request<CoveragePlan[]>('/api/v1/coverage-plans'),
