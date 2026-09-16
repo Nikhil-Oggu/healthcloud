@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { api } from '../api/client'
+import { api, ApiClientError } from '../api/client'
 import { useCurrentUser } from '../auth/useAuth'
 import { PatientDetailPage } from './PatientDetailPage'
 import type {
@@ -42,6 +42,7 @@ vi.mock('../api/client', async (importOriginal) => {
       listEligibility: vi.fn(),
       enrollEligibility: vi.fn(),
       listCoveragePlans: vi.fn(),
+      breakGlass: vi.fn(),
     },
   }
 })
@@ -196,6 +197,26 @@ describe('PatientDetailPage', () => {
     listDocuments.mockResolvedValue([])
     listEligibility.mockResolvedValue([])
     listCoveragePlans.mockResolvedValue([])
+  })
+
+  it('offers break-glass to a PROVIDER who hits a secure 404', async () => {
+    mockUserWithRoles(['PROVIDER'])
+    getPatient.mockRejectedValue(new ApiClientError(404, { code: 'NOT_FOUND', message: 'Not found' }))
+
+    renderPage(<PatientDetailPage />)
+
+    expect(await screen.findByText('You do not have access to this patient')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Break glass' })).toBeInTheDocument()
+  })
+
+  it('shows the generic error (not break-glass) to a non-provider on a 404', async () => {
+    mockUserWithRoles(['CARE_COORDINATOR'])
+    getPatient.mockRejectedValue(new ApiClientError(404, { code: 'NOT_FOUND', message: 'Not found' }))
+
+    renderPage(<PatientDetailPage />)
+
+    expect(await screen.findByText('NOT_FOUND')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Break glass' })).not.toBeInTheDocument()
   })
 
   it('renders the patient summary and a consent directive row', async () => {

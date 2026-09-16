@@ -24,6 +24,7 @@ import {
 } from '@mui/material'
 import { api, ApiClientError } from '../api/client'
 import { useCurrentUser } from '../auth/useAuth'
+import { BreakGlassPanel } from '../breakglass/BreakGlassPanel'
 import { LoadingScreen } from '../components/LoadingScreen'
 import { ErrorScreen } from '../components/ErrorScreen'
 import type {
@@ -123,6 +124,12 @@ export function PatientDetailPage() {
     return <LoadingScreen />
   }
   if (patient.isError) {
+    // A PROVIDER who reaches a patient they are not assigned to gets a secure 404. Offer break-glass right here —
+    // the patient id is already in the URL — instead of the generic error screen (§Phase 7 slice 5).
+    const notFound = patient.error instanceof ApiClientError && patient.error.status === 404
+    if (notFound && roles.includes('PROVIDER')) {
+      return <BreakGlassPanel patientId={id} />
+    }
     return <ErrorScreen error={patient.error} />
   }
 

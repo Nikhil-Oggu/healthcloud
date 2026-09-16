@@ -834,3 +834,21 @@ export interface AuditChainVerification {
   brokenAtSequence: number | null
   reason: string | null
 }
+
+// --- Break-glass emergency access (§Phase 7) ---
+
+/** One break-glass grant (mirrors BreakGlassGrantDto). `active` is derived server-side (now < expiresAt). */
+export interface BreakGlassGrant {
+  id: string
+  patientId: string
+  reason: string
+  createdAt: string
+  expiresAt: string
+  active: boolean
+}
+
+/** Payload to break the glass for a patient (mirrors CreateBreakGlassRequest). */
+export interface CreateBreakGlassRequest {
+  patientId: string
+  reason: string
+}

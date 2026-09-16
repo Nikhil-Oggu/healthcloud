@@ -101,6 +101,11 @@ export function AppLayout() {
                 Audit
               </Button>
             )}
+            {roles.includes('PROVIDER') && (
+              <Button color="inherit" onClick={() => navigate('/break-glass')}>
+                Emergency access
+              </Button>
+            )}
             {roles.includes('ORG_ADMIN') && (
               <Button color="inherit" disabled>
                 Administration

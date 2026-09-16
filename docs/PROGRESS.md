@@ -57,7 +57,10 @@
   at sequence X" banner. slice 4 ✅ — **break-glass emergency access** (backend): a PROVIDER self-grants **time-boxed**
   access to a patient they're not assigned to by recording a reason (`POST /api/v1/break-glass`); `PatientAccessGuard`
   honours a live grant so the whole patient record becomes reachable, and a `BREAK_GLASS_INVOKED` event lands on the
-  audit trail. Never crosses tenants; expires automatically. Next: break-glass UI, access reviews, retention.
+  audit trail. Never crosses tenants; expires automatically. slice 5 ✅ — **break-glass UI** (frontend): a PROVIDER who
+  hits a patient's secure-404 gets an **emergency-access panel** (break the glass with a reason, id from the URL) in
+  place of the error screen — on success the page reloads with access; plus an **Emergency access** page (`/break-glass`)
+  listing the provider's live grants. Next: access reviews, retention.
 - **Phase 6 COMPLETE ✅ (advanced claims, slices 1–21):** all seven roadmap areas done — prior auth, referrals,
   appeals, anomaly signals, manual review, reprocessing, provider network. slice 1 ✅ — **prior authorization**: a top-level,
   patient-gated `prior_authorization` aggregate (request a planned procedure be pre-approved under a coverage
@@ -267,6 +270,31 @@
   then `curl -b j.txt localhost:8080/api/v1/me`. Reset DB with `./scripts/db-reset.sh`.
 
 ## Log (newest first)
+
+### 2026-09-16 — Phase 7, slice 5 ✅ (break-glass UI — emergency-access panel + my-grants page, frontend)
+- **Why:** slice 4 built the break-glass backend. This puts it in front of the provider. Frontend-only.
+- **The design subtlety:** a provider breaks glass to reach a patient they *can't see* — so there's no patient page
+  to click on. The entry point is the **denied state itself**: navigating to `/patients/:id` for an unassigned
+  patient returns a secure 404, and right there a PROVIDER is offered break-glass (the id is already in the URL).
+- **New `src/breakglass/`:** `useBreakGlass.ts` (`useMyBreakGlassGrants` query + `useBreakGlass(patientId)` mutation
+  that on success invalidates `patientKey(id)` + the patients list + the grants list, so the denied page reloads with
+  access); **`BreakGlassPanel.tsx`** (a reason form + "Break glass" button, RHF+Zod, `patientId` prop); and
+  **`MyBreakGlassPage.tsx`** (route `/break-glass` — a table of the caller's live grants, each linking to the now-
+  reachable patient).
+- **Patient-detail integration:** in `PatientDetailPage`'s error branch, a **404** for a **PROVIDER** renders
+  `<BreakGlassPanel>` instead of the generic `ErrorScreen` (using `ApiClientError.status`); everything else still
+  shows the error screen.
+- **Wiring:** `api.breakGlass`/`api.listBreakGlass` + `BreakGlassGrant`/`CreateBreakGlassRequest` types; the
+  `/break-glass` route; an **Emergency access** nav button gated to PROVIDER.
+- **Honest limitations:** the entry point is the patient's URL/id (realistic when the provider already has the
+  patient's link/id; a "search by MRN/name then break glass" flow would need a backend MRN lookup that bypasses the
+  gate — not built); this page shows only the caller's own grants (admin/auditor oversight of *all* grants is the
+  access-reviews slice); role-gating is convenience, the backend is the boundary.
+- **Verify:** `npm run typecheck` clean, `npm test` green (139 → **145**; new `BreakGlassPanel.test.tsx` (2),
+  `MyBreakGlassPage.test.tsx` (2), and two added `PatientDetailPage` cases — a PROVIDER 404 shows the panel, a
+  non-provider 404 shows the error), `npm run build` succeeds. Live browser check skipped (in-app browser can't reach
+  localhost here); RTL exercises the components against the mocked API.
+- **Next:** Phase 7 — access reviews (admin/auditor oversight of break-glass grants + assignments), then retention.
 
 ### 2026-09-16 — Phase 7, slice 4 ✅ (break-glass emergency access — time-boxed override + audit, backend)
 - **Why:** the classic HIPAA "break the glass". A PROVIDER who is not assigned to a patient can, in an emergency,

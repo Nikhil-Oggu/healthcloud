@@ -12,6 +12,8 @@ import type {
   AddPriorAuthRequirementRequest,
   AuditChainVerification,
   AuditEvent,
+  BreakGlassGrant,
+  CreateBreakGlassRequest,
   Claim,
   ClaimStatusChange,
   ClaimStatusHistory,
@@ -495,6 +497,16 @@ export const api = {
   listAuditEvents: () => request<AuditEvent[]>('/api/v1/audit-events'),
 
   verifyAuditChain: () => request<AuditChainVerification>('/api/v1/audit-events/verify'),
+
+  // --- Break-glass emergency access (§Phase 7) ---
+  listBreakGlass: () => request<BreakGlassGrant[]>('/api/v1/break-glass'),
+
+  breakGlass: (body: CreateBreakGlassRequest) =>
+    request<BreakGlassGrant>('/api/v1/break-glass', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }),
 
   // --- Coverage plans + exclusions (§Phase 4/5) ---
   listCoveragePlans: () => request<CoveragePlan[]>('/api/v1/coverage-plans'),
