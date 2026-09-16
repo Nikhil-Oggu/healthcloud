@@ -165,8 +165,13 @@
   `lineOutcomeColor` → error) so the slice-19 engine rule is visible on the adjudication card, and a **Network
   providers card** on the coverage-plan detail page (list in-network PROVIDERs by name + add via a provider select
   from the candidates endpoint / remove, ORG_ADMIN) — the slice-17 config is now browser-manageable. Frontend-only.
-  **Next provider-network slice (plan first):** UI part 2 (21) — the rendering-provider picker on claim create
-  (needs a small new `GET /api/v1/providers` read). That completes Phase 6's advanced-claims areas.
+  slice 21 ✅ — **rendering-provider picker on claim create (UI part 2)**: a new read `GET /api/v1/providers`
+  (`ProviderController`/`ProviderDirectoryService`, gated to the claim-create roles) lists the tenant's active
+  PROVIDERs; the **New claim** form gained an optional "Rendering provider" select, and the claim detail header now
+  shows "rendered by <name>". Also caught up the frontend `Claim`/`ClaimSummary`/`CreateClaimRequest` types to carry
+  `renderingProviderId` (backend has since slice 18). **This completes Phase 6's advanced-claims areas** — provider
+  network is now fully usable through the UI (admin sets the network → user picks the rendering provider → engine
+  marks OON → UI shows the chip). No migration, no engine change.
 - **Tooling:** HealthCloud-specific **`code-reviewer`** + **`security-reviewer`** subagents now live in
   `.claude/agents/` (read-only; project-aware checklists — tenant isolation, `PatientAccessGuard`, consent/masking,
   one-tx history, financial accumulators). Invoke by name in a fresh session (agent files load at startup).
@@ -246,6 +251,34 @@
   then `curl -b j.txt localhost:8080/api/v1/me`. Reset DB with `./scripts/db-reset.sh`.
 
 ## Log (newest first)
+
+### 2026-09-16 — Phase 6, slice 21 ✅ (rendering-provider picker on claim create — GET /api/v1/providers + form field)
+- **Why:** the last piece of provider network. The backend already accepted a `renderingProviderId` on claim
+  create (slice 18) and the engine already reads it (slice 19), but there was no UI to set it and no way to list a
+  tenant's providers to pick from. This slice adds both, so an out-of-network claim can be produced end-to-end in
+  the browser. **This completes Phase 6's advanced-claims areas.** No migration, no engine change.
+- **Backend — a provider directory read (`GET /api/v1/providers`):** new `identity` package pieces —
+  `ProviderDto(userId, fullName)` (minimum-necessary), `ProviderDirectoryService.list()` (the caller's tenant's
+  **active PROVIDERs**, sorted by name — same "active same-tenant PROVIDER" resolution as
+  `PlanNetworkProviderService.listCandidates`), and a thin `ProviderController`. Gated to the **claim-create roles**
+  (PROVIDER/CARE_COORDINATOR/ORG_ADMIN) so a PATIENT (or a CLAIMS_REVIEWER, who doesn't create claims) can't
+  enumerate staff. Read-only over existing tables — no Flyway migration.
+- **Frontend:** `Provider` type + `api.listProviders` + `useProviders` hook (in `src/claims/`); an optional
+  **"Rendering provider"** native `<select>` on `CreateClaimForm` (blank → omit); the claim detail header now shows
+  "· rendered by <name>" (resolved id → name via `useProviders`, best-effort). Also caught up the frontend
+  `Claim`/`ClaimSummary`/`CreateClaimRequest` types to carry `renderingProviderId` (the backend DTOs have since
+  slice 18 — no UI had consumed it yet), which meant adding `renderingProviderId: null` to several existing
+  ClaimSummary/Claim test fixtures.
+- **Design note (unchanged from the plan):** this is now the **4th** copy of the "validate an active same-tenant
+  PROVIDER" logic (ProviderPatientAssignmentService, PlanNetworkProviderService, ClaimService, and this directory
+  read reuses the membership+role lookup) — still flagged for a future shared `ProviderValidator`/directory extract,
+  deliberately not done here to keep the slice small.
+- **Verify:** backend `./mvnw -B clean verify` green (378 → **384** tests; new `ProviderDirectoryApiIntegrationTest`,
+  6 cases — tenant listing, non-provider exclusion, coordinator-read, patient-403, reviewer-403, tenant isolation).
+  Frontend `typecheck` + `test` (132 → **134**) + `build` all green. Live browser check skipped (the in-app browser
+  can't reach localhost here); the integration test exercises the real HTTP endpoint against real Postgres.
+- **Next:** Phase 6's advanced-claims areas are done. Options for the next session: a Phase 6 wrap/review pass
+  (`/code-review`), or begin **Phase 7** (advanced security/governance — break-glass, tamper-evident audit chains).
 
 ### 2026-09-16 — Phase 6, slice 20 ✅ (provider-network UI part 1 — OUT_OF_NETWORK chip + plan network admin card)
 - **Why:** put the slice-17/19 backend in the browser: see out-of-network results, and manage a plan's network.

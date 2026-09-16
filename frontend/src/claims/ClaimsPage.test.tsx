@@ -22,7 +22,7 @@ const PATIENTS: Patient[] = [
   { id: 'p1', medicalRecordNumber: 'NC-0001', fullName: 'Sam Sample', dateOfBirth: null, status: 'ACTIVE', version: 0 },
 ]
 const CLAIMS: ClaimSummary[] = [
-  { id: 'cl1', patientId: 'p1', claimNumber: 'CLM-ABC12345', status: 'DRAFT', serviceDate: '2026-01-10', totalChargeAmount: 195.5, createdAt: '2026-01-10T10:00:00Z' },
+  { id: 'cl1', patientId: 'p1', claimNumber: 'CLM-ABC12345', status: 'DRAFT', serviceDate: '2026-01-10', totalChargeAmount: 195.5, renderingProviderId: null, createdAt: '2026-01-10T10:00:00Z' },
 ]
 
 function renderPage(ui: ReactNode) {

@@ -25,10 +25,10 @@ const createAppeal = vi.mocked(api.createAppeal)
 
 const CLAIMS: ClaimSummary[] = [
   { id: 'c1', patientId: 'p1', claimNumber: 'CLM-REJECT', status: 'REJECTED', serviceDate: '2025-11-01',
-    totalChargeAmount: 150, createdAt: '2026-05-01T10:00:00Z' },
+    totalChargeAmount: 150, renderingProviderId: null, createdAt: '2026-05-01T10:00:00Z' },
   // A DRAFT claim is not appealable — it must not appear in the picker.
   { id: 'c2', patientId: 'p1', claimNumber: 'CLM-DRAFT', status: 'DRAFT', serviceDate: '2025-11-01',
-    totalChargeAmount: 90, createdAt: '2026-05-01T10:00:00Z' },
+    totalChargeAmount: 90, renderingProviderId: null, createdAt: '2026-05-01T10:00:00Z' },
 ]
 const CREATED: Appeal = {
   id: 'a-new', claimId: 'c1', patientId: 'p1', appealNumber: 'APL-NEW00001',

@@ -32,7 +32,7 @@ const PATIENTS: Patient[] = [
 ]
 const CLAIMS: ClaimSummary[] = [
   { id: 'c1', patientId: 'p1', claimNumber: 'CLM-XYZ02', status: 'REJECTED', serviceDate: '2025-11-01',
-    totalChargeAmount: 150, createdAt: '2026-05-01T10:00:00Z' },
+    totalChargeAmount: 150, renderingProviderId: null, createdAt: '2026-05-01T10:00:00Z' },
 ]
 const APPEALS: AppealSummary[] = [
   { id: 'a1', claimId: 'c1', patientId: 'p1', appealNumber: 'APL-ABC12345', status: 'SUBMITTED',

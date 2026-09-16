@@ -13,6 +13,7 @@ import type {
   ClaimAnomalySignal,
   ClaimStatusHistory,
   CurrentUser,
+  Provider,
 } from '../api/types'
 
 vi.mock('../api/client', async (importOriginal) => {
@@ -29,6 +30,7 @@ vi.mock('../api/client', async (importOriginal) => {
       getAdjudicationVersions: vi.fn(),
       listClaimAnomalies: vi.fn(),
       scanClaimAnomalies: vi.fn(),
+      listProviders: vi.fn(),
     },
   }
 })
@@ -42,11 +44,15 @@ const getAdjudication = vi.mocked(api.getAdjudication)
 const getAdjudicationVersions = vi.mocked(api.getAdjudicationVersions)
 const listClaimAnomalies = vi.mocked(api.listClaimAnomalies)
 const scanClaimAnomalies = vi.mocked(api.scanClaimAnomalies)
+const listProviders = vi.mocked(api.listProviders)
 const useCurrentUserMock = vi.mocked(useCurrentUser)
+
+const PROVIDERS: Provider[] = [{ userId: 'prov-morgan', fullName: 'Morgan Provider' }]
 
 const DRAFT: Claim = {
   id: 'cl1', patientId: 'p1', claimNumber: 'CLM-ABC12345', status: 'DRAFT', serviceDate: '2026-01-10',
-  totalChargeAmount: 195.5, createdBy: 'u1', createdAt: '2026-01-10T10:00:00Z', version: 0,
+  totalChargeAmount: 195.5, renderingProviderId: null, createdBy: 'u1', createdAt: '2026-01-10T10:00:00Z',
+  version: 0,
   lines: [
     { id: 'ln1', lineNumber: 1, procedureCodeSystem: 'CPT', procedureCode: '99213', units: 1, chargeAmount: 150.0 },
     { id: 'ln2', lineNumber: 2, procedureCodeSystem: 'CPT', procedureCode: '80053', units: 1, chargeAmount: 45.5 },
@@ -111,6 +117,7 @@ describe('ClaimDetailPage', () => {
     getAdjudication.mockResolvedValue(ADJUDICATION)
     getAdjudicationVersions.mockResolvedValue([ADJUDICATION])
     listClaimAnomalies.mockResolvedValue([])
+    listProviders.mockResolvedValue(PROVIDERS)
   })
 
   it('renders the header and the lines', async () => {
@@ -124,6 +131,16 @@ describe('ClaimDetailPage', () => {
     expect(screen.getByText('80053')).toBeInTheDocument()
     // A coordinator may submit a DRAFT.
     expect(screen.getByRole('button', { name: 'Submit' })).toBeInTheDocument()
+  })
+
+  it('shows the resolved rendering-provider name in the header', async () => {
+    mockUser(['CARE_COORDINATOR'])
+    getClaim.mockResolvedValue({ ...DRAFT, renderingProviderId: 'prov-morgan' })
+
+    renderDetail(<ClaimDetailPage />)
+    await screen.findByText('Claim CLM-ABC12345')
+
+    expect(await screen.findByText(/rendered by Morgan Provider/)).toBeInTheDocument()
   })
 
   it('a wrong-role user sees no lifecycle actions on a DRAFT', async () => {

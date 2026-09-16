@@ -36,6 +36,7 @@ import {
   useClaimHistory,
   useScanAnomalies,
 } from './useClaims'
+import { useProviders } from './useProviders'
 
 export function ClaimDetailPage() {
   const { id = '' } = useParams()
@@ -46,6 +47,7 @@ export function ClaimDetailPage() {
   const adjudicate = useAdjudicate(id)
   const anomalies = useAnomalies(id)
   const scan = useScanAnomalies(id)
+  const providers = useProviders()
 
   const [pending, setPending] = useState<ClaimStatus | null>(null)
   const [reason, setReason] = useState('')
@@ -62,6 +64,10 @@ export function ClaimDetailPage() {
 
   const c = claim.data
   const roles = user?.roles ?? []
+  // Resolve the rendering provider's id → display name (best-effort; the directory read may be gated for this role).
+  const renderingProviderName = c.renderingProviderId
+    ? providers.data?.find((p) => p.userId === c.renderingProviderId)?.fullName
+    : undefined
   const actions = allowedActions(c.status, roles)
   const showAdjudicate = canAdjudicate(c.status, roles)
   const showReadjudicate = canReadjudicate(c.status, roles)
@@ -133,6 +139,9 @@ export function ClaimDetailPage() {
           </Stack>
           <Typography variant="body2" color="text.secondary">
             Service date {c.serviceDate} · total charge {money(c.totalChargeAmount)}
+            {c.renderingProviderId
+              ? ` · rendered by ${renderingProviderName ?? 'a provider'}`
+              : ''}
           </Typography>
 
           {actionError && (

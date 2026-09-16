@@ -38,6 +38,7 @@ import type {
   Patient,
   PatientCreateRequest,
   PatientDocument,
+  Provider,
   ProviderAssignment,
   RecordConsentRequest,
   Referral,
@@ -156,6 +157,9 @@ export const api = {
   logout: () => request<void>('/api/v1/logout', { method: 'POST' }),
 
   listPatients: () => request<Patient[]>('/api/v1/patients'),
+
+  /** The caller's tenant's active providers — the rendering-provider picker source (claim-create roles). */
+  listProviders: () => request<Provider[]>('/api/v1/providers'),
 
   getPatient: (id: string) => request<Patient>(`/api/v1/patients/${id}`),
 

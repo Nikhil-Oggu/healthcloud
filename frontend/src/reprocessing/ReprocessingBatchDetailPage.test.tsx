@@ -24,7 +24,7 @@ const listClaims = vi.mocked(api.listClaims)
 
 const CLAIMS: ClaimSummary[] = [
   { id: 'c1', patientId: 'p1', claimNumber: 'CLM-ONE', status: 'ADJUDICATED', serviceDate: '2025-11-01',
-    totalChargeAmount: 150, createdAt: '2026-05-01T10:00:00Z' },
+    totalChargeAmount: 150, renderingProviderId: null, createdAt: '2026-05-01T10:00:00Z' },
 ]
 const BATCH: ReprocessingBatch = {
   id: 'b1', batchNumber: 'RPB-ABC12345', coveragePlanId: 'p1', coveragePlanName: 'North PPO',

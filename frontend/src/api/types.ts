@@ -229,6 +229,12 @@ export interface AssignmentCandidate {
   fullName: string
 }
 
+/** A same-tenant provider, for the rendering-provider picker on claim create (mirrors ProviderDto). */
+export interface Provider {
+  userId: string
+  fullName: string
+}
+
 /**
  * Payload to assign a member to a patient's care team. `userId` is the provider/coordinator to add;
  * `effectiveFrom`/`To` are optional (default today / open-ended). Tenant + assigner are set on the server.
@@ -282,6 +288,7 @@ export interface ClaimSummary {
   status: ClaimStatus
   serviceDate: string // ISO date
   totalChargeAmount: number
+  renderingProviderId: string | null
   createdAt: string
 }
 
@@ -293,6 +300,7 @@ export interface Claim {
   status: ClaimStatus
   serviceDate: string
   totalChargeAmount: number
+  renderingProviderId: string | null
   createdBy: string
   createdAt: string
   version: number
@@ -401,6 +409,7 @@ export interface CreateClaimLine {
 export interface CreateClaimRequest {
   patientId: string
   serviceDate: string
+  renderingProviderId?: string
   lines: CreateClaimLine[]
 }
 
