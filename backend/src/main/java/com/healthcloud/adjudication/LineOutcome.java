@@ -1,11 +1,15 @@
 package com.healthcloud.adjudication;
 
 /**
- * The per-line result of adjudication (source-of-truth §Phase 5). {@link #COVERED} means the line's amounts were
- * computed against a plan; {@link #NOT_COVERED} means it fell under a denied claim (no coverage). Labels are
- * additive — never renumber or repurpose one (they back the {@code adjudication_line.outcome} CHECK).
+ * The per-line result of adjudication. {@link #COVERED} means the line's amounts were computed against a plan;
+ * {@link #NOT_COVERED} means it fell under a denied claim (no coverage) or is a procedure the plan excludes
+ * (§Phase 5); {@link #AUTH_REQUIRED} means the procedure requires prior authorization under the covering plan and
+ * no APPROVED authorization covered the service date (§Phase 6). A NOT_COVERED/AUTH_REQUIRED line has the member
+ * owe the charge and does not accrue to the deductible or out-of-pocket max. Labels are additive — never renumber
+ * or repurpose one (they back the {@code adjudication_line.outcome} CHECK).
  */
 public enum LineOutcome {
     COVERED,
-    NOT_COVERED
+    NOT_COVERED,
+    AUTH_REQUIRED
 }

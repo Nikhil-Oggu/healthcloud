@@ -26,6 +26,8 @@ import com.healthcloud.coverage.PatientEligibility;
 import com.healthcloud.coverage.PatientEligibilityRepository;
 import com.healthcloud.coverage.PlanFeeScheduleEntry;
 import com.healthcloud.coverage.PlanFeeScheduleRepository;
+import com.healthcloud.coverage.PlanPriorAuthRequirement;
+import com.healthcloud.coverage.PlanPriorAuthRequirementRepository;
 import com.healthcloud.coverage.PlanType;
 import com.healthcloud.identity.UserRole;
 import com.healthcloud.identity.UserRoleRepository;
@@ -91,6 +93,7 @@ public class DevDataSeeder implements ApplicationRunner {
     private final CoveragePlanRepository coveragePlanRepository;
     private final PatientEligibilityRepository patientEligibilityRepository;
     private final PlanFeeScheduleRepository planFeeScheduleRepository;
+    private final PlanPriorAuthRequirementRepository planPriorAuthRequirementRepository;
     private final PriorAuthorizationRepository priorAuthorizationRepository;
     private final PriorAuthorizationStatusHistoryRepository priorAuthorizationStatusHistoryRepository;
 
@@ -112,6 +115,7 @@ public class DevDataSeeder implements ApplicationRunner {
                          CoveragePlanRepository coveragePlanRepository,
                          PatientEligibilityRepository patientEligibilityRepository,
                          PlanFeeScheduleRepository planFeeScheduleRepository,
+                         PlanPriorAuthRequirementRepository planPriorAuthRequirementRepository,
                          PriorAuthorizationRepository priorAuthorizationRepository,
                          PriorAuthorizationStatusHistoryRepository priorAuthorizationStatusHistoryRepository) {
         this.organizationRepository = organizationRepository;
@@ -132,6 +136,7 @@ public class DevDataSeeder implements ApplicationRunner {
         this.coveragePlanRepository = coveragePlanRepository;
         this.patientEligibilityRepository = patientEligibilityRepository;
         this.planFeeScheduleRepository = planFeeScheduleRepository;
+        this.planPriorAuthRequirementRepository = planPriorAuthRequirementRepository;
         this.priorAuthorizationRepository = priorAuthorizationRepository;
         this.priorAuthorizationStatusHistoryRepository = priorAuthorizationStatusHistoryRepository;
     }
@@ -243,6 +248,17 @@ public class DevDataSeeder implements ApplicationRunner {
         // A sample REQUESTED prior authorization (Phase 6) for the first patient under the PPO, so a demo
         // prior-auth queue returns something a reviewer can approve/deny. Synthetic; coded data only.
         seedPriorAuth(org, patients.get(0), ppo, provider);
+
+        // Mark a procedure (99214) as requiring prior auth under the PPO, so a demo claim for it adjudicates
+        // AUTH_REQUIRED until an authorization is approved. Deliberately NOT 99213/80053 (the seeded claim +
+        // the accumulator/fee-schedule tests assert exact amounts for those on the seeded PPO).
+        seedPriorAuthRequirement(org, ppo, admin);
+    }
+
+    /** A synthetic prior-auth requirement: the PPO requires prior authorization for a moderate office visit. */
+    private void seedPriorAuthRequirement(Organization org, CoveragePlan plan, AppUser createdBy) {
+        planPriorAuthRequirementRepository.save(new PlanPriorAuthRequirement(
+                org.getId(), plan.getId(), CodeSystem.CPT, "99214", createdBy.getId()));
     }
 
     /**

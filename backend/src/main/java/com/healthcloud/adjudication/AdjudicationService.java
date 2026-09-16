@@ -18,10 +18,13 @@ import com.healthcloud.coverage.PlanExclusion;
 import com.healthcloud.coverage.PlanExclusionRepository;
 import com.healthcloud.coverage.PlanFeeScheduleEntry;
 import com.healthcloud.coverage.PlanFeeScheduleRepository;
+import com.healthcloud.coverage.PlanPriorAuthRequirement;
+import com.healthcloud.coverage.PlanPriorAuthRequirementRepository;
 import com.healthcloud.error.CorrelationId;
 import com.healthcloud.error.InvalidStateTransitionException;
 import com.healthcloud.error.NotFoundException;
 import com.healthcloud.patient.PatientAccessGuard;
+import com.healthcloud.priorauth.PriorAuthorizationRepository;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.ArrayList;
@@ -65,6 +68,8 @@ public class AdjudicationService {
     private final BenefitAccumulatorRepository accumulators;
     private final PlanExclusionRepository planExclusions;
     private final PlanFeeScheduleRepository planFeeSchedule;
+    private final PlanPriorAuthRequirementRepository planPriorAuthRequirements;
+    private final PriorAuthorizationRepository priorAuths;
     private final PatientAccessGuard accessGuard;
     private final UserContextAccessor userContext;
 
@@ -74,6 +79,8 @@ public class AdjudicationService {
                                AdjudicationRepository adjudications, AdjudicationLineRepository adjudicationLines,
                                BenefitAccumulatorRepository accumulators, PlanExclusionRepository planExclusions,
                                PlanFeeScheduleRepository planFeeSchedule,
+                               PlanPriorAuthRequirementRepository planPriorAuthRequirements,
+                               PriorAuthorizationRepository priorAuths,
                                PatientAccessGuard accessGuard, UserContextAccessor userContext) {
         this.claims = claims;
         this.claimLines = claimLines;
@@ -85,6 +92,8 @@ public class AdjudicationService {
         this.accumulators = accumulators;
         this.planExclusions = planExclusions;
         this.planFeeSchedule = planFeeSchedule;
+        this.planPriorAuthRequirements = planPriorAuthRequirements;
+        this.priorAuths = priorAuths;
         this.accessGuard = accessGuard;
         this.userContext = userContext;
     }
@@ -140,14 +149,24 @@ public class AdjudicationService {
                     .findByIdAndOrganizationId(enrollment.getCoveragePlanId(), organizationId)
                     .orElseThrow(NotFoundException::new);
 
-            // A procedure excluded by the plan is NOT_COVERED — it skips the cost-sharing math and does not
-            // touch the deductible or out-of-pocket max. Only covered lines flow through the calculator.
+            // A procedure the plan excludes is NOT_COVERED; a procedure that requires prior authorization with no
+            // APPROVED authorization covering the service date is AUTH_REQUIRED (§Phase 6). Both skip the
+            // cost-sharing math and do not touch the deductible or out-of-pocket max — only truly covered lines
+            // flow through the calculator. Exclusion takes precedence over a prior-auth requirement.
             Set<String> excluded = excludedCodeKeys(organizationId, plan.getId());
+            Set<String> requiresPriorAuth = priorAuthRequiredCodeKeys(organizationId, plan.getId());
             List<ClaimLine> coveredLines = new ArrayList<>();
             List<ClaimLine> excludedLines = new ArrayList<>();
+            Set<UUID> authRequiredLineIds = new HashSet<>();
             for (ClaimLine line : lines) {
-                if (excluded.contains(codeKey(line.getProcedureCodeSystem(), line.getProcedureCode()))) {
+                String key = codeKey(line.getProcedureCodeSystem(), line.getProcedureCode());
+                if (excluded.contains(key)) {
                     excludedLines.add(line);
+                } else if (requiresPriorAuth.contains(key)
+                        && !priorAuths.existsApprovedCovering(organizationId, claim.getPatientId(), plan.getId(),
+                                line.getProcedureCodeSystem().name(), line.getProcedureCode(),
+                                claim.getServiceDate())) {
+                    authRequiredLineIds.add(line.getId());
                 } else {
                     coveredLines.add(line);
                 }
@@ -170,15 +189,21 @@ public class AdjudicationService {
             accumulator.add(deductibleApplied(computation), computation.totalMemberResponsibility());
             accumulators.save(accumulator);
 
-            // Header totals: the covered math, plus excluded charges the member owes in full (plan pays 0).
+            // Header totals: the covered math, plus the charges the member owes in full where the plan paid 0 —
+            // excluded procedures and procedures needing (missing) prior authorization.
             BigDecimal excludedCharge = totalCharge(excludedLines);
+            BigDecimal authRequiredCharge = money(lines.stream()
+                    .filter(l -> authRequiredLineIds.contains(l.getId()))
+                    .map(ClaimLine::getChargeAmount)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add));
             savedHeader = adjudications.save(new Adjudication(
                     organizationId, claim.getId(), nextVersion, AdjudicationOutcome.ADJUDICATED,
                     plan.getId(), enrollment.getId(), totalCharge(lines),
                     computation.totalAllowed(), computation.totalPlanPaid(),
-                    computation.totalMemberResponsibility().add(excludedCharge),
+                    computation.totalMemberResponsibility().add(excludedCharge).add(authRequiredCharge),
                     caller.userId(), CorrelationId.current()));
-            savedLines = saveCoveredAndExcludedLines(claim, lines, excluded, computation, savedHeader);
+            savedLines = saveAdjudicationLines(
+                    claim, lines, excluded, authRequiredLineIds, computation, savedHeader);
         }
 
         // §31.6: on the first adjudication only, advance the claim and append its status-history row in the same
@@ -233,13 +258,14 @@ public class AdjudicationService {
 
     /**
      * Persist one adjudication line per claim line, in order: an excluded procedure becomes a NOT_COVERED line
-     * (member owes the full charge, plan pays 0); every other line is a COVERED line built from its computed
+     * and a procedure needing (missing) prior authorization becomes an AUTH_REQUIRED line — both with the member
+     * owing the full charge and the plan paying 0; every other line is a COVERED line built from its computed
      * split. The covered computations are keyed by line number (the calculator only saw the covered lines).
      */
-    private List<AdjudicationLine> saveCoveredAndExcludedLines(Claim claim, List<ClaimLine> lines,
-                                                              Set<String> excluded,
-                                                              AdjudicationCalculator.Computation computation,
-                                                              Adjudication header) {
+    private List<AdjudicationLine> saveAdjudicationLines(Claim claim, List<ClaimLine> lines,
+                                                         Set<String> excluded, Set<UUID> authRequiredLineIds,
+                                                         AdjudicationCalculator.Computation computation,
+                                                         Adjudication header) {
         Map<Integer, AdjudicationCalculator.LineComputation> byLine = new HashMap<>();
         for (AdjudicationCalculator.LineComputation c : computation.lines()) {
             byLine.put(c.lineNumber(), c);
@@ -248,12 +274,9 @@ public class AdjudicationService {
         List<AdjudicationLine> saved = new ArrayList<>();
         for (ClaimLine line : lines) {
             if (excluded.contains(codeKey(line.getProcedureCodeSystem(), line.getProcedureCode()))) {
-                BigDecimal charge = money(line.getChargeAmount());
-                saved.add(adjudicationLines.save(new AdjudicationLine(
-                        claim.getOrganizationId(), header.getId(), line.getId(), line.getLineNumber(),
-                        line.getProcedureCodeSystem(), line.getProcedureCode(), LineOutcome.NOT_COVERED,
-                        charge, money(BigDecimal.ZERO), money(BigDecimal.ZERO), money(BigDecimal.ZERO),
-                        money(BigDecimal.ZERO), money(BigDecimal.ZERO), money(BigDecimal.ZERO), charge)));
+                saved.add(adjudicationLines.save(deniedLine(claim, header, line, LineOutcome.NOT_COVERED)));
+            } else if (authRequiredLineIds.contains(line.getId())) {
+                saved.add(adjudicationLines.save(deniedLine(claim, header, line, LineOutcome.AUTH_REQUIRED)));
             } else {
                 AdjudicationCalculator.LineComputation c = byLine.get(line.getLineNumber());
                 saved.add(adjudicationLines.save(new AdjudicationLine(
@@ -267,12 +290,35 @@ public class AdjudicationService {
         return saved;
     }
 
+    /**
+     * A non-paid line: the member owes the full charge, the plan pays 0, and no cost-sharing is consumed. Used for
+     * an excluded procedure (NOT_COVERED) and one needing (missing) prior authorization (AUTH_REQUIRED).
+     */
+    private AdjudicationLine deniedLine(Claim claim, Adjudication header, ClaimLine line, LineOutcome outcome) {
+        BigDecimal charge = money(line.getChargeAmount());
+        return new AdjudicationLine(
+                claim.getOrganizationId(), header.getId(), line.getId(), line.getLineNumber(),
+                line.getProcedureCodeSystem(), line.getProcedureCode(), outcome,
+                charge, money(BigDecimal.ZERO), money(BigDecimal.ZERO), money(BigDecimal.ZERO),
+                money(BigDecimal.ZERO), money(BigDecimal.ZERO), money(BigDecimal.ZERO), charge);
+    }
+
     /** The set of procedure keys the plan excludes, as {@code SYSTEM|CODE} (canonical, matching claim lines). */
     private Set<String> excludedCodeKeys(UUID organizationId, UUID coveragePlanId) {
         Set<String> keys = new HashSet<>();
         for (PlanExclusion exclusion : planExclusions
                 .findByOrganizationIdAndCoveragePlanIdOrderByCodeSystemAscCodeAsc(organizationId, coveragePlanId)) {
             keys.add(codeKey(exclusion.getCodeSystem(), exclusion.getCode()));
+        }
+        return keys;
+    }
+
+    /** The set of procedure keys the plan requires prior auth for, as {@code SYSTEM|CODE} (matching claim lines). */
+    private Set<String> priorAuthRequiredCodeKeys(UUID organizationId, UUID coveragePlanId) {
+        Set<String> keys = new HashSet<>();
+        for (PlanPriorAuthRequirement requirement : planPriorAuthRequirements
+                .findByOrganizationIdAndCoveragePlanIdOrderByCodeSystemAscCodeAsc(organizationId, coveragePlanId)) {
+            keys.add(codeKey(requirement.getCodeSystem(), requirement.getCode()));
         }
         return keys;
     }

@@ -47,10 +47,14 @@
   patient-gated `prior_authorization` aggregate (request a planned procedure be pre-approved under a coverage
   plan) with a pure `PriorAuthTransitions` state machine — REQUESTED → APPROVED/DENIED (reviewer, stamps the
   decision) / CANCELLED (requester), reason to deny/cancel — one-tx status + history, `GET/POST
-  /api/v1/prior-authorizations` + `PATCH .../{id}/status` + `.../{id}/history`, backend-only. **Next Phase-6
-  slices (not yet built, plan each first):** wire an APPROVED auth into adjudication (a claim line requiring
-  prior auth); a prior-auth **frontend**; then referrals, provider network, anomaly signals, manual review,
-  appeals, reprocessing.
+  /api/v1/prior-authorizations` + `PATCH .../{id}/status` + `.../{id}/history`, backend-only.
+  slice 2 ✅ — **prior auth wired into adjudication**: a `plan_prior_auth_requirement` per plan (ORG_ADMIN-managed,
+  `.../coverage-plans/{id}/prior-auth-requirements`); the engine marks a covered line **`AUTH_REQUIRED`** (member
+  owes the charge, no deductible/OOP consumed) when its procedure requires prior auth and no APPROVED
+  authorization covers the service date — approving a covering auth + re-adjudicating (slice 11) flips it to
+  COVERED. Backend-only. **Next Phase-6 slices (not yet built, plan each first):** a prior-auth **frontend**
+  (queue + request/approve + the AUTH_REQUIRED breakdown); then referrals, provider network, anomaly signals,
+  manual review, appeals, reprocessing.
 - **Tooling:** HealthCloud-specific **`code-reviewer`** + **`security-reviewer`** subagents now live in
   `.claude/agents/` (read-only; project-aware checklists — tenant isolation, `PatientAccessGuard`, consent/masking,
   one-tx history, financial accumulators). Invoke by name in a fresh session (agent files load at startup).
@@ -130,6 +134,46 @@
   then `curl -b j.txt localhost:8080/api/v1/me`. Reset DB with `./scripts/db-reset.sh`.
 
 ## Log (newest first)
+
+### 2026-09-15 — Phase 6, slice 2 ✅ (prior authorization wired into the adjudication engine — AUTH_REQUIRED)
+- **Why:** slice 1 gave a prior-auth lifecycle that was **inert** — approving/denying an auth affected nothing.
+  This makes it matter: a claim line for a procedure that **requires** prior auth is denied unless an APPROVED
+  authorization covers it — the actual "advanced claims" behavior and the §60 explainability payoff. Mirrors the
+  plan-exclusions slice (Phase 5 slice 4). **Backend-only.**
+- **The config (mirrors `plan_exclusion`):** a `plan_prior_auth_requirement` per `(coverage_plan, procedure)` —
+  "this procedure requires prior auth under this plan." `GET/POST /api/v1/coverage-plans/{planId}/prior-auth-requirements`,
+  `DELETE .../{id}`; reads same-tenant, **add/remove ORG_ADMIN**, duplicate 409, unknown/non-procedure code 400,
+  cross-tenant plan secure 404.
+- **The engine (`AdjudicationService`):** for a **covered** line whose procedure the covering plan requires prior
+  auth for, it calls the new `PriorAuthorizationRepository.existsApprovedCovering(org, patient, plan, system, code,
+  serviceDate)` — an APPROVED `prior_authorization` whose window covers the claim's service date. **Missing /
+  denied / wrong-date → the new `LineOutcome.AUTH_REQUIRED`**: allowed 0, plan pays 0, member owes the charge, and
+  (like an exclusion) it skips the cost-sharing math so it does not consume the deductible/OOP. The claim is still
+  `ADJUDICATED` (a mix of COVERED / NOT_COVERED / AUTH_REQUIRED lines). Exclusion takes precedence over an auth
+  requirement.
+- **Interplay with re-adjudication (slice 11):** approving a covering authorization and re-running
+  `POST .../adjudicate` writes a new version where the line flips to COVERED — a denied-for-auth line becomes
+  payable without editing the claim.
+- **Migrations:** `V26__plan_prior_auth_requirement.sql` (the config table, mirroring `V23__plan_exclusion`) +
+  `V27__adjudication_line_auth_required.sql` (extend the `adjudication_line.outcome` CHECK to add `AUTH_REQUIRED`).
+- **Seeder:** marks **99214** as requiring prior auth on the seeded PPO (deliberately NOT 99213/80053 — the
+  accumulator/fee-schedule tests assert exact amounts for those on the seeded PPO; lesson from slice 9).
+- **Files:** +`V26…`, +`V27…`, +`coverage/PlanPriorAuthRequirement{,Repository,Dto,Service,Controller}.java` +
+  `AddPriorAuthRequirementRequest.java` (6), +3 test classes; changed `adjudication/LineOutcome.java`,
+  `adjudication/AdjudicationService.java`, `priorauth/PriorAuthorizationRepository.java`
+  (`existsApprovedCovering`), `devdata/DevDataSeeder.java`, `CLAUDE.md`, `docs/PROGRESS.md`.
+- **Scope boundary (later slices):** the prior-auth **frontend**; NEEDS_INFO; auth quantity/units; auto-creating
+  an auth request from a denied line; then referrals / provider network / anomaly signals / appeals.
+- **Verified — automated:** `./mvnw -B clean verify` → **289 pass** (+10: `PlanPriorAuthRequirementRepositoryTest`
+  ×2; `PlanPriorAuthRequirementApiIntegrationTest` ×5 — add/list/remove, non-admin 403, dup 409, unknown 400,
+  cross-tenant 404; `AdjudicationPriorAuthApiIntegrationTest` ×3 — a required line with no auth is AUTH_REQUIRED
+  and doesn't touch the deductible (a second covered claim consumes the full $1,500 → plan $380); approving a
+  covering auth + re-adjudicating flips it to COVERED (v2); an auth outside the service window doesn't apply). The
+  accumulator/fee-schedule tests on the seeded PPO stay green (99214 requirement doesn't touch them).
+- **Verified — live** (fresh `db-reset` + backend, curl, seeded PPO requires 99214): created a $200 99214 claim →
+  submit → accept → adjudicate → **AUTH_REQUIRED** (member $200, plan $0); requested + **approved** a covering
+  99214 authorization; **re-adjudicated** → **v2 COVERED** (the line's $175 now runs through the deductible). The
+  seeded PPO's `prior-auth-requirements` listed 99214.
 
 ### 2026-09-15 — Phase 6, slice 1 ✅ (prior authorization — request intake + decision lifecycle)
 - **Why:** Phase 6 (advanced claims) begins. Of its seven areas (provider network, prior auth, referrals,

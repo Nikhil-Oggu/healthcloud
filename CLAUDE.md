@@ -78,7 +78,7 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   Checks: `npm run typecheck`, `npm test` (Vitest), `npm run build`. Node runs from `openjdk@25`'s
   sibling `node@24` — use `export PATH="/opt/homebrew/opt/node@24/bin:$PATH"` in non-interactive shells.
 
-## Current implementation (Phase 1–4 COMPLETE; Phase 5 COMPLETE — slices 1–12 done; MVP (Phase 0–5) feature-complete, engine AND UI. Phase 6 (advanced claims) IN PROGRESS — slice 1 done: prior authorization — see docs/PROGRESS.md for status)
+## Current implementation (Phase 1–4 COMPLETE; Phase 5 COMPLETE — slices 1–12 done; MVP (Phase 0–5) feature-complete, engine AND UI. Phase 6 (advanced claims) IN PROGRESS — slices 1–2 done: prior authorization + wired into adjudication — see docs/PROGRESS.md for status)
 - **Backend packages** under `com.healthcloud`: `organization` (Organization, Facility, FacilityMembership),
   `identity` (AppUser, Role, OrganizationMembership, UserRole), `auth` (SecurityConfig, DevLoginController,
   CurrentUserController/Service, CsrfCookieFilter), `context` (UserContext + UserContextAccessor/Filter),
@@ -222,7 +222,12 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   procedure): `GET/POST /api/v1/coverage-plans/{planId}/fee-schedule`, `DELETE .../fee-schedule/{id}`; same shape
   as `plan_exclusion` (tenant-owned plan config, procedure FKs the catalog, reads same-tenant, **add/remove
   ORG_ADMIN**, duplicate 409, unknown code 400) plus an `allowed_amount`. The engine reads these to set
-  `allowed = min(charge, fee-schedule amount)` for a priced covered line, else `allowed = charge`),
+  `allowed = min(charge, fee-schedule amount)` for a priced covered line, else `allowed = charge`.
+  **Also `plan_prior_auth_requirement`** (Phase 6 slice 2 — procedure codes that REQUIRE prior authorization under
+  a plan): `GET/POST /api/v1/coverage-plans/{planId}/prior-auth-requirements`, `DELETE .../{id}`; identical shape
+  to `plan_exclusion` (tenant-owned plan config, procedure FKs the catalog, reads same-tenant, **add/remove
+  ORG_ADMIN**, duplicate 409, unknown code 400). The engine reads these to mark a covered line `AUTH_REQUIRED`
+  when no APPROVED `prior_authorization` covers the service date),
   `adjudication` (Phase 5 — the basic synthetic claims-adjudication engine: `POST /api/v1/claims/{id}/adjudicate`
   + `GET /api/v1/claims/{id}/adjudication`. It turns an **ACCEPTED** claim into a deterministic, explainable
   `adjudication` (header + `adjudication_line` breakdown): it finds the coverage in effect on the claim's
@@ -255,7 +260,12 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   allowed amounts are applied** (slice 9): a covered line whose procedure the covering plan prices
   (`plan_fee_schedule`) is allowed `min(charge, fee-schedule amount)` instead of the full charge — the difference
   is a provider write-off no one pays — and everything downstream (copay/deductible/coinsurance/OOP/split) keys off
-  that allowed; an unpriced procedure falls back to `allowed = charge`. **Re-adjudication is versioned** (slice 11):
+  that allowed; an unpriced procedure falls back to `allowed = charge`. **Prior authorization is enforced**
+  (Phase 6 slice 2): a covered line whose procedure the covering plan requires prior auth for
+  (`plan_prior_auth_requirement`), with no APPROVED `prior_authorization` whose window covers the service date, is
+  the new `LineOutcome.AUTH_REQUIRED` — allowed 0, plan pays 0, member owes the charge — and, like an exclusion, it
+  skips cost-sharing (no deductible/OOP consumption); exclusion takes precedence over an auth requirement. Approving
+  a covering authorization and re-adjudicating (slice 11) flips the line to COVERED. **Re-adjudication is versioned** (slice 11):
   the same `POST .../adjudicate` re-runs on an already-ADJUDICATED claim, writing a **new immutable version**
   (v = prior max + 1) while every prior version is retained and the claim stays ADJUDICATED; the engine first
   **backs out the prior version's benefit-accumulator contribution** (read from that version's own line snapshot,
@@ -282,9 +292,11 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   APPROVED/DENIED/CANCELLED terminal, reason required to deny/cancel. Same check order as the claim machine
   (exists → legal move → role → reason → optimistic `expectedVersion`), status change + a
   `prior_authorization_status_history` row in one tx (§31.6, null → REQUESTED on creation). Requesting validates
-  the procedure (unknown/non-procedure → 400) and the plan (not in-tenant → 400). **Honest MVP limitation:**
-  slice 1 does not yet wire an APPROVED auth into adjudication (a claim line that requires prior auth) — a later
-  Phase-6 slice; also no NEEDS_INFO step, multi-procedure lines, or expiry enforcement. Backend-only (a UI
+  the procedure (unknown/non-procedure → 400) and the plan (not in-tenant → 400). **Wired into adjudication**
+  (slice 2): `existsApprovedCovering(org, patient, plan, system, code, serviceDate)` is the hook the engine calls
+  — a covered claim line whose procedure the plan requires prior auth for (see `plan_prior_auth_requirement`),
+  with no APPROVED authorization whose window covers the claim's service date, adjudicates `AUTH_REQUIRED`.
+  **Honest MVP limitation:** no NEEDS_INFO step, multi-procedure lines, or expiry enforcement; backend-only (a UI
   arrives in a later slice)),
   `devdata` (DevDataSeeder, local-only — also seeds the global `medical_code` catalog once, then a couple of
   synthetic `clinical_summary` rows per assigned patient, one sample DRAFT `claim` (header + two procedure
@@ -292,7 +304,10 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   + an HDHP), enrolls the first patient in the PPO (`patient_eligibility`, open-ended), and prices 80053 on the
   PPO (`plan_fee_schedule`, allowed $40 < the seeded $45.50 charge) so a demo adjudication shows a write-off,
   and requests one sample REQUESTED `prior_authorization` (99213 under the PPO, + its null→REQUESTED
-  status-history row) for the first patient so a demo prior-auth queue returns something; reference codes are
+  status-history row) for the first patient so a demo prior-auth queue returns something, and marks 99214 as
+  requiring prior auth on the PPO (`plan_prior_auth_requirement`) so a demo 99214 claim adjudicates AUTH_REQUIRED
+  until approved — deliberately NOT 99213/80053, which the accumulator/fee-schedule tests assert exact amounts for
+  on the seeded PPO; reference codes are
   seeded before the orgs so the clinical-summary/claim→catalog FKs are satisfied).
 - **Tenant-owned entity pattern (Phase 2+):** hold `organizationId` as the tenant key; repositories expose
   only org-scoped finders (`findByIdAndOrganizationId`, `findByOrganizationId…`) — no bare `findById` in
