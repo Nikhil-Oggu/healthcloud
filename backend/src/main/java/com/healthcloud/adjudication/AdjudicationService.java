@@ -21,6 +21,9 @@ import com.healthcloud.coverage.PlanFeeScheduleRepository;
 import com.healthcloud.coverage.PlanNetworkProviderRepository;
 import com.healthcloud.coverage.PlanPriorAuthRequirement;
 import com.healthcloud.coverage.PlanPriorAuthRequirementRepository;
+import com.healthcloud.audit.AuditAction;
+import com.healthcloud.audit.AuditOutcome;
+import com.healthcloud.audit.AuditService;
 import com.healthcloud.error.CorrelationId;
 import com.healthcloud.error.InvalidStateTransitionException;
 import com.healthcloud.error.NotFoundException;
@@ -74,6 +77,7 @@ public class AdjudicationService {
     private final PriorAuthorizationRepository priorAuths;
     private final PatientAccessGuard accessGuard;
     private final UserContextAccessor userContext;
+    private final AuditService audit;
 
     public AdjudicationService(ClaimRepository claims, ClaimLineRepository claimLines,
                                ClaimStatusHistoryRepository claimStatusHistory,
@@ -84,7 +88,8 @@ public class AdjudicationService {
                                PlanPriorAuthRequirementRepository planPriorAuthRequirements,
                                PlanNetworkProviderRepository planNetwork,
                                PriorAuthorizationRepository priorAuths,
-                               PatientAccessGuard accessGuard, UserContextAccessor userContext) {
+                               PatientAccessGuard accessGuard, UserContextAccessor userContext,
+                               AuditService audit) {
         this.claims = claims;
         this.claimLines = claimLines;
         this.claimStatusHistory = claimStatusHistory;
@@ -100,6 +105,7 @@ public class AdjudicationService {
         this.priorAuths = priorAuths;
         this.accessGuard = accessGuard;
         this.userContext = userContext;
+        this.audit = audit;
     }
 
     /**
@@ -241,6 +247,13 @@ public class AdjudicationService {
                     "Adjudicated by the adjudication engine (" + savedHeader.getOutcome() + ")",
                     CorrelationId.current()));
         }
+
+        // §31.6 / §Phase 7: record the money decision in this same transaction — the audit row commits with the
+        // adjudication (or both roll back). PHI-free detail: the claim number, the version, and the outcome.
+        audit.record(AuditAction.CLAIM_ADJUDICATED, AuditService.RESOURCE_CLAIM, claim.getId(),
+                AuditOutcome.SUCCESS,
+                "Claim " + claim.getClaimNumber() + " adjudicated v" + savedHeader.getAdjudicationVersion()
+                        + " (" + savedHeader.getOutcome() + ")");
 
         return AdjudicationDto.from(savedHeader, planName(organizationId, savedHeader.getCoveragePlanId()),
                 savedLines);

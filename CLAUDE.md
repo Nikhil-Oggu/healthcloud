@@ -78,7 +78,7 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   Checks: `npm run typecheck`, `npm test` (Vitest), `npm run build`. Node runs from `openjdk@25`'s
   sibling `node@24` — use `export PATH="/opt/homebrew/opt/node@24/bin:$PATH"` in non-interactive shells.
 
-## Current implementation (Phase 1–4 COMPLETE; Phase 5 COMPLETE — slices 1–12 done; MVP (Phase 0–5) feature-complete, engine AND UI. Phase 6 (advanced claims) COMPLETE ✅ — slices 1–21 done: prior authorization, wired into adjudication, + prior-auth UI (queue/detail/decisions + request form) + plan-prior-auth-requirement admin card, + referrals (backend: care-coordination aggregate + decision lifecycle; + UI: queue/detail/decisions + request form), + appeals (backend: dispute a claim's decision + resolution lifecycle; + UI: queue/detail/decisions + submit form; + overturn wired into re-adjudication), + claim anomaly signals (backend: a deterministic detector + reviewer scan; + UI: Anomalies card + Scan button on the claim detail page), + claim manual review (backend: open/resolve/cancel a review case on a claim; + UI: queue/detail/decisions + open form), + reprocessing (backend: batch re-adjudication of a coverage plan's claims after a config change; + UI: batch queue/detail + Run form), + provider network (backend: plan network config + a rendering provider on the claim + the engine marks a covered line OUT_OF_NETWORK when its rendering provider is outside the covering plan's network; + UI: plan network admin card + the OUT_OF_NETWORK line chip + the rendering-provider picker on claim create, backed by a GET /api/v1/providers directory read) — this completes Phase 6's advanced-claims areas; see docs/PROGRESS.md for status)
+## Current implementation (Phase 1–4 COMPLETE; Phase 5 COMPLETE — slices 1–12 done; MVP (Phase 0–5) feature-complete, engine AND UI. Phase 6 (advanced claims) COMPLETE ✅ — slices 1–21 done: prior authorization, wired into adjudication, + prior-auth UI (queue/detail/decisions + request form) + plan-prior-auth-requirement admin card, + referrals (backend: care-coordination aggregate + decision lifecycle; + UI: queue/detail/decisions + request form), + appeals (backend: dispute a claim's decision + resolution lifecycle; + UI: queue/detail/decisions + submit form; + overturn wired into re-adjudication), + claim anomaly signals (backend: a deterministic detector + reviewer scan; + UI: Anomalies card + Scan button on the claim detail page), + claim manual review (backend: open/resolve/cancel a review case on a claim; + UI: queue/detail/decisions + open form), + reprocessing (backend: batch re-adjudication of a coverage plan's claims after a config change; + UI: batch queue/detail + Run form), + provider network (backend: plan network config + a rendering provider on the claim + the engine marks a covered line OUT_OF_NETWORK when its rendering provider is outside the covering plan's network; + UI: plan network admin card + the OUT_OF_NETWORK line chip + the rendering-provider picker on claim create, backed by a GET /api/v1/providers directory read) — this completes Phase 6's advanced-claims areas. **Phase 7 (advanced security/governance) IN PROGRESS 🚧** — slice 1 done: the **security audit event log** (a tenant-owned, append-only, immutable `audit_event` + `AuditService.record(...)` written inside the domain action's own transaction, wired into adjudication + consent revoke; a role-gated read `GET /api/v1/audit-events` for AUDITOR/ORG_ADMIN); next is making it tamper-evident (per-org HMAC chain), then break-glass, access reviews, retention; see docs/PROGRESS.md for status)
 - **Backend packages** under `com.healthcloud`: `organization` (Organization, Facility, FacilityMembership),
   `identity` (AppUser, Role, OrganizationMembership, UserRole; plus the **provider directory** read
   `GET /api/v1/providers` — `ProviderController`/`ProviderDirectoryService` list the caller's tenant's active
@@ -437,6 +437,25 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   Idempotency-Key (each POST is an intentional new batch); each claim is reversed/recomputed independently (the
   slice-11 limitation carries over). The reprocessing UI (batch queue/detail + Run form) shipped in slice 16 (see
   `src/reprocessing/` under Frontend below)),
+  `audit` (Phase 7 slice 1 — the **security audit event log**, the audit-trail foundation for advanced
+  security/governance. `GET /api/v1/audit-events` (the tenant's events newest-first, or one resource's history via
+  `?resourceType=&resourceId=`) — thin `AuditController`, gated to **AUDITOR/ORG_ADMIN** (a **role-gated list** → a
+  disallowed role is a flat **403**, not a secure 404; this is the long-seeded, previously-unused AUDITOR role's first
+  job). An `audit_event` row is tenant-owned via `organizationId`, **append-only and immutable** (like
+  `claim_anomaly_signal` — no `@Version`, no UPDATE/DELETE path) and carries only PHI-free metadata — a coded
+  `action` (`AuditAction`: CLAIM_ADJUDICATED, CONSENT_REVOKED so far), `resourceType`/`resourceId`, an `outcome`
+  (`AuditOutcome` SUCCESS/DENIED), the request `correlationId`, and a short non-sensitive `detail` — never a clinical
+  narrative or patient identifier (rule 5), so it is **not consent field-masked**. The core is **`AuditService`**:
+  `record(action, resourceType, resourceId, outcome, detail)` is called **from inside a domain service's own
+  `@Transactional` method**, so the audit row joins that transaction (§31.6) and commits atomically with the change
+  it records — or both roll back; it is deliberately **not** `@Transactional` itself (it must join the caller's tx,
+  not open its own), and derives tenant + actor from the backend `UserContext` (never the client) and the id from
+  `CorrelationId`. This finally realizes the "audit event" the §31.6 one-tx pattern has described aspirationally.
+  Wired into two exemplar actions so far — `AdjudicationService.adjudicate` (a money decision) and
+  `ConsentDirectiveService.revoke` (a privacy decision); remaining actions get audit events as the log matures in
+  later slices. **Honest limitation:** the trail is **not yet tamper-evident** — the per-org HMAC hash chain +
+  `verify` endpoint is Phase 7 slice 2; break-glass, access reviews and retention follow. No frontend yet (the
+  auditor-facing log UI is a later slice)),
   `devdata` (DevDataSeeder, local-only — also seeds the global `medical_code` catalog once, then a couple of
   synthetic `clinical_summary` rows per assigned patient, one sample DRAFT `claim` (header + two procedure
   lines + its null→DRAFT status-history row) for the first patient, and two `coverage_plan` rows per org (a PPO
@@ -454,7 +473,8 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   something a reviewer can resolve; reference codes are seeded before the orgs so the
   clinical-summary/claim/referral→catalog FKs are satisfied. **A second PROVIDER per org** (`provider2@`, "Morgan
   Provider", unassigned) plus the **PPO's network = {Dana}** (`plan_network_provider`, Phase 6 slice 19) so a claim
-  rendered by Morgan on the PPO adjudicates OUT_OF_NETWORK — the seeded/null-provider claims are unaffected).
+  rendered by Morgan on the PPO adjudicates OUT_OF_NETWORK — the seeded/null-provider claims are unaffected. Plus an
+  **AUDITOR** login per org (`auditor@`, "Avery Auditor", Phase 7 slice 1) so the audit-trail read is demoable).
 - **Tenant-owned entity pattern (Phase 2+):** hold `organizationId` as the tenant key; repositories expose
   only org-scoped finders (`findByIdAndOrganizationId`, `findByOrganizationId…`) — no bare `findById` in
   business code; services derive the org from `UserContextAccessor.requireOrganizationId()`. `patient` is

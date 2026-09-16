@@ -1,5 +1,8 @@
 package com.healthcloud.consent;
 
+import com.healthcloud.audit.AuditAction;
+import com.healthcloud.audit.AuditOutcome;
+import com.healthcloud.audit.AuditService;
 import com.healthcloud.context.UserContext;
 import com.healthcloud.context.UserContextAccessor;
 import com.healthcloud.error.ApiException;
@@ -44,12 +47,15 @@ public class ConsentDirectiveService {
     private final ConsentDirectiveRepository directives;
     private final PatientAccessGuard accessGuard;
     private final UserContextAccessor userContext;
+    private final AuditService audit;
 
     public ConsentDirectiveService(ConsentDirectiveRepository directives,
-                                   PatientAccessGuard accessGuard, UserContextAccessor userContext) {
+                                   PatientAccessGuard accessGuard, UserContextAccessor userContext,
+                                   AuditService audit) {
         this.directives = directives;
         this.accessGuard = accessGuard;
         this.userContext = userContext;
+        this.audit = audit;
     }
 
     /**
@@ -129,7 +135,15 @@ public class ConsentDirectiveService {
         }
 
         directive.revoke();
-        return ConsentDirectiveDto.from(directives.saveAndFlush(directive));
+        ConsentDirective revoked = directives.saveAndFlush(directive);
+
+        // §22.6 / §Phase 7: record the privacy decision in this same transaction. PHI-free detail: which
+        // purpose + data category was revoked (consent metadata, not patient data) — no patient identifier.
+        audit.record(AuditAction.CONSENT_REVOKED, AuditService.RESOURCE_CONSENT_DIRECTIVE, revoked.getId(),
+                AuditOutcome.SUCCESS,
+                "Consent directive revoked (" + revoked.getPurpose() + " / " + revoked.getDataCategory() + ")");
+
+        return ConsentDirectiveDto.from(revoked);
     }
 
     /** The single current directive matching a natural key, if any (the unique index guarantees ≤ 1). */

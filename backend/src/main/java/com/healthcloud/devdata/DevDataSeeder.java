@@ -250,6 +250,8 @@ public class DevDataSeeder implements ApplicationRunner {
         createMember(org, facility, "reviewer",    "Riley Reviewer",    "CLAIMS_REVIEWER",  emailDomain, false);
         AppUser admin =
                 createMember(org, facility, "admin",       "Alex Admin",        "ORG_ADMIN",        emailDomain, false);
+        // An AUDITOR (read-only access to the security audit trail, §Phase 7) so the audit-events API is demoable.
+        createMember(org, facility, "auditor",     "Avery Auditor",     "AUDITOR",          emailDomain, false);
 
         List<Patient> patients = seedPatients(org, mrnPrefix);
 

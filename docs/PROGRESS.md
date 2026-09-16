@@ -43,6 +43,12 @@
   16 ✅ documents UI — a Documents card on the patient detail page: upload, list with scan-status chips, and
   download of CLEAN files; the §19 loop is now visible end-to-end in the browser)**
 - **Repo:** https://github.com/Nikhil-Oggu/healthcloud (private, branch `main`)
+- **Phase 7 IN PROGRESS 🚧 (advanced security/governance):** slice 1 ✅ — **security audit event log** (the
+  audit-trail foundation): a tenant-owned, append-only, immutable `audit_event` + `AuditService.record(...)` written
+  inside the domain action's own transaction (§31.6), wired into adjudication (`CLAIM_ADJUDICATED`) + consent revoke
+  (`CONSENT_REVOKED`); a role-gated read `GET /api/v1/audit-events` (AUDITOR/ORG_ADMIN); the long-unused AUDITOR role
+  gets its first job. Next: slice 2 makes it **tamper-evident** (per-org HMAC hash chain + verify). Then break-glass,
+  access reviews, retention.
 - **Phase 6 COMPLETE ✅ (advanced claims, slices 1–21):** all seven roadmap areas done — prior auth, referrals,
   appeals, anomaly signals, manual review, reprocessing, provider network. slice 1 ✅ — **prior authorization**: a top-level,
   patient-gated `prior_authorization` aggregate (request a planned procedure be pre-approved under a coverage
@@ -252,6 +258,41 @@
   then `curl -b j.txt localhost:8080/api/v1/me`. Reset DB with `./scripts/db-reset.sh`.
 
 ## Log (newest first)
+
+### 2026-09-16 — Phase 7, slice 1 ✅ (security audit event log — the audit-trail foundation, backend)
+- **Why:** Phase 7 is advanced security/governance. Its headline features — a **tamper-evident per-org HMAC audit
+  chain**, **break-glass** emergency access, access reviews, retention — all hang off one thing we did not have yet:
+  a **security audit trail**. The "audit event" named in CLAUDE.md's one-transaction pattern
+  (`domain change + history + audit event + outbox`) had been *aspirational* — we wrote status-history rows but never
+  a general-purpose audit log. This slice builds that foundation. (Bonus: the **AUDITOR** role, seeded back in V2 and
+  unused ever since, finally gets a job.)
+- **Migration `V36__audit_event.sql`:** a tenant-owned, **append-only, immutable** `audit_event` — `organization_id`
+  (tenant key), `occurred_at`, nullable `actor_user_id`, `action`, `resource_type`/`resource_id`, `outcome`
+  (SUCCESS/DENIED), `correlation_id`, PHI-free `detail`. No version column, no UPDATE/DELETE path. Indexes on
+  `(organization_id, occurred_at DESC)` and `(organization_id, resource_type, resource_id)`.
+- **New `com.healthcloud.audit` package:** `AuditEvent` entity (immutable, like `claim_anomaly_signal`),
+  `AuditAction` + `AuditOutcome` enums, org-scoped `AuditEventRepository` (capped `findTop200…`), `AuditEventDto`,
+  and **`AuditService`** with two jobs: `record(...)` — writes an event **inside the caller's transaction** (§31.6),
+  deriving tenant + actor from the backend `UserContext` and the correlation id from `CorrelationId` (deliberately
+  *not* `@Transactional` so it joins the domain tx, commits atomically, or both roll back) — and `list(...)`, the
+  read, gated to **AUDITOR/ORG_ADMIN**.
+- **Read API `GET /api/v1/audit-events`** (thin `AuditController`): the tenant's events newest-first, or one
+  resource's history via `?resourceType=&resourceId=`. A **role-gated list** → a disallowed role is a flat **403**
+  (not a secure 404).
+- **Wired into 2 exemplar actions** (proving the mechanism generalizes across domains): `AdjudicationService.adjudicate`
+  → `CLAIM_ADJUDICATED` (money) and `ConsentDirectiveService.revoke` → `CONSENT_REVOKED` (privacy), each recorded in
+  the action's existing transaction. Remaining actions get audit events in later slices — slice 1 establishes the
+  pattern, not exhaustive coverage.
+- **Seed:** an `auditor@<org>` login ("Avery Auditor", AUDITOR) so the endpoint is demoable (seeded members per org
+  6 → 7).
+- **Verify:** backend `./mvnw -B clean verify` green (**394** tests; new `AuditApiIntegrationTest`, 10 cases —
+  requires-auth 401, adjudication writes exactly one `CLAIM_ADJUDICATED` in the same tx with a correlation id +
+  PHI-free detail, re-adjudication appends a 2nd event, consent-revoke writes `CONSENT_REVOKED`, AUDITOR/ORG_ADMIN
+  200, reviewer/provider/patient 403, tenant-scoped isolation; updated `DevDataSeederTest` member count 6 → 7).
+- **Deferred (the Phase 7 arc):** slice 2 = **tamper-evident** — add `prev_hash`/`entry_hash` + a per-org HMAC
+  signing key + a `verify` endpoint (the flagship); slice 3 = the auditor-facing **UI**; later = break-glass, access
+  reviews, retention.
+- **Next:** Phase 7, slice 2 — make the trail tamper-evident (per-org HMAC hash chain + verification).
 
 ### 2026-09-16 — Phase 6, slice 21 ✅ (rendering-provider picker on claim create — GET /api/v1/providers + form field)
 - **Why:** the last piece of provider network. The backend already accepted a `renderingProviderId` on claim
