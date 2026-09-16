@@ -7,3 +7,8 @@ healthcloud:
   outbox:
     relay:
       enabled: false
+  kafka:
+    consumers:
+      # Keep the @KafkaListener read-side consumers stopped in the broker-free suite; the consumer integration
+      # test re-enables them (@SpringBootTest properties) against a Testcontainers broker.
+      enabled: false

@@ -91,7 +91,16 @@
   `SELECT … FOR UPDATE SKIP LOCKED`); retry/backoff + DLQ + replay are later slices. Verified end-to-end against a
   real Testcontainers broker (`OutboxRelayKafkaIntegrationTest`: adjudicate → relay publishes → message lands on
   `claim.adjudicated` → row marked published); the general test suite stays broker-free via a test-only
-  `application-local.yml` that disables the scheduler. **Next:** consumer(s) + idempotency, then retry/DLQ.
+  `application-local.yml` that disables the scheduler. slice 3 ✅ — **a Kafka consumer + idempotency** (the read
+  side): a `@KafkaListener` on `claim.adjudicated` (`com.healthcloud.notification.ClaimAdjudicatedConsumer`) that
+  builds a PHI-free **notification** feed (`claim_adjudication_notification`, V41) purely from the event (payload +
+  headers), never re-reading the claim. **Idempotent** for the relay's at-least-once delivery: it skips an event it
+  has already recorded (`existsByEventId`) and the `UNIQUE(event_id)` constraint is the backstop for a race
+  (`DataIntegrityViolationException` caught → treated as processed). Listeners auto-start only when
+  `healthcloud.kafka.consumers.enabled` is true (the broker-free suite leaves it off). Verified against a real
+  Testcontainers broker (`ClaimAdjudicatedConsumerKafkaIntegrationTest`: an event → one notification; the same
+  event twice → still one). **Honest limitation:** a processing error uses Spring Kafka's default handling — a
+  retry/backoff + dead-letter topic is the next slice. **Next:** retry/backoff + DLQ, then replay.
 - **Phase 6 COMPLETE ✅ (advanced claims, slices 1–21):** all seven roadmap areas done — prior auth, referrals,
   appeals, anomaly signals, manual review, reprocessing, provider network. slice 1 ✅ — **prior authorization**: a top-level,
   patient-gated `prior_authorization` aggregate (request a planned procedure be pre-approved under a coverage

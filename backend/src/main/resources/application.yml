@@ -33,6 +33,12 @@ spring:
     producer:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
       value-serializer: org.apache.kafka.common.serialization.StringSerializer
+    consumer:
+      # The read side (§Phase 8 slice 3). String payloads; a fresh consumer group reads from the beginning so a
+      # newly-deployed consumer still sees earlier events. Listeners start only when the flag below is true.
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      auto-offset-reset: earliest
 
 server:
   port: 8080
@@ -74,6 +80,12 @@ healthcloud:
       poll-interval-ms: ${HEALTHCLOUD_OUTBOX_RELAY_POLL_INTERVAL_MS:2000}
       batch-size: ${HEALTHCLOUD_OUTBOX_RELAY_BATCH_SIZE:100}
       send-timeout-ms: ${HEALTHCLOUD_OUTBOX_RELAY_SEND_TIMEOUT_MS:5000}
+  kafka:
+    consumers:
+      # Whether the @KafkaListener read-side consumers auto-start (§Phase 8 slice 3). Enabled for local dev + prod;
+      # the broker-free test suite disables it (src/test/resources/application-local.yml) and the consumer test
+      # re-enables it against a Testcontainers broker.
+      enabled: ${HEALTHCLOUD_KAFKA_CONSUMERS_ENABLED:true}
 
 logging:
   pattern:
