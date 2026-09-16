@@ -1512,3 +1512,280 @@ partition (a line requiring prior auth without an approved authorization becomes
 and possibly the calculator's inputs, while the calculator stays a pure function of its inputs. Prior auth itself
 is a separate aggregate (a Phase 6 concern) the engine would *read*, exactly as it reads eligibility, exclusions,
 and the fee schedule today.
+
+---
+
+## Phase 6 — Advanced Claims (slices 1–21) — 2026-09-16
+
+> Backfill note: Phase 6 was built across several working sessions; this section documents the whole phase
+> (prior authorization, referrals, appeals, anomaly signals, manual review, reprocessing, and provider network)
+> from the code, migrations (`V25`–`V35`), and `docs/PROGRESS.md`. **Phase 6 is COMPLETE (slices 1–21).**
+
+### What we built
+
+Phase 6 adds the "advanced claims" surface on top of the Phase 5 adjudication engine. It is deliberately **more
+of the same patterns, applied seven times**, so the value is in seeing one shape generalize — not in new
+machinery. The seven areas:
+
+- **Prior authorization** (slices 1–5) — pre-approve a *planned* procedure under a plan before it's rendered.
+  New aggregate + the **3rd state machine**; wired into the engine so a covered line needing auth becomes
+  `AUTH_REQUIRED`; UI queue/detail/decisions + request form + a plan admin card for which procedures require auth.
+- **Referrals** (slices 6–7) — request a patient be seen by a specialty for a coded reason. **4th state machine**,
+  decided by **CARE_COORDINATOR** (not the reviewer) — proving the pattern generalizes across roles.
+- **Appeals** (slices 8–10) — dispute a *claim's* decision. **5th state machine**; a reason on **every**
+  transition; an **OVERTURNED** appeal re-runs the engine in the **same transaction** as the overturn.
+- **Claim anomaly signals** (slices 11–12) — an advisory fraud/waste/abuse scan. A new **detector** shape (emits
+  findings, doesn't gate a transition); two deterministic heuristics; an Anomalies card + Scan button.
+- **Claim manual review** (slices 13–14) — a review *case* a coordinator/reviewer opens and a reviewer resolves.
+  **6th state machine**; at most one OPEN review per claim.
+- **Reprocessing** (slices 15–16) — batch re-adjudicate a plan's claims after a config change. A **job record,
+  not a state machine**, with a deliberate departure from the one-transaction rule.
+- **Provider network** (slices 17–21) — a plan's in-network providers + a rendering provider on the claim + the
+  engine marking `OUT_OF_NETWORK` + the full UI (admin card, chip, picker, directory read). Built as five small
+  slices (config → claim field → engine → UI part 1 → picker) to keep each single-concern.
+
+### How it works
+
+**The state-machine pattern, generalized (prior auth, referral, appeal, claim review).**
+Each of these is a top-level aggregate **gated by its patient** (like `claim`): every read routes through
+`PatientAccessGuard` and the list scopes via `accessiblePatientIdsIfGated`, so a provider sees only assigned
+patients' rows while a broad role (coordinator/admin/reviewer) sees the tenant's as a work queue; another tenant's
+row is a secure 404. Each carries **only coded/claims-domain data** (no clinical narrative), so **none are consent
+field-masked**. Each has a server-allocated human number (`PA-`/`REF-`/`APL-`/`MRV-XXXXXXXX`, unique per tenant),
+and each has a **pure transition-policy class** — `PriorAuthTransitions`, `ReferralTransitions`,
+`AppealTransitions`, `ClaimReviewTransitions` (the 3rd–6th machines after `RequestTransitions`/`ClaimTransitions`).
+The service always checks in the same order: **exists → legal move → role → reason → optimistic `expectedVersion`**,
+then writes the status change **and** a `*_status_history` row in one `@Transactional` (`null → initial` on
+creation). The per-domain *variations* are the teaching points:
+
+- **Who decides** differs on purpose: prior auth & appeal → `CLAIMS_REVIEWER`; referral → `CARE_COORDINATOR`
+  (routing is coordination's call); manual review resolve → `CLAIMS_REVIEWER`, cancel → the opener roles.
+- **When a reason is required** differs: claims/prior-auth/referral require a reason only to reject/deny/cancel;
+  **appeal and claim review require a reason on _every_ transition** (an outcome or withdrawal always needs a
+  rationale).
+- **Entry preconditions** differ: an appeal's *submit* loads the claim, checks it is **appealable**
+  (`ADJUDICATED`/`REJECTED` → else 400) and has **no open appeal** (→ 409); a manual review enforces **at most one
+  OPEN review per claim** via a partial unique index `WHERE status='OPEN'`.
+
+**Wiring prior auth into the engine (slice 2).** `plan_prior_auth_requirement` (migration `V26`, a near-twin of
+`plan_exclusion`) lists procedures a plan requires auth for. The engine gained a new `LineOutcome.AUTH_REQUIRED`
+(migration `V27` extends the `adjudication_line.outcome` CHECK). In the covered branch, a line whose procedure the
+plan requires auth for — with **no APPROVED `prior_authorization` whose window covers the service date**
+(`existsApprovedCovering(...)` is the hook) — becomes `AUTH_REQUIRED`: allowed 0, plan pays 0, member owes the
+charge, and like an exclusion it **skips cost-sharing** (no deductible/OOP consumption). Approving a covering auth
+and re-adjudicating flips it to COVERED.
+
+**Overturn → re-adjudication in one transaction (slice 10).** When an appeal on an **ADJUDICATED** claim is
+OVERTURNED, `AppealService` calls `AdjudicationService.adjudicate(claimId)` in the **same transaction** as the
+overturn, appending a new immutable adjudication version under current coverage/config. The two commit or roll
+back together. It works with no bean cycle because `AppealService` depends on `AdjudicationService` (one
+direction), and the overturning caller is a `CLAIMS_REVIEWER`/`ORG_ADMIN` — exactly the roles the engine command
+requires. Honest limitation: a **REJECTED** claim's overturn records the outcome only (REJECTED is terminal on the
+claim machine; re-opening it is a later slice).
+
+**The detector shape (anomaly, slice 11).** Anomaly detection is a *new* kind of pure policy: `ClaimAnomalyDetector`
+**emits a list of `DetectedSignal`s** rather than gating a transition. Two deterministic, explainable heuristics:
+`DUPLICATE_CLAIM` (HIGH — another claim for the same patient shares this service date and ≥1 procedure code) and
+`HIGH_TOTAL_CHARGE` (MEDIUM — the backend-computed total exceeds a configurable threshold, default $5000, a
+synthetic demo heuristic, **not** a measured fraud model). `ClaimAnomalyService` loads the surrounding facts and
+applies the detector; rows (`claim_anomaly_signal`, migration `V30`) are immutable and PHI-free. A **rescan
+replaces** the claim's signals (delete + insert in one tx), so scanning is idempotent. Detection is **purely
+additive** — it never touches claim status or the adjudication math.
+
+**The job-record shape (reprocessing, slice 15).** Reprocessing is **not** a state machine and **not** a decision
+aggregate — it's a *job*. A `reprocessing_batch` (migration `V32`, scope = one `coveragePlan`, `RPB-XXXXXXXX`,
+status + counts) owns one immutable `reprocessing_item` per claim (SUCCEEDED + new version / FAILED + PHI-free
+message). It **orchestrates only** — it reuses the unchanged slice-11 re-adjudication path, changing no math. The
+key engineering decision is a **deliberate departure from the one-transaction rule**: `createAndRun` is
+`@Transactional(propagation = NOT_SUPPORTED)`, so it runs with **no surrounding transaction** and each
+`adjudicate(claimId)` (a separate bean's `@Transactional` method) commits or rolls back on its own — one claim's
+failure is caught and recorded as a FAILED item, never rolling back the batch or the other claims. Scope selection
+uses `AdjudicationRepository.findDistinctClaimIdsByCoveragePlan` plus a "current adjudication is on this plan"
+filter.
+
+**Provider network, the five-slice arc (17–21).** This is the clearest example of *decomposing a feature into
+single-concern slices*:
+
+1. **Config (17):** `plan_network_provider` (migration `V33`) — the PROVIDERs in a plan's network. Same
+   tenant-owned plan-config shape as `plan_prior_auth_requirement`, but the participant is a **provider
+   (`app_user`)**, not a catalog code. Because `app_user` isn't tenant-keyed there's **no FK-with-org** on the
+   provider — the service validates it is an **active same-tenant PROVIDER** via the identity repos (else 400, no
+   existence leak), exactly as the assignment tables do.
+2. **Claim field (18):** `claim.rendering_provider_id` (migration `V34`) — an optional header-level provider who
+   rendered the service, validated the same way. Added a **delegating constructor** so existing callers compiled
+   unchanged.
+3. **Engine (19):** a new `LineOutcome.OUT_OF_NETWORK` (migration `V35`). When the covering plan **defines a
+   network** and the claim's rendering provider is present but not in it, every non-excluded line becomes
+   `OUT_OF_NETWORK` (allowed 0, plan pays 0, member owes, no cost-sharing). It is a **claim-level** determination
+   (one header rendering provider). **Precedence: exclusion > out-of-network > auth requirement > covered.** A
+   **null rendering provider** or a plan with **no network rows** imposes no penalty — so it's opt-in and
+   backward-compatible (existing/null-provider claims are unaffected).
+4. **UI part 1 (20):** the `OUT_OF_NETWORK` line chip (error) on the adjudication card + a Network providers admin
+   card on the coverage-plan detail page.
+5. **Picker + directory read (21):** a new read `GET /api/v1/providers`
+   (`ProviderController`/`ProviderDirectoryService`/`ProviderDto{userId, fullName}`, in the `identity` package),
+   gated to the **claim-create roles** so a PATIENT/CLAIMS_REVIEWER can't enumerate staff. The New-claim form got
+   an optional Rendering-provider select; the claim detail header shows "rendered by \<name\>". No migration — a
+   read over existing tables.
+
+### Key points to remember
+
+- **The same aggregate recipe scales.** Tenant-owned + patient-gated top-level resource, server-allocated number,
+  a pure transition policy, one-tx (domain + history), optimistic locking, secure 404 cross-tenant, no consent
+  masking for claims-domain data. Once you've built one (the claim), each new one is mostly the *variations*.
+- **A status owned by a dedicated command, not a bare status change.** `AUTH_REQUIRED`/`OUT_OF_NETWORK` are engine
+  outcomes, `ADJUDICATED` is reached only by the engine — mirroring `ASSIGNED` on a request. Bare `PATCH /status`
+  to an engine-owned status is refused.
+- **Additive engine outcomes are additive migrations.** Each new `LineOutcome` (`AUTH_REQUIRED` V27,
+  `OUT_OF_NETWORK` V35) is a migration that drops + re-adds the `adjudication_line.outcome` CHECK constraint.
+- **Deny-like outcomes skip cost-sharing.** NOT_COVERED, OUT_OF_NETWORK, and AUTH_REQUIRED all set allowed 0 and
+  **do not consume** deductible/OOP — so they can't accidentally advance a member's accumulators.
+- **The provider-validation check now lives in 4 places** (ProviderPatientAssignmentService,
+  PlanNetworkProviderService, ClaimService, ProviderDirectoryService). Deliberately duplicated to keep slices
+  small; flagged in the javadocs for a future shared `ProviderValidator`/directory extract.
+- **Role-gated list vs object-gated resource.** `GET /api/v1/providers` is a role-gated *list*, so a disallowed
+  role correctly gets a flat **403** (not a secure 404) — a 404 is only for object/relationship existence-sensitive
+  lookups.
+- **Frontend: gate a role-restricted query with `enabled`.** A component reachable by many roles must not fire a
+  role-gated query unconditionally — pass an `enabled` flag off a role check (see the slice-21 fix below).
+- **Seeded demo data drives every queue.** `DevDataSeeder` seeds one of each (a REQUESTED prior auth, a REQUESTED
+  referral, a SUBMITTED appeal on a REJECTED claim, an OPEN review), a second provider (`provider2@`/Morgan,
+  unassigned) and the PPO network = {Dana}, so a Morgan-rendered PPO claim demonstrates OUT_OF_NETWORK while the
+  seeded/null-provider claims stay unaffected.
+
+### Failures and how we fixed them
+
+- **Adding a 2nd provider broke a seeder count test.** After seeding `provider2@`, `DevDataSeederTest`'s
+  `each_org_has_five_members` failed (`expected 5 but was 6`). Fix: renamed to `each_org_has_six_members` and
+  updated the assertions 5 → 6 (candidate-count tests use `>= 2`/`.get(0)`, so they were unaffected).
+- **Changing the `Claim` constructor would have rippled to ~10 call sites.** Adding `renderingProviderId` as a 7th
+  constructor arg would have touched every existing caller (seeder + repo tests). Fix: added a **delegating 6-arg
+  constructor** (`this(..., null, createdBy)`) so existing callers compiled unchanged.
+- **Making `renderingProviderId` a required frontend type field rippled to fixtures (slice 21).** Faithfully
+  mirroring `ClaimDto`/`ClaimSummaryDto` (the backend always sends the field) made `renderingProviderId` required
+  on the `Claim`/`ClaimSummary` TS types, breaking ~8 test fixtures. Fix: added `renderingProviderId: null` to each
+  fixture — the honest mirror, at the cost of mechanical churn.
+- **Code-review caught a doomed request for two roles (slice 21).** `ClaimDetailPage` called `useProviders()`
+  unconditionally to resolve a name, but `GET /api/v1/providers` is gated to the claim-create roles — so a PATIENT
+  or CLAIMS_REVIEWER viewer fired a request the backend 403s, retried 3× (the app's default `retry`). **Not a
+  security hole** (the backend correctly denied it). Fix: gave `useProviders(enabled)` an `enabled` flag +
+  exported `DIRECTORY_ROLES`, and `ClaimDetailPage` passes a role check (mirroring the existing
+  `useProviderCandidates` pattern), falling back to "rendered by a provider" when the directory isn't readable.
+- **Tooling/process snags (not code defects):** a `CLAIMS_REVIEWER` can't submit claims (submitter roles are
+  PROVIDER/CARE_COORDINATOR/ORG_ADMIN), so a live claim-flow check had to use `admin@`; a Python `urllib` live-check
+  script hung with no timeout (switched to `curl -m` + a cookie jar); the in-app browser **can't navigate
+  localhost** in this environment, so UI slices were verified via RTL + backend integration tests instead of a
+  live click-through; and `BigDecimal` JSON strips trailing zeros (`150.00 → 150.0`), so amount assertions use
+  prefix substring matches.
+- **Both review subagents run clean on the final slice.** The `security-reviewer` found no exploitable issues in
+  slice 21; the `code-reviewer`'s one Major finding (the 403-noise above) was fixed in a follow-up commit.
+
+### Interview Q&A
+
+#### 1. Beginner
+
+**Q: What is "adjudication" and what does prior authorization add to it?**
+A: Adjudication turns an accepted claim into an explainable breakdown of who pays what (allowed amount, copay,
+deductible, coinsurance, plan-paid vs member). Prior authorization is a separate step *before* a service is
+rendered: some procedures must be pre-approved under the patient's plan. If a claim line's procedure requires auth
+and there's no approved authorization covering the service date, the engine marks that line `AUTH_REQUIRED` — the
+plan pays nothing until an auth is approved and the claim is re-adjudicated.
+
+**Q: What's a "state machine" here, and which entities have one?**
+A: A small set of allowed status transitions with rules about who can make each move. `service_request`, `claim`,
+`prior_authorization`, `referral`, `appeal`, and `claim_review` each have one — six total. The allowed moves live
+in a pure policy class (e.g. `AppealTransitions`) so they can be unit-tested without a database, and the service
+enforces them.
+
+**Q: What does a claim's "rendering provider" mean?**
+A: The provider who actually performed the service. It's an optional field on the claim. If the covering plan
+defines a network and the rendering provider isn't in it, the claim adjudicates `OUT_OF_NETWORK`.
+
+**Q: What is reprocessing?**
+A: Re-running adjudication for all of a plan's claims after a configuration change (say, a corrected fee schedule
+or a new exclusion). It's a batch job that produces one result row per claim — succeeded (with a new adjudication
+version) or failed (with a safe message).
+
+#### 2. Intermediate
+
+**Q: Six aggregates share one recipe. What is it, and what actually differs between them?**
+A: The recipe: a tenant-owned, patient-gated top-level resource; a server-allocated human number; a pure
+transition-policy class; a one-transaction write of the domain row + a history row; optimistic locking via
+`expectedVersion`; secure 404 cross-tenant; and no consent masking (claims-domain data). What differs is the
+*policy*: which roles can make which move (reviewer vs coordinator), when a reason is mandatory (some require it on
+every transition, some only on deny/cancel), and the entry preconditions (an appeal needs an appealable claim with
+no open appeal; a review allows at most one OPEN per claim). Keeping the shape identical and varying only the
+policy is what makes six aggregates cheap to build and easy to reason about.
+
+**Q: Why is an anomaly "detector" different from a transition "policy," even though both are pure classes?**
+A: A transition policy *gates* a single state change — given (from, to, roles) it answers allowed/not. A detector
+*produces findings* — given the surrounding facts it emits a list of signals with severities. It doesn't change
+any state; anomaly detection is purely advisory and never touches claim status or the money math. Same "pure,
+DB-free, unit-testable" philosophy, different output shape.
+
+**Q: How does an overturned appeal re-adjudicate without risking a partial update or a bean cycle?**
+A: The overturn and the re-adjudication run in the **same transaction** — `AppealService` calls
+`AdjudicationService.adjudicate(...)` inside its overturn transaction, so both the appeal's new status/history and
+the new adjudication version commit or roll back together. There's no bean cycle because the dependency is
+one-directional (appeal → adjudication), and it's authorization-safe because the caller overturning is a
+`CLAIMS_REVIEWER`/`ORG_ADMIN`, which is exactly what the engine command requires.
+
+**Q: Why gate `GET /api/v1/providers` with a 403 for the wrong role, but use a 404 for a cross-tenant claim?**
+A: They're different layers. The provider directory is a role-gated *list* — a disallowed role simply may not use
+the feature, so a flat 403 is correct and leaks nothing per-resource. A cross-tenant claim lookup is an
+object/relationship check where a 403 would *confirm the row exists* in another tenant; that must be a secure 404
+so existence isn't leaked.
+
+**Q: The frontend already gates the picker by role — why did the backend endpoint still need a role gate, and why
+did the detail page still cause a bug?**
+A: The backend is the only security boundary, so the endpoint must gate regardless of the UI. The bug was
+different: the *detail page* (reachable by patients and reviewers) called the directory query unconditionally just
+to resolve a name, so those roles fired a request the backend correctly 403'd — wasted calls and retries, not a
+breach. The fix was to make the query `enabled` only for roles that may read it, matching an existing pattern in
+the codebase.
+
+#### 3. Advanced
+
+**Q: Reprocessing deliberately breaks the "one transaction per state change" rule. Why is that correct here?**
+A: The one-tx rule protects a *single* atomic state change (domain row + history + audit + outbox). A batch is not
+one state change — it's N independent ones, and we specifically *want* partial success: if claim 7 fails, claims
+1–6 and 8–N must still commit. So `createAndRun` uses `@Transactional(propagation = NOT_SUPPORTED)` to run outside
+any transaction, and each per-claim `adjudicate(...)` is its own transaction on a separate bean. One failure is
+caught and recorded as a FAILED item. The honest limitation is that it's synchronous and a crashed batch can be
+left RUNNING with no recovery — the durable/recoverable version (outbox + worker) is Phase 8.
+
+**Q: OUT_OF_NETWORK is claim-level and opt-in. Walk through the precedence and the backward-compatibility
+guarantees.**
+A: Precedence is **exclusion > out-of-network > auth requirement > covered**, evaluated per line but with OON
+determined once at the claim level (there's a single header rendering provider). Backward compatibility comes from
+two "no penalty" rules: a **null rendering provider** can't be proven out-of-network, and a plan with **no network
+rows** imposes no restriction (opt-in). Together they guarantee that every pre-existing claim and every
+null-provider claim adjudicates exactly as before — the feature only changes results for a claim that both names a
+rendering provider *and* runs under a plan that defines a network the provider isn't in.
+
+**Q: Why is the network's provider an unvalidated-by-FK reference while a plan exclusion's procedure is a real FK?**
+A: A plan exclusion references the **global** `medical_code` catalog, which has no tenant key, so a composite FK is
+natural and enforces integrity structurally. A network provider references `app_user`, which is **not
+tenant-keyed** (a user can belong to an org via `organization_membership`), so there's no `(id, organization_id)`
+to FK against without leaking cross-tenant existence. Instead the service validates "active same-tenant PROVIDER"
+at write time via the identity repos and returns a 400 (not a leaky 404/403) for an ineligible user. It's the same
+trade-off the assignment tables already made — structural integrity where the referenced table is tenant-keyed,
+service-level validation where it isn't.
+
+**Q: Adding an engine outcome (AUTH_REQUIRED, OUT_OF_NETWORK) means a migration that rewrites a CHECK constraint.
+What are the risks and how do you keep it safe?**
+A: The risk is that the new enum value must be allowed by the DB CHECK before any row can be written with it, and
+Hibernate is `ddl-auto: validate` so it won't touch schema — Flyway owns it. Each addition is an **additive**
+migration that drops and re-adds the `adjudication_line.outcome` CHECK with the new value included; existing rows
+keep their values, and because the outcomes are deny-like (allowed 0, no cost-sharing) they don't perturb any
+existing accumulator math. The enum stays `EnumType.STRING` so the persisted value is the readable name, and the
+calculator/partition logic is what actually decides when the new outcome applies.
+
+**Q: If you extended anomaly detection to run automatically at submit/adjudicate, what would you have to be
+careful about?**
+A: Today it's a manual reviewer-triggered scan and it's idempotent (a rescan replaces the prior signals). Making
+it automatic means (1) keeping it strictly additive — it must never block or alter a submit/adjudication, only
+annotate; (2) deciding *when* to (re)compute so signals don't go stale after a re-adjudication or a sibling claim
+arriving; (3) not letting a detector failure fail the primary command (it would need to be out-of-band, e.g. an
+event handler off the outbox in Phase 8); and (4) preserving the "no measured fraud claims" honesty — these are
+deterministic demo heuristics, not a validated model, and that framing must survive automation.
