@@ -467,7 +467,8 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   (AUDITOR/ORG_ADMIN) recomputes the chain in sequence order — position, `prevHash` link, recomputed `entryHash` —
   and cross-checks the head (catching truncation), returning `AuditChainVerificationDto{valid, entriesChecked,
   brokenAtSequence, reason}`. **UI (slice 3):** an auditor-facing **Audit** page — see `src/audit/` under Frontend
-  below. **Deferred:** access reviews, retention),
+  below. The audit trail also records `BREAK_GLASS_INVOKED` / `BREAK_GLASS_REVOKED` events (see the `breakglass`
+  package). **Deferred:** retention),
   `breakglass` (Phase 7 slice 4 — **break-glass emergency access**, the HIPAA "break the glass" pattern.
   `POST /api/v1/break-glass` (self-grant) + `GET /api/v1/break-glass` (the caller's live grants). A `break_glass_grant`
   is tenant-owned + immutable (created and simply expires — no `@Version`; early admin revocation is a later
