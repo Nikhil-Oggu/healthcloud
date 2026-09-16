@@ -296,8 +296,8 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   (slice 2): `existsApprovedCovering(org, patient, plan, system, code, serviceDate)` is the hook the engine calls
   — a covered claim line whose procedure the plan requires prior auth for (see `plan_prior_auth_requirement`),
   with no APPROVED authorization whose window covers the claim's service date, adjudicates `AUTH_REQUIRED`.
-  **Honest MVP limitation:** no NEEDS_INFO step, multi-procedure lines, or expiry enforcement; backend-only (a UI
-  arrives in a later slice)),
+  **Honest MVP limitation:** no NEEDS_INFO step, multi-procedure lines, or expiry enforcement. The prior-auth UI
+  (queue/detail/decisions + request form) shipped in slices 3–4 (see `src/priorauth/` under Frontend below)),
   `devdata` (DevDataSeeder, local-only — also seeds the global `medical_code` catalog once, then a couple of
   synthetic `clinical_summary` rows per assigned patient, one sample DRAFT `claim` (header + two procedure
   lines + its null→DRAFT status-history row) for the first patient, and two `coverage_plan` rows per org (a PPO
@@ -518,11 +518,22 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   `target/`), anchor it so it can't collide with a feature folder of the same name.
 
 ## Custom tooling (see docs/PLAN.md Part C for the full plan)
-- **Exists today:** `.claude/launch.json` (the `frontend` dev-server config for the browser preview);
-  slash command **`/learning-module`** (`.claude/commands/learning-module.md`) — appends a per-session
-  learning + interview-prep note to `docs/learning/learning-module.md` (never overwrites; based on what
-  we actually built). This is the `/capture-module` idea from PLAN.md Part C, realized.
+- **Exists today:**
+  - `.claude/launch.json` — the `frontend` dev-server config for the browser preview.
+  - slash command **`/learning-module`** (`.claude/commands/learning-module.md`) — appends a per-session
+    learning + interview-prep note to `docs/learning/learning-module.md` (never overwrites; based on what
+    we actually built). This is the `/capture-module` idea from PLAN.md Part C, realized.
+  - **subagents** (`.claude/agents/`, the Phase-3 review subagents from PLAN.md Part C, realized) — both
+    **read-only** (tools `Read, Grep, Glob, Bash`; no `Edit`/`Write`; `Bash` for inspection only —
+    `git diff`/`log`/`show`, `grep`, `cat` — never mutating): **`code-reviewer`** (bugs + quality vs the
+    project's own invariants — tenant scoping, thin controllers, §21 authz layering, one-tx + history,
+    engine-command statuses, pure policy classes, optimistic/row-lock concurrency, BigDecimal money, Flyway
+    discipline, frontend RHF/Zod + router-test rules, .gitignore anchoring) and **`security-reviewer`**
+    (exploitable issues in the real threat model — tenant isolation, `PatientAccessGuard`, secure 404, role
+    gates, consent/purpose, field-masking leaks, SQL/path-traversal injection, CSRF/session/`SecurityConfig`,
+    PHI-in-logs, financial double-apply; tuned for low false positives). They pull their own
+    `git diff main...HEAD`; invoke by name (e.g. "use the code-reviewer subagent on my current changes").
+    **Agent files load at session start** — a newly created/edited agent is spawnable only in the next session.
 - **Planned, NOT yet created** (don't assume these exist): commands `/status` (session start),
-  `/wrap` (session end), `/adr`; Phase-3 subagents (HealthCloud code-reviewer +
-  security-reviewer); Phase-1+ hooks (format/compile after edits; later a synthetic-data guard).
-- Until they exist, use built-ins: `/code-review`, `/security-review`, and read the 3 files manually.
+  `/wrap` (session end), `/adr`; Phase-1+ hooks (format/compile after edits; later a synthetic-data guard).
+- Built-ins remain available too: `/code-review`, `/security-review` (generic), and read the 3 files manually.
