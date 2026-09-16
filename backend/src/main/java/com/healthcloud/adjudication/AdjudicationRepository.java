@@ -4,6 +4,8 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 /**
  * Adjudications, tenant-owned. Like every tenant-owned repository (§32.10) the finders are scoped by
@@ -29,4 +31,14 @@ public interface AdjudicationRepository extends JpaRepository<Adjudication, UUID
 
     /** Whether a claim has already been adjudicated in this tenant (backstops the state gate). */
     boolean existsByOrganizationIdAndClaimId(UUID organizationId, UUID claimId);
+
+    /**
+     * The distinct claim ids in the tenant that have at least one adjudication version referencing the given
+     * coverage plan — the reprocessing batch's candidate set (§Phase 6). The service then keeps only claims that
+     * are still ADJUDICATED and whose <i>current</i> version is on that plan before re-running them.
+     */
+    @Query("SELECT DISTINCT a.claimId FROM Adjudication a "
+            + "WHERE a.organizationId = :organizationId AND a.coveragePlanId = :coveragePlanId")
+    List<UUID> findDistinctClaimIdsByCoveragePlan(
+            @Param("organizationId") UUID organizationId, @Param("coveragePlanId") UUID coveragePlanId);
 }

@@ -128,7 +128,17 @@
   ORG_ADMIN, Cancel to the opener roles; **every transition prompts for a reason**), a link to the reviewed claim, a
   **New review** form (any claim + an optional reason), a **Reviews** nav button (CARE_COORDINATOR/CLAIMS_REVIEWER/
   ORG_ADMIN), and `api`/`types` methods. Manual review is now complete end-to-end in the browser. Frontend-only.
-  **Next Phase-6 slices (not yet built, plan each first):** provider network, reprocessing.
+  slice 15 ✅ — **reprocessing (backend)**: a new `reprocessing` package — batch re-adjudication of a coverage
+  plan's claims after a config change. `GET/POST /api/v1/reprocessing-batches` + `.../{id}`; a `reprocessing_batch`
+  (scope = a plan, status + counts, `RPB-XXXXXXXX`) owns immutable `reprocessing_item` children (per claim:
+  SUCCEEDED + new version / FAILED + PHI-free message). **Orchestrates only** — reuses the slice-11
+  `AdjudicationService.adjudicate` path (no math change); selects the tenant's ADJUDICATED claims currently on the
+  plan. Gated CLAIMS_REVIEWER/ORG_ADMIN; in-tenant plan required (400 else); another tenant's batch → secure 404.
+  **A job record, NOT a state machine** (runs synchronously → COMPLETED / COMPLETED_WITH_ERRORS; no transitions).
+  **Deliberate tx-shape departure:** `createAndRun` is `NOT_SUPPORTED`, so each claim's re-adjudication is its own
+  transaction — one failure is caught + recorded, never rolling back the batch or the others. Migration V32.
+  Backend-only (reprocessing UI is a later slice).
+  **Next Phase-6 slices (not yet built, plan each first):** reprocessing UI, provider network.
 - **Tooling:** HealthCloud-specific **`code-reviewer`** + **`security-reviewer`** subagents now live in
   `.claude/agents/` (read-only; project-aware checklists — tenant isolation, `PatientAccessGuard`, consent/masking,
   one-tx history, financial accumulators). Invoke by name in a fresh session (agent files load at startup).
@@ -208,6 +218,43 @@
   then `curl -b j.txt localhost:8080/api/v1/me`. Reset DB with `./scripts/db-reset.sh`.
 
 ## Log (newest first)
+
+### 2026-09-16 — Phase 6, slice 15 ✅ (reprocessing — batch re-adjudication of a plan's claims after a config change, backend)
+- **Why:** the "reprocessing" item on Phase 6's advanced-claims list, and the natural build-on from slice 11's
+  re-adjudication engine: after a plan-config change (a fixed fee schedule, a new exclusion/prior-auth requirement,
+  a retroactive enrollment) an admin/reviewer re-runs the plan's already-ADJUDICATED claims so their money reflects
+  the new config. **Backend-only** (the reprocessing UI is a later slice).
+- **New package `com.healthcloud.reprocessing`:** `ReprocessingBatchStatus` (RUNNING/COMPLETED/COMPLETED_WITH_ERRORS),
+  `ReprocessingItemOutcome` (SUCCEEDED/FAILED), `ReprocessingBatch` (entity: scope `coveragePlanId`, `RPB-XXXXXXXX`
+  number, status + total/succeeded/failed counts, `finish(...)`), `ReprocessingItem` (immutable child: claim,
+  outcome, new `adjudicationVersion` on success, PHI-free `message` on failure), repositories, DTOs
+  (`ReprocessingBatchDto` header+items / `ReprocessingBatchSummaryDto` / `ReprocessingItemDto`),
+  `CreateReprocessingBatchRequest` (`coveragePlanId`), `ReprocessingService`, `ReprocessingController`
+  (`GET/POST /api/v1/reprocessing-batches`, `GET .../{id}`).
+- **Orchestrates only, no math change:** `createAndRun` selects the tenant's ADJUDICATED claims whose **current**
+  adjudication is on the plan (new `AdjudicationRepository.findDistinctClaimIdsByCoveragePlan` + a status/current-plan
+  filter), then calls the unchanged slice-11 `AdjudicationService.adjudicate(claimId)` for each — appending a new
+  immutable adjudication version per claim.
+- **A job record, NOT a state machine:** MVP runs synchronously and the batch lands COMPLETED / COMPLETED_WITH_ERRORS
+  — no client transitions, no status-history table (the batch + its items are the record).
+- **Deliberate transaction-shape departure from the one-tx rule (§31):** `createAndRun` is
+  `@Transactional(propagation = NOT_SUPPORTED)` (no surrounding tx), so each `adjudicate(claimId)` (a separate bean's
+  `@Transactional` method) commits/rolls back on its own; a single claim's failure is caught and recorded as a
+  FAILED item, never rolling back the batch or the other claims. Documented in CLAUDE.md.
+- **Authorization:** gated to **CLAIMS_REVIEWER/ORG_ADMIN** (the engine command's roles — broad, so every tenant
+  claim is reachable and the per-claim re-adjudication's own §21 gate composes cleanly); an in-tenant plan is
+  required (else 400); reads are tenant-scoped (another tenant's batch → secure 404). Not consent field-masked.
+- **Migration `V32__reprocessing_batch.sql`:** `reprocessing_batch` (FK-with-org to `coverage_plan`, unique number,
+  `UNIQUE(id, organization_id)`) + `reprocessing_item` (FK-with-org to batch + claim); status/outcome CHECKs.
+- **Honest MVP limits:** synchronous (async/recoverable outbox+worker is Phase 8 — a crashed batch can stay
+  RUNNING, no recovery yet); single-plan scope (no date-range/all-plans); no Idempotency-Key; each claim
+  reversed/recomputed independently (carries over slice 11's limit).
+- **Tests (+6 → 365 backend, all green; `./mvnw -B clean verify` green):** `ReprocessingApiIntegrationTest` — auth
+  (401); happy path (run a batch → the plan's claim gets version 2, COMPLETED, total/succeeded=1, a SUCCEEDED item
+  with `adjudicationVersion:2`); a provider → 403; a plan outside the tenant → 400; a batch touches only its own
+  plan's claims (plan B total=0, plan A's claim untouched at v1); another tenant's batch → secure 404.
+- **Next:** reprocessing UI (queue/detail — batches + per-claim outcomes; a Run form for reviewers/admins), or
+  provider network (the last Phase-6 area).
 
 ### 2026-09-16 — Phase 6, slice 14 ✅ (manual-review UI — queue + detail + decisions + open form)
 - **Why:** slice 13 shipped the claim-review backend; this puts it in the browser (the backend-then-UI rhythm),

@@ -78,7 +78,7 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   Checks: `npm run typecheck`, `npm test` (Vitest), `npm run build`. Node runs from `openjdk@25`'s
   sibling `node@24` — use `export PATH="/opt/homebrew/opt/node@24/bin:$PATH"` in non-interactive shells.
 
-## Current implementation (Phase 1–4 COMPLETE; Phase 5 COMPLETE — slices 1–12 done; MVP (Phase 0–5) feature-complete, engine AND UI. Phase 6 (advanced claims) IN PROGRESS — slices 1–14 done: prior authorization, wired into adjudication, + prior-auth UI (queue/detail/decisions + request form) + plan-prior-auth-requirement admin card, + referrals (backend: care-coordination aggregate + decision lifecycle; + UI: queue/detail/decisions + request form), + appeals (backend: dispute a claim's decision + resolution lifecycle; + UI: queue/detail/decisions + submit form; + overturn wired into re-adjudication), + claim anomaly signals (backend: a deterministic detector + reviewer scan; + UI: Anomalies card + Scan button on the claim detail page), + claim manual review (backend: open/resolve/cancel a review case on a claim; + UI: queue/detail/decisions + open form) — see docs/PROGRESS.md for status)
+## Current implementation (Phase 1–4 COMPLETE; Phase 5 COMPLETE — slices 1–12 done; MVP (Phase 0–5) feature-complete, engine AND UI. Phase 6 (advanced claims) IN PROGRESS — slices 1–15 done: prior authorization, wired into adjudication, + prior-auth UI (queue/detail/decisions + request form) + plan-prior-auth-requirement admin card, + referrals (backend: care-coordination aggregate + decision lifecycle; + UI: queue/detail/decisions + request form), + appeals (backend: dispute a claim's decision + resolution lifecycle; + UI: queue/detail/decisions + submit form; + overturn wired into re-adjudication), + claim anomaly signals (backend: a deterministic detector + reviewer scan; + UI: Anomalies card + Scan button on the claim detail page), + claim manual review (backend: open/resolve/cancel a review case on a claim; + UI: queue/detail/decisions + open form), + reprocessing (backend: batch re-adjudication of a coverage plan's claims after a config change) — see docs/PROGRESS.md for status)
 - **Backend packages** under `com.healthcloud`: `organization` (Organization, Facility, FacilityMembership),
   `identity` (AppUser, Role, OrganizationMembership, UserRole), `auth` (SecurityConfig, DevLoginController,
   CurrentUserController/Service, CsrfCookieFilter), `context` (UserContext + UserContextAccessor/Filter),
@@ -382,6 +382,28 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   nor changes its status (the reviewer still uses accept/reject/adjudicate), and it is not structurally linked to
   specific anomaly signals (signals inform the human). The manual-review UI (queue/detail/decisions + open form)
   shipped in slice 14 (see `src/claimreview/` under Frontend below)),
+  `reprocessing` (Phase 6 slice 15 — batch re-adjudication: after a plan-config change (a fixed fee schedule, a
+  new exclusion/prior-auth requirement, a retroactive enrollment) an admin/reviewer re-runs a coverage plan's
+  claims. `GET/POST /api/v1/reprocessing-batches`, `GET .../{id}`, with a server-allocated `batch_number`
+  (`RPB-XXXXXXXX`, unique per tenant). A `reprocessing_batch` (scope = one `coveragePlan`, FK-with-org; status +
+  counts) owns one immutable `reprocessing_item` per claim (the claim, `SUCCEEDED`/`FAILED`, the new adjudication
+  version on success, a PHI-free message on failure). **It orchestrates only** — it reuses the unchanged slice-11
+  re-adjudication path (`AdjudicationService.adjudicate`), changing no adjudication math; each selected claim gets
+  a new immutable version. Scope selection = the tenant's ADJUDICATED claims whose **current** adjudication is on
+  the plan (via `AdjudicationRepository.findDistinctClaimIdsByCoveragePlan` + a status/current-plan filter). Gated
+  to **CLAIMS_REVIEWER/ORG_ADMIN** (the engine command's roles — broad, so every tenant claim is reachable and the
+  per-claim re-adjudication's own §21 gate composes cleanly); an in-tenant plan is required (else 400); reads are
+  tenant-scoped (another tenant's batch → secure 404). **Not consent field-masked** (claims/benefits data).
+  **A job record, NOT a state machine** — MVP runs synchronously and the batch lands `COMPLETED` /
+  `COMPLETED_WITH_ERRORS`; there are no client transitions and no status-history table (the batch + its items are
+  the record). **Deliberate transaction-shape departure from the one-tx rule** (§31): a batch is many independent
+  transactions — `ReprocessingService.createAndRun` runs `@Transactional(propagation = NOT_SUPPORTED)` (no
+  surrounding tx), so each `adjudicate(claimId)` (a separate bean's `@Transactional` method) commits/rolls back on
+  its own and one claim's failure is caught + recorded, never rolling back the batch or the other claims.
+  **Honest MVP limitations:** synchronous (the async/recoverable outbox+worker version is Phase 8 — a crashed
+  batch can be left `RUNNING` with no recovery yet); scope is a single coverage plan (no date-range/all-plans); no
+  Idempotency-Key (each POST is an intentional new batch); each claim is reversed/recomputed independently (the
+  slice-11 limitation carries over). Backend-only so far — the reprocessing UI is a later slice),
   `devdata` (DevDataSeeder, local-only — also seeds the global `medical_code` catalog once, then a couple of
   synthetic `clinical_summary` rows per assigned patient, one sample DRAFT `claim` (header + two procedure
   lines + its null→DRAFT status-history row) for the first patient, and two `coverage_plan` rows per org (a PPO
