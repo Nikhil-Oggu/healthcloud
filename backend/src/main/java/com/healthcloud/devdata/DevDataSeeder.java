@@ -44,6 +44,11 @@ import com.healthcloud.priorauth.PriorAuthorizationRepository;
 import com.healthcloud.priorauth.PriorAuthorizationStatus;
 import com.healthcloud.priorauth.PriorAuthorizationStatusHistory;
 import com.healthcloud.priorauth.PriorAuthorizationStatusHistoryRepository;
+import com.healthcloud.referral.Referral;
+import com.healthcloud.referral.ReferralRepository;
+import com.healthcloud.referral.ReferralStatus;
+import com.healthcloud.referral.ReferralStatusHistory;
+import com.healthcloud.referral.ReferralStatusHistoryRepository;
 import com.healthcloud.relationship.CareCoordinatorAssignment;
 import com.healthcloud.relationship.CareCoordinatorAssignmentRepository;
 import com.healthcloud.relationship.CareCoordinatorAssignmentStatus;
@@ -96,6 +101,8 @@ public class DevDataSeeder implements ApplicationRunner {
     private final PlanPriorAuthRequirementRepository planPriorAuthRequirementRepository;
     private final PriorAuthorizationRepository priorAuthorizationRepository;
     private final PriorAuthorizationStatusHistoryRepository priorAuthorizationStatusHistoryRepository;
+    private final ReferralRepository referralRepository;
+    private final ReferralStatusHistoryRepository referralStatusHistoryRepository;
 
     public DevDataSeeder(OrganizationRepository organizationRepository,
                          AppUserRepository appUserRepository,
@@ -117,7 +124,9 @@ public class DevDataSeeder implements ApplicationRunner {
                          PlanFeeScheduleRepository planFeeScheduleRepository,
                          PlanPriorAuthRequirementRepository planPriorAuthRequirementRepository,
                          PriorAuthorizationRepository priorAuthorizationRepository,
-                         PriorAuthorizationStatusHistoryRepository priorAuthorizationStatusHistoryRepository) {
+                         PriorAuthorizationStatusHistoryRepository priorAuthorizationStatusHistoryRepository,
+                         ReferralRepository referralRepository,
+                         ReferralStatusHistoryRepository referralStatusHistoryRepository) {
         this.organizationRepository = organizationRepository;
         this.appUserRepository = appUserRepository;
         this.roleRepository = roleRepository;
@@ -139,6 +148,8 @@ public class DevDataSeeder implements ApplicationRunner {
         this.planPriorAuthRequirementRepository = planPriorAuthRequirementRepository;
         this.priorAuthorizationRepository = priorAuthorizationRepository;
         this.priorAuthorizationStatusHistoryRepository = priorAuthorizationStatusHistoryRepository;
+        this.referralRepository = referralRepository;
+        this.referralStatusHistoryRepository = referralStatusHistoryRepository;
     }
 
     @Override
@@ -253,6 +264,24 @@ public class DevDataSeeder implements ApplicationRunner {
         // AUTH_REQUIRED until an authorization is approved. Deliberately NOT 99213/80053 (the seeded claim +
         // the accumulator/fee-schedule tests assert exact amounts for those on the seeded PPO).
         seedPriorAuthRequirement(org, ppo, admin);
+
+        // A sample REQUESTED referral (Phase 6) for the first patient to Cardiology, so a demo referral queue
+        // returns something a coordinator can approve/deny. Synthetic; coded reason only (no narrative).
+        seedReferral(org, patients.get(0), provider);
+    }
+
+    /**
+     * A synthetic REQUESTED referral to Cardiology for a coded reason (I10 hypertension), with its creation
+     * history row (null → REQUESTED), consistent with the referral state machine (§31.6).
+     */
+    private void seedReferral(Organization org, Patient patient, AppUser requestedBy) {
+        Referral referral = referralRepository.save(new Referral(
+                org.getId(), patient.getId(),
+                "REF-" + org.getId().toString().substring(0, 4).toUpperCase() + "01",
+                "Cardiology", CodeSystem.ICD10CM.name(), "I10", requestedBy.getId()));
+        referralStatusHistoryRepository.save(new ReferralStatusHistory(
+                org.getId(), referral.getId(), null, ReferralStatus.REQUESTED, requestedBy.getId(),
+                "Referral requested", null));
     }
 
     /** A synthetic prior-auth requirement: the PPO requires prior authorization for a moderate office visit. */

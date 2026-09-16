@@ -65,8 +65,15 @@
   add via the reusable `MedicalCodePicker` / remove, ORG_ADMIN (a near-twin of the Exclusions card), backed by
   new `useCoverage` hooks + `api` methods against the slice-2 `.../prior-auth-requirements` endpoints. So an admin
   now manages the slice-2 requirement in the browser (closing the last "no admin UI yet" gap). Frontend-only.
-  **Next Phase-6 slices (not yet built, plan each first):** referrals, provider network, anomaly signals, manual
-  review, appeals, reprocessing.
+  slice 6 ✅ — **referrals (backend)**: a new top-level, patient-gated `referral` aggregate — a care-coordination
+  request that a patient be seen by a **specialty**, for a **coded reason** (an ICD-10-CM diagnosis FK to the
+  catalog) — with a pure `ReferralTransitions` state machine (REQUESTED → APPROVED/DENIED by **CARE_COORDINATOR**/
+  ORG_ADMIN — deliberately a different decision role than prior auth's reviewer — or CANCELLED by the requester;
+  reason to deny/cancel), one-tx status + history, `GET/POST /api/v1/referrals` + `.../{id}` + `.../{id}/status` +
+  `.../{id}/history`, server-allocated `REF-XXXXXXXX`. A near-mirror of the prior-auth aggregate; not consent
+  field-masked (coded data only). Backend-only. **Next Phase-6 slices (not yet built, plan each first):** the
+  referral UI (queue/detail/decisions + request form), then provider network, anomaly signals, manual review,
+  appeals, reprocessing.
 - **Tooling:** HealthCloud-specific **`code-reviewer`** + **`security-reviewer`** subagents now live in
   `.claude/agents/` (read-only; project-aware checklists — tenant isolation, `PatientAccessGuard`, consent/masking,
   one-tx history, financial accumulators). Invoke by name in a fresh session (agent files load at startup).
@@ -146,6 +153,47 @@
   then `curl -b j.txt localhost:8080/api/v1/me`. Reset DB with `./scripts/db-reset.sh`.
 
 ## Log (newest first)
+
+### 2026-09-16 — Phase 6, slice 6 ✅ (referrals — a care-coordination advanced-claims aggregate, backend)
+- **Why:** prior authorization is complete end-to-end; referrals are the next Phase-6 area (PLAN.md Part B, Phase
+  6). A referral is a care-coordination request that a patient be seen by a specialty for a coded reason. It is a
+  deliberate near-mirror of the proven prior-auth slice-1 aggregate, so the shape is familiar and low-risk.
+  **Backend-only** (like prior-auth slice 1); the referral UI (queue/detail/decisions + form) is the next slice.
+- **New package `com.healthcloud.referral`** (13 classes mirroring `priorauth`): `ReferralStatus`,
+  `Referral` (entity + `decide(...)`), `ReferralStatusHistory`, `ReferralTransitions` (pure policy — the 5th
+  exemplar), `ReferralRepository`, `ReferralStatusHistoryRepository`, `ReferralDto`, `ReferralSummaryDto`,
+  `ReferralStatusHistoryDto`, `CreateReferralRequest`, `ReferralStatusChangeRequest`, `ReferralService`,
+  `ReferralController`. Endpoints `GET/POST /api/v1/referrals`, `GET .../{id}`, `PATCH .../{id}/status`,
+  `GET .../{id}/history`.
+- **Domain:** `patient_id`, `referral_number` (`REF-XXXXXXXX`, unique per tenant, server-allocated), `specialty`
+  (required text, the target), `reason_code_system`+`reason_code` (FK to the global `medical_code`, validated as an
+  active **ICD-10-CM diagnosis** — unknown/non-diagnosis → 400), lifecycle fields (`status`, `decision_reason`,
+  `decided_by`, `decided_at`, `requested_by`, timestamps, `@Version`). **Deliberately dropped** from the prior-auth
+  shape: the coverage-plan FK and service-window (a referral needs neither). **Not consent field-masked** — coded,
+  coordination-relevant data only (no narrative), so a coordinator can route it without unrestricted context.
+- **State machine (`ReferralTransitions`, pure):** REQUESTED → APPROVED/DENIED (**CARE_COORDINATOR**/ORG_ADMIN —
+  a decision stamps `decidedBy`/`decidedAt`; *different* from prior auth's CLAIMS_REVIEWER, showing the layered
+  pattern generalizes across roles) or CANCELLED (requester roles); terminal, reason to deny/cancel. Same check
+  order as the claim/prior-auth machine (exists → legal move → role → reason → optimistic version), status change
+  + a `referral_status_history` row in one `@Transactional` (null → REQUESTED on creation). Top-level but gated by
+  its patient (`PatientAccessGuard`): a provider sees only assigned patients' referrals; broad roles get the
+  tenant's queue; cross-tenant → secure 404.
+- **Migration `V28__referral.sql`:** two tables (`referral`, `referral_status_history`) mirroring V25 — FK-with-org
+  to patient, FK to `medical_code` for the reason, `UNIQUE(org, referral_number)` + `UNIQUE(id, org)`, status
+  CHECK, indexes. **Seeder:** `seedReferral` — one sample REQUESTED referral (Cardiology, I10) per org's first
+  patient, so a demo referral queue returns something.
+- **Verified — automated:** `./mvnw -B clean verify` → **310 tests pass** (+21: `ReferralTransitionsTest` ×5,
+  `ReferralRepositoryTest` ×4 — tenant-scoped lookup, per-tenant number uniqueness + cross-tenant reuse, history
+  order, reason-FK integrity; `ReferralApiIntegrationTest` ×12 — auth required, create→REQUESTED+number, coordinator
+  approve (decider stamped), deny needs a reason, a reviewer cannot decide (403), requester cancel, unknown reason
+  400, a procedure code is not a valid reason 400, illegal transition 409, stale version 409, provider sees only
+  assigned patients' referrals + secure 404, cross-tenant secure 404). BUILD SUCCESS.
+- **Verified — live** (backend on V28, fresh db-reset): coordinator's queue showed the seeded `REF-…` (Cardiology,
+  I10, REQUESTED); approving it → APPROVED with `decidedBy` set, version→1, history `null→REQUESTED` then
+  `REQUESTED→APPROVED`; the provider (assigned to Sam Sample) saw the referral; a Green Valley admin GET of a
+  NorthCare referral → **404** and their own queue held only Green Valley's referral (tenant isolation).
+- **Files:** +`backend/.../referral/` (13 classes) +`V28__referral.sql` +3 test classes; changed
+  `DevDataSeeder.java`, `CLAUDE.md`, `docs/PROGRESS.md`.
 
 ### 2026-09-16 — Phase 6, slice 5 ✅ (plan-prior-auth-requirement admin card — set which procedures need prior auth in the browser)
 - **Why:** slice 2 built the `plan_prior_auth_requirement` backend (the config the engine reads to mark a line

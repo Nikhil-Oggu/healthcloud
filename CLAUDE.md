@@ -78,7 +78,7 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   Checks: `npm run typecheck`, `npm test` (Vitest), `npm run build`. Node runs from `openjdk@25`'s
   sibling `node@24` — use `export PATH="/opt/homebrew/opt/node@24/bin:$PATH"` in non-interactive shells.
 
-## Current implementation (Phase 1–4 COMPLETE; Phase 5 COMPLETE — slices 1–12 done; MVP (Phase 0–5) feature-complete, engine AND UI. Phase 6 (advanced claims) IN PROGRESS — slices 1–5 done: prior authorization, wired into adjudication, + prior-auth UI (queue/detail/decisions + request form) + plan-prior-auth-requirement admin card — see docs/PROGRESS.md for status)
+## Current implementation (Phase 1–4 COMPLETE; Phase 5 COMPLETE — slices 1–12 done; MVP (Phase 0–5) feature-complete, engine AND UI. Phase 6 (advanced claims) IN PROGRESS — slices 1–6 done: prior authorization, wired into adjudication, + prior-auth UI (queue/detail/decisions + request form) + plan-prior-auth-requirement admin card, + referrals (backend: care-coordination aggregate + decision lifecycle) — see docs/PROGRESS.md for status)
 - **Backend packages** under `com.healthcloud`: `organization` (Organization, Facility, FacilityMembership),
   `identity` (AppUser, Role, OrganizationMembership, UserRole), `auth` (SecurityConfig, DevLoginController,
   CurrentUserController/Service, CsrfCookieFilter), `context` (UserContext + UserContextAccessor/Filter),
@@ -298,6 +298,24 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   with no APPROVED authorization whose window covers the claim's service date, adjudicates `AUTH_REQUIRED`.
   **Honest MVP limitation:** no NEEDS_INFO step, multi-procedure lines, or expiry enforcement. The prior-auth UI
   (queue/detail/decisions + request form) shipped in slices 3–4 (see `src/priorauth/` under Frontend below)),
+  `referral` (Phase 6 slice 6 — a care-coordination advanced-claims aggregate: a request that a patient be seen
+  by a **specialty**, for a **coded clinical reason** (a `reasonCode` FK to the global `medical_code`, must be an
+  ICD-10-CM DIAGNOSIS). `GET/POST /api/v1/referrals`, `GET /api/v1/referrals/{id}`, `PATCH .../{id}/status`,
+  `GET .../{id}/history`, with a server-allocated `referral_number` (`REF-XXXXXXXX`, unique per tenant). **Top-level
+  but gated by its patient** (like `claim`/`prior_authorization`, not nested): every read routes through
+  `PatientAccessGuard` and the list scopes via `accessiblePatientIdsIfGated` — a provider sees only assigned
+  patients' referrals, a broad role (coordinator/admin/reviewer) sees the tenant's as a work queue; another
+  tenant's is a secure 404. Carries only coded, coordination-relevant data (a specialty + a diagnosis code, **no
+  clinical narrative**), so **not consent field-masked** (like a claim). **State machine** driven by the pure
+  `ReferralTransitions` policy (the 5th pure-policy exemplar after `RequestTransitions`/`ClaimTransitions`/
+  `ConsentPolicy`/`PriorAuthTransitions`): REQUESTED → APPROVED/DENIED (the **CARE_COORDINATOR**/ORG_ADMIN
+  decision — a decision stamps `decidedBy`/`decidedAt`; this deliberately differs from prior auth's CLAIMS_REVIEWER,
+  showing the pattern generalizes across roles) or CANCELLED (the requester roles PROVIDER-assigned/
+  CARE_COORDINATOR/ORG_ADMIN); APPROVED/DENIED/CANCELLED terminal, reason required to deny/cancel. Same check order
+  as the prior-auth machine (exists → legal move → role → reason → optimistic `expectedVersion`), status change + a
+  `referral_status_history` row in one tx (§31.6, null → REQUESTED on creation). Requesting validates the reason
+  (unknown/non-diagnosis → 400). **Honest MVP limitation:** no named target-provider (`to_provider_id`), no
+  SCHEDULED/COMPLETED steps, no expiry. Backend-only so far — the referral UI is a later slice),
   `devdata` (DevDataSeeder, local-only — also seeds the global `medical_code` catalog once, then a couple of
   synthetic `clinical_summary` rows per assigned patient, one sample DRAFT `claim` (header + two procedure
   lines + its null→DRAFT status-history row) for the first patient, and two `coverage_plan` rows per org (a PPO
@@ -307,8 +325,9 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   status-history row) for the first patient so a demo prior-auth queue returns something, and marks 99214 as
   requiring prior auth on the PPO (`plan_prior_auth_requirement`) so a demo 99214 claim adjudicates AUTH_REQUIRED
   until approved — deliberately NOT 99213/80053, which the accumulator/fee-schedule tests assert exact amounts for
-  on the seeded PPO; reference codes are
-  seeded before the orgs so the clinical-summary/claim→catalog FKs are satisfied).
+  on the seeded PPO, and requests one sample REQUESTED `referral` (to Cardiology, reason I10, + its null→REQUESTED
+  status-history row) for the first patient so a demo referral queue returns something; reference codes are
+  seeded before the orgs so the clinical-summary/claim/referral→catalog FKs are satisfied).
 - **Tenant-owned entity pattern (Phase 2+):** hold `organizationId` as the tenant key; repositories expose
   only org-scoped finders (`findByIdAndOrganizationId`, `findByOrganizationId…`) — no bare `findById` in
   business code; services derive the org from `UserContextAccessor.requireOrganizationId()`. `patient` is
