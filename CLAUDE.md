@@ -78,7 +78,7 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   Checks: `npm run typecheck`, `npm test` (Vitest), `npm run build`. Node runs from `openjdk@25`'s
   sibling `node@24` — use `export PATH="/opt/homebrew/opt/node@24/bin:$PATH"` in non-interactive shells.
 
-## Current implementation (Phase 1–4 COMPLETE; Phase 5 COMPLETE — slices 1–12 done; MVP (Phase 0–5) feature-complete, engine AND UI. Phase 6 (advanced claims) IN PROGRESS — slices 1–10 done: prior authorization, wired into adjudication, + prior-auth UI (queue/detail/decisions + request form) + plan-prior-auth-requirement admin card, + referrals (backend: care-coordination aggregate + decision lifecycle; + UI: queue/detail/decisions + request form), + appeals (backend: dispute a claim's decision + resolution lifecycle; + UI: queue/detail/decisions + submit form; + overturn wired into re-adjudication) — see docs/PROGRESS.md for status)
+## Current implementation (Phase 1–4 COMPLETE; Phase 5 COMPLETE — slices 1–12 done; MVP (Phase 0–5) feature-complete, engine AND UI. Phase 6 (advanced claims) IN PROGRESS — slices 1–11 done: prior authorization, wired into adjudication, + prior-auth UI (queue/detail/decisions + request form) + plan-prior-auth-requirement admin card, + referrals (backend: care-coordination aggregate + decision lifecycle; + UI: queue/detail/decisions + request form), + appeals (backend: dispute a claim's decision + resolution lifecycle; + UI: queue/detail/decisions + submit form; + overturn wired into re-adjudication), + claim anomaly signals (backend: a deterministic detector + reviewer scan) — see docs/PROGRESS.md for status)
 - **Backend packages** under `com.healthcloud`: `organization` (Organization, Facility, FacilityMembership),
   `identity` (AppUser, Role, OrganizationMembership, UserRole), `auth` (SecurityConfig, DevLoginController,
   CurrentUserController/Service, CsrfCookieFilter), `context` (UserContext + UserContextAccessor/Filter),
@@ -344,6 +344,25 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   **REJECTED** claim's overturn records the outcome only — re-opening a rejected claim (REJECTED is terminal on the
   claim machine) into the adjudication pipeline is a later slice; no UNDER_REVIEW step. The appeal UI
   (queue/detail/decisions + submit form) shipped in slice 9 (see `src/appeal/` under Frontend below)),
+  `anomaly` (Phase 6 slice 11 — claim anomaly signals: an advisory fraud/waste/abuse detection pass over a claim.
+  `POST /api/v1/claims/{id}/anomaly-scan` (run the detector) + `GET /api/v1/claims/{id}/anomalies` (read the
+  current signals) — nested under the claim it concerns, like adjudication. A scan is the **reviewer's** action
+  (CLAIMS_REVIEWER/ORG_ADMIN); the read is open to any same-tenant caller who can reach the claim. **Detection is
+  purely additive** — it never touches the claim status or the adjudication math. Tenant-owned + patient-gated via
+  the claim: every route routes through `PatientAccessGuard` (another tenant's / an unreachable claim → secure
+  404). The decisions live in the pure **`ClaimAnomalyDetector`** (no Spring/DB) — a pure-policy class of a new
+  **detector** shape (it emits a list of `DetectedSignal`s rather than gating a transition), with two deterministic,
+  explainable heuristics: **`DUPLICATE_CLAIM`** (HIGH — another claim for the same patient shares this claim's
+  service date and ≥1 procedure code) and **`HIGH_TOTAL_CHARGE`** (MEDIUM — the backend-computed total exceeds the
+  configurable `healthcloud.anomaly.high-total-charge-threshold`, default $5000; a synthetic demo heuristic, not a
+  measured fraud model). `ClaimAnomalyService` loads the surrounding facts (sibling claims for the patient, each
+  claim's line procedure codes) and applies the detector. Rows (`claim_anomaly_signal`) are **immutable** and carry
+  only claims-domain data (type + severity + a PHI-free `detail` naming other claim numbers / procedure codes) — no
+  clinical narrative, no patient identifiers — so **not consent field-masked**. A **rescan replaces** the claim's
+  signals (delete + insert in one tx), so scanning is **idempotent** (no `@Version`). **Honest MVP limitation:**
+  detection is a manual reviewer-triggered scan (no auto-trigger at submit/adjudicate yet) and there is no
+  anomaly-resolution/manual-review workflow yet (a later Phase-6 slice); backend-only (an Anomalies card + Scan
+  button on the claim detail page is a later slice)),
   `devdata` (DevDataSeeder, local-only — also seeds the global `medical_code` catalog once, then a couple of
   synthetic `clinical_summary` rows per assigned patient, one sample DRAFT `claim` (header + two procedure
   lines + its null→DRAFT status-history row) for the first patient, and two `coverage_plan` rows per org (a PPO
@@ -373,10 +392,11 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   `null → DRAFT` on creation). Child tables carry `organization_id` and FK-with-org back to the parent's
   `UNIQUE(id, organization_id)` so tenancy is structurally enforced. History is append-only; stamp the
   actor and `CorrelationId.current()` on each row. State-machine transitions are validated on the backend.
-- **Pure policy classes:** keep decision logic (state-machine transition tables, the consent evaluator) in a
-  pure, unit-testable class with no Spring/DB deps — the exemplars are `RequestTransitions` (§14.6 moves),
-  `ClaimTransitions`, `PriorAuthTransitions`, `ReferralTransitions`, `AppealTransitions` (the five state machines)
-  and `ConsentPolicy` (§22.5 consent+purpose); a thin service loads data and applies the policy.
+- **Pure policy classes:** keep decision logic (state-machine transition tables, the consent evaluator, the
+  anomaly detector) in a pure, unit-testable class with no Spring/DB deps — the exemplars are `RequestTransitions`
+  (§14.6 moves), `ClaimTransitions`, `PriorAuthTransitions`, `ReferralTransitions`, `AppealTransitions` (the five
+  state machines), `ConsentPolicy` (§22.5 consent+purpose), and `ClaimAnomalyDetector` (a **detector** — it emits
+  a list of findings rather than gating a transition); a thin service loads data and applies the policy.
 - **State machines:** with the transition table in a pure policy class (`RequestTransitions`, above), the
   service checks, in order, **exists → legal move → role → reason → version**, then
   updates status + appends history in one tx. An illegal move is `INVALID_STATE_TRANSITION` (409), distinct

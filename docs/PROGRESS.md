@@ -101,8 +101,16 @@
   immutable adjudication version under current coverage/config, in the **same transaction** as the overturn (§31.6)
   — so the appeal outcome actually moves the money. A **REJECTED** claim's overturn still records the outcome only
   (re-opening a terminal-REJECTED claim is a later slice). Backend-only, no new tables; closes the slice-8 deferred
-  limitation. **Next Phase-6 slices (not yet built, plan each first):** provider network, anomaly signals, manual
-  review, reprocessing.
+  limitation.
+  slice 11 ✅ — **claim anomaly signals**: a new `com.healthcloud.anomaly` package — an advisory fraud/waste/abuse
+  detection pass over a claim (`POST /api/v1/claims/{id}/anomaly-scan` + `GET .../anomalies`, nested under the
+  claim like adjudication). A reviewer (CLAIMS_REVIEWER/ORG_ADMIN) scans; the pure **`ClaimAnomalyDetector`** (a
+  new *detector*-shaped pure-policy class) applies two deterministic heuristics — `DUPLICATE_CLAIM` (same patient,
+  same service date, shared procedure) + `HIGH_TOTAL_CHARGE` (total over a configurable threshold). Signals
+  (`claim_anomaly_signal`, migration V30) are immutable + patient-gated via the claim; a rescan **replaces** them
+  so scanning is idempotent. **Additive** — never touches claim status or the adjudication math. Backend-only.
+  **Next Phase-6 slices (not yet built, plan each first):** provider network, manual review (an anomaly-resolution
+  workflow on top of these signals), reprocessing; + an anomaly UI (a Scan button + Anomalies card).
 - **Tooling:** HealthCloud-specific **`code-reviewer`** + **`security-reviewer`** subagents now live in
   `.claude/agents/` (read-only; project-aware checklists — tenant isolation, `PatientAccessGuard`, consent/masking,
   one-tx history, financial accumulators). Invoke by name in a fresh session (agent files load at startup).
@@ -182,6 +190,43 @@
   then `curl -b j.txt localhost:8080/api/v1/me`. Reset DB with `./scripts/db-reset.sh`.
 
 ## Log (newest first)
+
+### 2026-09-16 — Phase 6, slice 11 ✅ (claim anomaly signals — a deterministic detector + reviewer scan)
+- **Why:** the "anomaly signals" item on Phase 6's advanced-claims list (flag suspicious claims). A self-contained
+  slice that introduces a **new kind** of building block — a pure *detector* policy — without touching the claim
+  state machine or the money math. **Backend-only.**
+- **New package `com.healthcloud.anomaly`:** `AnomalySeverity` (LOW/MEDIUM/HIGH), `AnomalySignalType`
+  (DUPLICATE_CLAIM/HIGH_TOTAL_CHARGE), `ClaimAnomalySignal` (immutable entity — no `@Version`),
+  `ClaimAnomalySignalRepository` (org-scoped finders + a bulk delete-by-claim), `ClaimAnomalyDetector` (the pure
+  policy), `ClaimAnomalySignalDto`, `ClaimAnomalyService`, `ClaimAnomalyController`.
+- **`ClaimAnomalyDetector` (pure, no Spring/DB — the point of the slice):** given a `Subject` (the claim) + a
+  `Context` (its sibling claims + a threshold), returns `List<DetectedSignal>`. Two deterministic heuristics:
+  **DUPLICATE_CLAIM** (HIGH — a sibling claim for the same patient with the same service date sharing ≥1 procedure
+  code; one signal per matching sibling, naming it) and **HIGH_TOTAL_CHARGE** (MEDIUM — the backend-computed total
+  exceeds `healthcloud.anomaly.high-total-charge-threshold`, default **$5000**). A *detector*-shaped pure-policy
+  class — it emits findings rather than gating a transition. Honest: a synthetic demo heuristic, not a measured
+  fraud model.
+- **`ClaimAnomalyService`:** `scan(claimId)` — role gate **CLAIMS_REVIEWER/ORG_ADMIN**, load claim (patient-gated
+  → secure 404), gather sibling claims + line procedure codes, run the detector, **replace** the claim's signals
+  (delete + insert) in one `@Transactional` → **idempotent**. `list(claimId)` — patient-gated read. Detection is
+  **additive**: it never changes the claim's status or the adjudication result.
+- **API (nested under the claim, like adjudication):** `POST /api/v1/claims/{id}/anomaly-scan` (reviewer),
+  `GET /api/v1/claims/{id}/anomalies` (any same-tenant caller who can reach the claim).
+- **Migration V30 `claim_anomaly_signal`:** tenant-owned, FK-with-org to `claim(id, organization_id)` (§32.10),
+  a `severity` CHECK, PHI-free `detail`, index on `(organization_id, claim_id)`. No version column (rows replaced
+  wholesale). Config: `healthcloud.anomaly.high-total-charge-threshold: 5000.00` in application.yml.
+- **Tests (+10 → 343 backend, all green via `./mvnw -B clean verify`):** `ClaimAnomalyDetectorTest` (4, pure —
+  duplicate fires on same-date+shared-code; not on different date / disjoint codes; high-total fires strictly
+  above the threshold; clean claim → none). `ClaimAnomalyApiIntegrationTest` (6, RANDOM_PORT + real Postgres —
+  auth required; a scan flags a duplicate and it persists; **rescan is idempotent** (count stable); a high-total
+  claim is flagged; a coordinator can reach the claim but **cannot scan → 403** (reviewer's action); another
+  tenant's claim → **secure 404**). The per-resource cross-tenant test satisfies the "every new tenant-owned
+  resource" rule.
+- **Docs:** CLAUDE.md new `anomaly` blurb + Phase-6 header 1–10 → 1–11 + `ClaimAnomalyDetector` added to the
+  pure-policy convention (as a detector).
+- **Honest MVP limitation:** detection is a manual reviewer-triggered scan (no auto-trigger at submit/adjudicate);
+  no anomaly-resolution / manual-review workflow yet (a later slice builds on these signals); no UI yet (a Scan
+  button + Anomalies card on the claim detail page is a later frontend slice).
 
 ### 2026-09-16 — Phase 6, slice 10 ✅ (appeal overturn wired into re-adjudication)
 - **Why:** slice 8 shipped the appeal backend with a deliberate deferral — "an OVERTURNED appeal records the
