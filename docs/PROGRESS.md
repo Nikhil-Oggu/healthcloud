@@ -60,7 +60,10 @@
   audit trail. Never crosses tenants; expires automatically. slice 5 ✅ — **break-glass UI** (frontend): a PROVIDER who
   hits a patient's secure-404 gets an **emergency-access panel** (break the glass with a reason, id from the URL) in
   place of the error screen — on success the page reloads with access; plus an **Emergency access** page (`/break-glass`)
-  listing the provider's live grants. Next: access reviews, retention.
+  listing the provider's live grants. slice 6 ✅ — **access review of break-glass** (backend): an admin/auditor sees
+  every live grant in the tenant (`GET /api/v1/break-glass/all`, provider name resolved), and an admin can **revoke**
+  a grant early (`POST /api/v1/break-glass/{id}/revoke`) — access ends at once and a `BREAK_GLASS_REVOKED` event is
+  audited. Next: access-review UI, then retention.
 - **Phase 6 COMPLETE ✅ (advanced claims, slices 1–21):** all seven roadmap areas done — prior auth, referrals,
   appeals, anomaly signals, manual review, reprocessing, provider network. slice 1 ✅ — **prior authorization**: a top-level,
   patient-gated `prior_authorization` aggregate (request a planned procedure be pre-approved under a coverage
@@ -270,6 +273,32 @@
   then `curl -b j.txt localhost:8080/api/v1/me`. Reset DB with `./scripts/db-reset.sh`.
 
 ## Log (newest first)
+
+### 2026-09-16 — Phase 7, slice 6 ✅ (access review of break-glass — oversight + early revocation, backend)
+- **Why:** slice 4 left two gaps (flagged then): admins had no visibility of who holds emergency access, and a grant
+  could only expire, never be ended early. This slice closes both — the first "access review" capability, on the most
+  sensitive access. Backend-only.
+- **Migration `V39__break_glass_revocation.sql`:** add `revoked_at` + `revoked_by` to `break_glass_grant`. A grant is
+  now **live** only when `expires_at > now AND revoked_at IS NULL`.
+- **Entity/repo:** `BreakGlassGrant` gains `revoke(by)` + `isLive()` (revocation is the one allowed mutation). The
+  guard's finders gain `…AndRevokedAtIsNull` (so a revoked grant grants nothing immediately); new org-wide live-grants
+  finder + a tenant-scoped `findByIdAndOrganizationId`.
+- **Guard (`PatientAccessGuard`):** its two break-glass calls now use the revoked-excluding variants — an admin's
+  revocation cuts off access at once.
+- **`BreakGlassService`:** `listActiveForTenant()` (**AUDITOR/ORG_ADMIN**) returns every live grant in the tenant as a
+  `BreakGlassGrantAdminDto` with the **provider name resolved** (`AppUserRepository`); `revoke(grantId)`
+  (**ORG_ADMIN** only — an auditor is read-only) loads by `(id, org)` (cross-tenant → secure 404), 409s if the grant
+  isn't live, else stamps `revoked_at`/`revoked_by` + writes a `BREAK_GLASS_REVOKED` audit event in **one tx**.
+  `listMine()` also switched to the live-only finder.
+- **Audit:** new `AuditAction.BREAK_GLASS_REVOKED` (PHI-free detail: the grant id).
+- **Endpoints:** `GET /api/v1/break-glass/all` (oversight) + `POST /api/v1/break-glass/{id}/revoke` (revoke).
+- **Verify:** backend `./mvnw -B clean verify` green (411 → **416** tests; new `BreakGlassReviewApiIntegrationTest`, 5
+  cases — admin sees + revokes (provider loses access immediately, grant drops off the list, `BREAK_GLASS_REVOKED`
+  audited); list gated to auditor/admin (provider/coordinator 403); auditor cannot revoke (403); re-revoke 409;
+  cross-tenant revoke 404).
+- **Scope note:** the access-review capability is scoped to **break-glass** here (the sensitive, gap-closing part). It
+  will grow to cover standing provider/coordinator assignments and role memberships in later slices.
+- **Next:** Phase 7 — the access-review UI (an admin/auditor page of all live grants + a Revoke button), then retention.
 
 ### 2026-09-16 — Phase 7, slice 5 ✅ (break-glass UI — emergency-access panel + my-grants page, frontend)
 - **Why:** slice 4 built the break-glass backend. This puts it in front of the provider. Frontend-only.

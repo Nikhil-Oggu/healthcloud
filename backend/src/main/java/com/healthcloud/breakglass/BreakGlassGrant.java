@@ -16,10 +16,12 @@ import java.util.UUID;
  * {@code organizationId} and about a patient in the same organization. A live grant (now &lt; {@code expiresAt})
  * is consulted by {@code PatientAccessGuard} to let an otherwise-unassigned provider reach the patient.
  *
- * <p>Rows are <b>immutable</b>: a grant is created and simply expires (early revocation is a later refinement), so
- * there is no version column. The {@code reason} is the emergency justification kept for after-the-fact review; it
- * is NOT copied into the PHI-free audit-event detail (rule 5). Creating a grant also writes a BREAK_GLASS_INVOKED
- * audit event in the same transaction (§31.6).
+ * <p>A grant is append-only except for one allowed mutation — <b>early revocation</b> (§Phase 7 slice 6): an admin
+ * reviewing standing emergency access can end it before {@code expiresAt} by stamping {@code revokedAt}/{@code
+ * revokedBy}. A grant is <b>live</b> only when it is neither expired nor revoked (see {@link #isLive}); the access
+ * guard and every active-grant query filter on both. The {@code reason} is the emergency justification kept for
+ * after-the-fact review; it is NOT copied into the PHI-free audit-event detail (rule 5). Creating a grant writes a
+ * BREAK_GLASS_INVOKED audit event, and revoking one a BREAK_GLASS_REVOKED event, each in the same transaction (§31.6).
  */
 @Entity
 @Table(name = "break_glass_grant")
@@ -48,6 +50,13 @@ public class BreakGlassGrant {
     @Column(name = "expires_at", nullable = false, updatable = false)
     private OffsetDateTime expiresAt;
 
+    /** Set when an admin ends the grant early (null = not revoked). */
+    @Column(name = "revoked_at")
+    private OffsetDateTime revokedAt;
+
+    @Column(name = "revoked_by", columnDefinition = "uuid")
+    private UUID revokedBy;
+
     protected BreakGlassGrant() {
         // for JPA
     }
@@ -64,6 +73,17 @@ public class BreakGlassGrant {
     @PrePersist
     void onCreate() {
         this.createdAt = OffsetDateTime.now();
+    }
+
+    /** Whether the grant is currently in force: neither expired nor revoked. */
+    public boolean isLive() {
+        return revokedAt == null && expiresAt.isAfter(OffsetDateTime.now());
+    }
+
+    /** End the grant early (the one allowed mutation), stamping who revoked it and when. */
+    public void revoke(UUID revokedByUserId) {
+        this.revokedAt = OffsetDateTime.now();
+        this.revokedBy = revokedByUserId;
     }
 
     public UUID getId() {
@@ -92,5 +112,13 @@ public class BreakGlassGrant {
 
     public OffsetDateTime getExpiresAt() {
         return expiresAt;
+    }
+
+    public OffsetDateTime getRevokedAt() {
+        return revokedAt;
+    }
+
+    public UUID getRevokedBy() {
+        return revokedBy;
     }
 }

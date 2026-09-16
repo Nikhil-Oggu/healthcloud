@@ -14,5 +14,8 @@ public enum AuditAction {
     CONSENT_REVOKED,
 
     /** A provider broke the glass — a time-boxed emergency override of the relationship gate (§Phase 7). */
-    BREAK_GLASS_INVOKED
+    BREAK_GLASS_INVOKED,
+
+    /** An admin revoked a break-glass grant early during an access review (§Phase 7). */
+    BREAK_GLASS_REVOKED
 }

@@ -3,8 +3,10 @@ package com.healthcloud.breakglass;
 import jakarta.validation.Valid;
 import java.net.URI;
 import java.util.List;
+import java.util.UUID;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -36,5 +38,17 @@ public class BreakGlassController {
     @GetMapping
     public List<BreakGlassGrantDto> listMine() {
         return service.listMine();
+    }
+
+    /** Access review: every live grant in the tenant, across providers (AUDITOR/ORG_ADMIN). */
+    @GetMapping("/all")
+    public List<BreakGlassGrantAdminDto> listAll() {
+        return service.listActiveForTenant();
+    }
+
+    /** Revoke a grant early during a review (ORG_ADMIN) — access ends immediately and the revocation is audited. */
+    @PostMapping("/{grantId}/revoke")
+    public BreakGlassGrantAdminDto revoke(@PathVariable UUID grantId) {
+        return service.revoke(grantId);
     }
 }

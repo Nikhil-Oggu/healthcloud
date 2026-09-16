@@ -5,7 +5,9 @@ import com.healthcloud.audit.AuditOutcome;
 import com.healthcloud.audit.AuditService;
 import com.healthcloud.context.UserContext;
 import com.healthcloud.context.UserContextAccessor;
+import com.healthcloud.error.InvalidStateTransitionException;
 import com.healthcloud.error.NotFoundException;
+import com.healthcloud.identity.AppUserRepository;
 import com.healthcloud.patient.Patient;
 import com.healthcloud.patient.PatientRepository;
 import java.time.OffsetDateTime;
@@ -34,17 +36,25 @@ public class BreakGlassService {
     /** Only a PROVIDER breaks glass — the relationship-gated role. Broad roles already have access. */
     private static final String PROVIDER_ROLE = "PROVIDER";
 
+    /** Roles that may review standing emergency access (read). */
+    private static final String[] REVIEW_ROLES = {"AUDITOR", "ORG_ADMIN"};
+
+    /** Roles that may act on it (revoke a grant) — an administrative action; an auditor is read-only. */
+    private static final String[] REVOKE_ROLES = {"ORG_ADMIN"};
+
     private final BreakGlassGrantRepository grants;
     private final PatientRepository patients;
+    private final AppUserRepository appUsers;
     private final AuditService audit;
     private final UserContextAccessor userContext;
     private final long grantDurationMinutes;
 
-    public BreakGlassService(BreakGlassGrantRepository grants, PatientRepository patients, AuditService audit,
-                             UserContextAccessor userContext,
+    public BreakGlassService(BreakGlassGrantRepository grants, PatientRepository patients,
+                             AppUserRepository appUsers, AuditService audit, UserContextAccessor userContext,
                              @Value("${healthcloud.break-glass.grant-duration-minutes}") long grantDurationMinutes) {
         this.grants = grants;
         this.patients = patients;
+        this.appUsers = appUsers;
         this.audit = audit;
         this.userContext = userContext;
         this.grantDurationMinutes = grantDurationMinutes;
@@ -83,10 +93,56 @@ public class BreakGlassService {
         UserContext caller = userContext.requireUser();
         UUID organizationId = userContext.requireOrganizationId();
         return grants
-                .findByOrganizationIdAndAppUserIdAndExpiresAtAfterOrderByCreatedAtDesc(
+                .findByOrganizationIdAndAppUserIdAndExpiresAtAfterAndRevokedAtIsNullOrderByCreatedAtDesc(
                         organizationId, caller.userId(), OffsetDateTime.now())
                 .stream()
                 .map(BreakGlassGrantDto::from)
                 .toList();
+    }
+
+    /**
+     * The access-review oversight read (AUDITOR/ORG_ADMIN): every live break-glass grant in the tenant, across
+     * providers, with the acting provider's name resolved. A role-gated list → a disallowed role is a flat 403.
+     */
+    public List<BreakGlassGrantAdminDto> listActiveForTenant() {
+        userContext.requireAnyRole(REVIEW_ROLES);
+        UUID organizationId = userContext.requireOrganizationId();
+        return grants
+                .findByOrganizationIdAndExpiresAtAfterAndRevokedAtIsNullOrderByCreatedAtDesc(
+                        organizationId, OffsetDateTime.now())
+                .stream()
+                .map(g -> BreakGlassGrantAdminDto.from(g, providerName(g.getAppUserId())))
+                .toList();
+    }
+
+    /**
+     * Revoke a break-glass grant early during an access review (ORG_ADMIN). Ends access immediately (the guard's
+     * live checks exclude revoked grants) and records a BREAK_GLASS_REVOKED audit event, in one transaction.
+     * Tenant-scoped (another tenant's grant is a secure 404); a grant that is not live is a 409.
+     */
+    @Transactional
+    public BreakGlassGrantAdminDto revoke(UUID grantId) {
+        userContext.requireAnyRole(REVOKE_ROLES);
+        UserContext caller = userContext.requireUser();
+        UUID organizationId = userContext.requireOrganizationId();
+
+        BreakGlassGrant grant = grants.findByIdAndOrganizationId(grantId, organizationId)
+                .orElseThrow(NotFoundException::new);
+        if (!grant.isLive()) {
+            throw new InvalidStateTransitionException("This break-glass grant is not active and cannot be revoked.");
+        }
+
+        grant.revoke(caller.userId());
+        BreakGlassGrant saved = grants.saveAndFlush(grant);
+
+        audit.record(AuditAction.BREAK_GLASS_REVOKED, AuditService.RESOURCE_PATIENT, saved.getPatientId(),
+                AuditOutcome.SUCCESS, "Break-glass grant " + saved.getId() + " revoked");
+
+        return BreakGlassGrantAdminDto.from(saved, providerName(saved.getAppUserId()));
+    }
+
+    /** Resolve a provider's display name (best-effort; the id is already validated same-tenant at grant time). */
+    private String providerName(UUID appUserId) {
+        return appUsers.findById(appUserId).map(u -> u.getFullName()).orElse(null);
     }
 }

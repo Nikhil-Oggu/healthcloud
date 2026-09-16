@@ -156,14 +156,14 @@ public class PatientAccessGuard {
      * override of the relationship gate. An expired grant matches nothing (the query filters {@code expiresAt > now}).
      */
     private boolean hasActiveBreakGlass(UUID organizationId, UUID providerUserId, UUID patientId) {
-        return breakGlassGrants.existsByOrganizationIdAndAppUserIdAndPatientIdAndExpiresAtAfter(
+        return breakGlassGrants.existsByOrganizationIdAndAppUserIdAndPatientIdAndExpiresAtAfterAndRevokedAtIsNull(
                 organizationId, providerUserId, patientId, OffsetDateTime.now());
     }
 
     /** The patient ids a provider currently reaches under a live break-glass grant (for list scoping). */
     private Set<UUID> breakGlassPatientIdsFor(UUID organizationId, UUID providerUserId) {
         return breakGlassGrants
-                .findByOrganizationIdAndAppUserIdAndExpiresAtAfterOrderByCreatedAtDesc(
+                .findByOrganizationIdAndAppUserIdAndExpiresAtAfterAndRevokedAtIsNullOrderByCreatedAtDesc(
                         organizationId, providerUserId, OffsetDateTime.now())
                 .stream()
                 .map(BreakGlassGrant::getPatientId)
