@@ -78,9 +78,13 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   Checks: `npm run typecheck`, `npm test` (Vitest), `npm run build`. Node runs from `openjdk@25`'s
   sibling `node@24` — use `export PATH="/opt/homebrew/opt/node@24/bin:$PATH"` in non-interactive shells.
 
-## Current implementation (Phase 1–4 COMPLETE; Phase 5 COMPLETE — slices 1–12 done; MVP (Phase 0–5) feature-complete, engine AND UI. Phase 6 (advanced claims) IN PROGRESS — slices 1–19 done: prior authorization, wired into adjudication, + prior-auth UI (queue/detail/decisions + request form) + plan-prior-auth-requirement admin card, + referrals (backend: care-coordination aggregate + decision lifecycle; + UI: queue/detail/decisions + request form), + appeals (backend: dispute a claim's decision + resolution lifecycle; + UI: queue/detail/decisions + submit form; + overturn wired into re-adjudication), + claim anomaly signals (backend: a deterministic detector + reviewer scan; + UI: Anomalies card + Scan button on the claim detail page), + claim manual review (backend: open/resolve/cancel a review case on a claim; + UI: queue/detail/decisions + open form), + reprocessing (backend: batch re-adjudication of a coverage plan's claims after a config change; + UI: batch queue/detail + Run form), + provider network (backend: plan network config + a rendering provider on the claim + the engine marks a covered line OUT_OF_NETWORK when its rendering provider is outside the covering plan's network; + UI: plan network admin card + the OUT_OF_NETWORK line chip — the rendering-provider picker on claim create is the remaining piece) — see docs/PROGRESS.md for status)
+## Current implementation (Phase 1–4 COMPLETE; Phase 5 COMPLETE — slices 1–12 done; MVP (Phase 0–5) feature-complete, engine AND UI. Phase 6 (advanced claims) IN PROGRESS — slices 1–21 done: prior authorization, wired into adjudication, + prior-auth UI (queue/detail/decisions + request form) + plan-prior-auth-requirement admin card, + referrals (backend: care-coordination aggregate + decision lifecycle; + UI: queue/detail/decisions + request form), + appeals (backend: dispute a claim's decision + resolution lifecycle; + UI: queue/detail/decisions + submit form; + overturn wired into re-adjudication), + claim anomaly signals (backend: a deterministic detector + reviewer scan; + UI: Anomalies card + Scan button on the claim detail page), + claim manual review (backend: open/resolve/cancel a review case on a claim; + UI: queue/detail/decisions + open form), + reprocessing (backend: batch re-adjudication of a coverage plan's claims after a config change; + UI: batch queue/detail + Run form), + provider network (backend: plan network config + a rendering provider on the claim + the engine marks a covered line OUT_OF_NETWORK when its rendering provider is outside the covering plan's network; + UI: plan network admin card + the OUT_OF_NETWORK line chip + the rendering-provider picker on claim create, backed by a GET /api/v1/providers directory read) — this completes Phase 6's advanced-claims areas; see docs/PROGRESS.md for status)
 - **Backend packages** under `com.healthcloud`: `organization` (Organization, Facility, FacilityMembership),
-  `identity` (AppUser, Role, OrganizationMembership, UserRole), `auth` (SecurityConfig, DevLoginController,
+  `identity` (AppUser, Role, OrganizationMembership, UserRole; plus the **provider directory** read
+  `GET /api/v1/providers` — `ProviderController`/`ProviderDirectoryService` list the caller's tenant's active
+  PROVIDERs as `ProviderDto{userId, fullName}`, gated to the claim-create roles PROVIDER/CARE_COORDINATOR/ORG_ADMIN
+  so a PATIENT/CLAIMS_REVIEWER can't enumerate staff; read-only over existing tables, no migration — Phase 6
+  slice 21, it backs the rendering-provider picker on claim create), `auth` (SecurityConfig, DevLoginController,
   CurrentUserController/Service, CsrfCookieFilter), `context` (UserContext + UserContextAccessor/Filter),
   `error` (ApiError, ErrorCode, GlobalExceptionHandler, CorrelationId), `patient` (Patient CRUD:
   `GET/POST /api/v1/patients`, `GET/PATCH /api/v1/patients/{id}`, tenant-scoped → secure 404 cross-tenant;
@@ -168,9 +172,11 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   optional header-level `renderingProviderId` (the PROVIDER who rendered the service) — nullable, set at creation,
   and when supplied validated as an **active same-tenant PROVIDER** (else 400) via the identity repos, exactly as
   the assignment/network tables do (this is the 3rd copy of that check — a future cleanup can extract a shared
-  provider validator). Exposed as a raw id on `ClaimDto`/`ClaimSummaryDto` (like `createdBy`; the UI resolves the
-  name). The adjudication engine reads it against the covering plan's network to mark OUT_OF_NETWORK lines (a
-  later slice); one rendering provider per claim (per-line is a later refinement). **State machine
+  provider validator — now the 4th copy counting the slice-21 directory read). Exposed as a raw id on
+  `ClaimDto`/`ClaimSummaryDto` (like `createdBy`; the UI resolves the name via the `GET /api/v1/providers` directory,
+  and it is chosen on claim create through a rendering-provider picker — slice 21). The adjudication engine reads it
+  against the covering plan's network to mark OUT_OF_NETWORK lines (slice 19); one rendering provider per claim
+  (per-line is a later refinement). **State machine
   (§Phase 4 submission/validation):** `PATCH /api/v1/claims/{id}/status`
   + `GET /api/v1/claims/{id}/history`, driven by the pure `ClaimTransitions` policy class (mirrors
   `RequestTransitions`): DRAFT→SUBMITTED→{ACCEPTED,REJECTED}, plus CANCELLED; the submitter roles
@@ -616,8 +622,12 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   service date (≤ today, mirroring the backend `@PastOrPresent`), and a `useFieldArray` of lines each with a
   reusable **`MedicalCodePicker`** (an MUI Autocomplete, freeSolo + debounced, searching the catalog via
   `GET /api/v1/medical-codes` filtered to PROCEDURE codes) + units + charge; on create it navigates to the new
-  claim. The coverage-plan/exclusions/fee-schedule/eligibility admin UIs shipped in later slices — see
-  `src/coverage/` next), and
+  claim. **Slice 21** added an optional **Rendering provider** select to this form (a native `<select>` from
+  `useProviders` → `GET /api/v1/providers`; blank → omitted) so an out-of-network claim is producible end-to-end in
+  the browser, and the **claim detail page** shows "rendered by <name>" — resolved via `useProviders`, which is
+  **role-gated** (an `enabled` flag off `DIRECTORY_ROLES`, so a PATIENT/CLAIMS_REVIEWER viewer doesn't fire the
+  gated directory read). The coverage-plan/exclusions/fee-schedule/eligibility admin UIs shipped in later slices —
+  see `src/coverage/` next), and
   `src/coverage/` (Phase 5 slice 7 — the **coverage admin UI**: a plans list `coverage-plans` with a New-plan
   form (ORG_ADMIN; reads open to same-tenant staff), and a plan **detail** `coverage-plans/:id` with an
   **Exclusions card** — add via the reusable `MedicalCodePicker` / remove, ORG_ADMIN — reusing the slice-6 picker,
