@@ -1,0 +1,21 @@
+# Keep the Docker build context small and safe. Anything matched here is NOT sent to the
+# Docker daemon, so it can't bloat the build or leak into the image (Phase 10, slice 1).
+
+# Maven build output — the image builds the jar itself inside the build stage.
+target/
+
+# Local runtime data written by the app (document bytes for the filesystem storage stand-in).
+# Never ship local data into an image.
+var/
+
+# Version control + IDE/editor noise.
+.git/
+.gitignore
+*.iml
+.idea/
+.vscode/
+.DS_Store
+
+# Docs that live next to the module but aren't needed to build it.
+HELP.md
+README.md

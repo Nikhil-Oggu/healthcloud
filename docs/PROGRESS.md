@@ -4,8 +4,9 @@
 > exists, or manually). Read this + `CLAUDE.md` + `docs/PLAN.md` at the start of every session.
 
 ## Current position
-- **Status:** Phases 0–9 COMPLETE ✅ · **Phase 9 COMPLETE ✅** — search / reporting / accessibility (pagination + free-text search across all eight queues, CSV export with masking, WCAG 2.2 AA-aligned accessibility pass). Slice 1 ✅ (server-side pagination + filtering, backend + reusable `common` foundation) · slice 2 ✅ (paged claims work-queue UI) · slice 3 ✅ (paged prior-authorizations queue) · slice 4 ✅ (paged referrals + appeals + claim-reviews queues) · slice 5 ✅ (paged reprocessing + audit + dead-letter queues — **every work queue is now paginated**) · slice 6 ✅ (free-text search on the claims queue — backend `SearchTerms` foundation + `q` param + debounced search box) · slice 7 ✅ (free-text search rolled out to the five other numbered queues — prior-auth, referrals, appeals, claim-reviews, reprocessing) · slice 8 ✅ (free-text search on the last two queues — audit + dead-letters — so **all eight work queues are searchable**) · slice 9 ✅ (**CSV export with masking** — reusable `common.Csv` formatter + `GET /api/v1/patients/export.csv` reusing the field-masked list read + an Export CSV button) · slice 10 ✅ (**WCAG 2.2 AA-aligned accessibility pass** — axe-core test gate + app-shell skip link/nav landmark/heading semantics via a shared `PageHeading`; **Phase 9 COMPLETE**). The MVP (Phases 0–5) is feature-complete — engine AND UI.
+- **Status:** Phases 0–9 COMPLETE ✅ · **Phase 10 IN PROGRESS** (cloud deployment & CI/CD) — slice 1 ✅ **containerize the backend** (multi-stage `Dockerfile` → the jar on a slim JRE as non-root `spring`, `/actuator/health` HEALTHCHECK; opt-in `backend` service in docker-compose behind the `full` profile; the artifact ECS Fargate will run — local-only, zero AWS/cost; verified: image builds, container boots against Postgres with health UP, runs non-root). · **Phase 9 COMPLETE ✅** — search / reporting / accessibility (pagination + free-text search across all eight queues, CSV export with masking, WCAG 2.2 AA-aligned accessibility pass). Slice 1 ✅ (server-side pagination + filtering, backend + reusable `common` foundation) · slice 2 ✅ (paged claims work-queue UI) · slice 3 ✅ (paged prior-authorizations queue) · slice 4 ✅ (paged referrals + appeals + claim-reviews queues) · slice 5 ✅ (paged reprocessing + audit + dead-letter queues — **every work queue is now paginated**) · slice 6 ✅ (free-text search on the claims queue — backend `SearchTerms` foundation + `q` param + debounced search box) · slice 7 ✅ (free-text search rolled out to the five other numbered queues — prior-auth, referrals, appeals, claim-reviews, reprocessing) · slice 8 ✅ (free-text search on the last two queues — audit + dead-letters — so **all eight work queues are searchable**) · slice 9 ✅ (**CSV export with masking** — reusable `common.Csv` formatter + `GET /api/v1/patients/export.csv` reusing the field-masked list read + an Export CSV button) · slice 10 ✅ (**WCAG 2.2 AA-aligned accessibility pass** — axe-core test gate + app-shell skip link/nav landmark/heading semantics via a shared `PageHeading`; **Phase 9 COMPLETE**). The MVP (Phases 0–5) is feature-complete — engine AND UI.
 - **At a glance** (newest first; the detailed per-phase bullets and the dated log below carry the full record):
+  - **Phase 10 (in progress)** Cloud deployment & CI/CD — slice 1 ✅ **containerize the backend**: a multi-stage `backend/Dockerfile` (build the jar on JDK 25, run on a slim JRE as a non-root `spring` user, `/actuator/health` HEALTHCHECK) + `backend/.dockerignore` + an opt-in `backend` service in `docker-compose.yml` behind the `full` profile (everyday `up -d postgres kafka` unchanged), wired to the Postgres container. The artifact AWS ECS Fargate will run later — **local-only, zero AWS/cost**. Verified: `docker build` packages the jar (tests skipped in-image — they need Testcontainers and gate in CI), then the container boots against Postgres with health UP (db connected), runs as non-root, default Spring profile (production shape). Outbox relay disabled for the containerized run (cross-container Kafka is a later slice).
   - **Phase 9 ✅** Search / reporting / accessibility — slice 1 ✅ server-side pagination + filtering (`PageResponse<T>` + `PageRequests` sort-allowlist; claims queue paged in SQL) · slice 2 ✅ paged claims-queue UI (MUI pagination + sortable columns + status filter) · slice 3 ✅ prior-authorizations queue paged · slice 4 ✅ referrals + appeals + claim-reviews queues paged (patient-gated family complete) · slice 5 ✅ reprocessing + audit + dead-letter queues paged — **every work queue is now paginated** (audit also gained a server-side action filter + real paging in place of its 200-row cap) · slice 6 ✅ **free-text search** on the claims queue (reusable `SearchTerms` LIKE-escape helper + a `q` param matching the PHI-free claim number in SQL + a debounced search box) · slice 7 ✅ **free-text search across the five other numbered queues** (prior-auth/referrals/appeals/claim-reviews/reprocessing, each by its own business number) · slice 8 ✅ **free-text search on audit + dead-letters** (by their id fields — **all eight work queues now searchable**; Phase 9 search COMPLETE) · slice 9 ✅ **CSV export with masking** (reusable `common.Csv` formatter — RFC 4180 + formula-injection defusing — and `patients/export.csv` that reuses the field-masked list read so a masked DOB exports blank; Export CSV button on the patients page — the "field-masking meets data export" proof) · slice 10 ✅ **WCAG 2.2 AA-aligned accessibility pass** (axe-core test gate `expectNoAxeViolations`; app-shell skip link + `<nav>` landmark + brand-not-heading; a shared `PageHeading` gives every route one `<h1>`; verified in-browser). **Phase 9 COMPLETE ✅.**
   - **Phase 8 ✅** Event-driven — transactional outbox → relay → Kafka → idempotent consumer → retry/DLT → drain → inspect → replay (+ ops UI).
   - **Phase 7 ✅** Advanced security/governance — audit log, per-org HMAC tamper-evident chain, break-glass emergency access, access review, data retention.
@@ -452,6 +453,42 @@
   then `curl -b j.txt localhost:8080/api/v1/me`. Reset DB with `./scripts/db-reset.sh`.
 
 ## Log (newest first)
+
+### 2026-09-17 — Phase 10, slice 1 ✅ (containerize the backend — a production container image, verified locally)
+- **Why:** Phase 10 is cloud deployment (Terraform, ECS Fargate, RDS, S3/CloudFront, Cognito, MSK). Two constraints
+  shape the first slice: (1) no AWS account yet + the phase is deliberately cost-aware/on-demand, and (2) ECS Fargate
+  runs **container images**, not JARs — and the repo had **no Dockerfile anywhere** (the app only ran via `mvnw`).
+  So the true first dependency is a production-grade image of the backend: 100% local, 100% free, fully verifiable
+  with Docker. Everything AWS later just *runs this image*.
+- **`backend/Dockerfile` (multi-stage):** stage 1 = full JDK 25 (Temurin), copies `mvnw`/`.mvn`/`pom.xml` first and
+  runs `dependency:go-offline` (so deps cache in a layer and source-only changes rebuild fast), then packages the jar
+  with **`-DskipTests`** — the suite uses Testcontainers (a real Postgres via Docker), which doesn't belong in an
+  image build, and tests already gate in CI. Stage 2 = slim **JRE** (smaller + smaller attack surface): adds `curl`
+  for the healthcheck, creates a **non-root `spring` user**, copies just the jar, `EXPOSE 8080`, a
+  `HEALTHCHECK` on `/actuator/health` (the same signal AWS's load balancer will use), and a `JAVA_OPTS` env hook.
+  `exec java … -jar` so the JVM is PID 1 and receives stop signals.
+- **`backend/.dockerignore`:** excludes `target/`, `var/` (local document bytes — never ship local data), `.git`,
+  IDE files — keeps the build context small and safe.
+- **`docker-compose.yml`:** an opt-in **`backend`** service behind the **`full` profile** (so everyday
+  `docker compose up -d postgres kafka` is completely unchanged), `build: ./backend`, `depends_on` postgres
+  **healthy**, talking to the `postgres` container over the compose network
+  (`jdbc:postgresql://postgres:5432/healthcloud`). Runs with the **default** Spring profile (production shape —
+  Flyway migrates, but **no demo seed / dev-login**; add `SPRING_PROFILES_ACTIVE: local` to seed). Outbox relay
+  **disabled** here (`HEALTHCLOUD_OUTBOX_RELAY_ENABLED=false`) — cross-container Kafka networking is a later slice,
+  and the app makes no broker connection at startup anyway.
+- **Verified locally:** `docker build -t healthcloud-backend:local ./backend` succeeds (packages
+  `healthcloud-0.0.1-SNAPSHOT.jar`); **image size 823 MB** (measured — a layered-jar / smaller-base optimization is a
+  documented follow-up). `docker compose --profile full up -d postgres backend` → `curl localhost:8080/actuator/health`
+  returns `status: UP` with `db: UP` (connected to the Postgres container); logs show `Tomcat started on port 8080`
+  and `Started HealthcloudApplication` as PID 1; `docker exec … whoami` → `spring` (non-root). Torn down after.
+- **Honest scope:** local-only — **no AWS, no Terraform, no cost** this slice; **no new unit tests** (infra — its
+  proof is the reproducible build + the live health probe). Not the frontend image, not CI image-publish to a
+  registry (a natural slice 2), not Kafka-in-a-container.
+- **Files:** `backend/Dockerfile` (new), `backend/.dockerignore` (new), `docker-compose.yml`, `backend/README.md`,
+  `CLAUDE.md`, `docs/PROGRESS.md`.
+- **Next candidates:** build + publish the image in CI to a registry (GHCR); a frontend static image (nginx) or
+  S3/CloudFront plan; then the Terraform skeleton (provider + remote state, no resources applied) — still zero-cost
+  until we deliberately `apply`.
 
 ### 2026-09-17 — Phase 9, slice 10 ✅ (WCAG 2.2 AA-aligned accessibility pass — axe gate + shell + headings, frontend)
 - **Why:** the last Phase 9 area — accessibility. Rather than a one-off cleanup, this establishes an **automated

@@ -1,13 +1,15 @@
 # HealthCloud — local development stack
 #
 # PostgreSQL (Phase 1) + Kafka in KRaft mode (Phase 8 — the transactional-outbox
-# relay publishes integration events here). The Spring Boot app is run locally
-# with `./mvnw spring-boot:run` during development (fast restarts). Later phases
-# add mailpit (email testing) and a fake malware scanner; the backend is
-# containerized in Phase 10 (cloud). Integration tests use Testcontainers, not
-# this compose stack, so tests do not need these services running.
+# relay publishes integration events here). During day-to-day development the Spring
+# Boot app is run locally with `./mvnw spring-boot:run` (fast restarts); the `backend`
+# service below (Phase 10, slice 1) runs the app as its production CONTAINER image
+# instead — the same artifact AWS ECS Fargate will run later. It is opt-in behind the
+# `full` compose profile so the default `up` command is unchanged. Integration tests use
+# Testcontainers, not this compose stack, so tests do not need these services running.
 #
-# Usage:  docker compose up -d postgres kafka
+# Usage:  docker compose up -d postgres kafka            (everyday local dev — app via mvnw)
+#         docker compose --profile full up -d postgres backend   (run the backend container)
 #         docker compose ps
 #         docker compose down          (add -v to also delete the data volume)
 
@@ -54,6 +56,33 @@ services:
       interval: 10s
       timeout: 10s
       retries: 10
+
+  # The backend as its production container image (Phase 10, slice 1). Opt-in via the `full`
+  # profile so `docker compose up -d postgres kafka` (everyday dev) is unaffected. It talks to
+  # the `postgres` service over the compose network and waits for it to be healthy first.
+  #
+  # This slice runs with the DEFAULT Spring profile (production shape): Flyway migrates and the
+  # app serves /actuator/health, but there is no demo seed and no dev-login (those are the
+  # `local` profile). To get the seeded, clickable app instead, add
+  # `SPRING_PROFILES_ACTIVE: local` to the environment below. The outbox relay is disabled here
+  # because cross-container Kafka networking is a later slice's concern; the app makes no broker
+  # connection at startup regardless.
+  backend:
+    build: ./backend
+    image: healthcloud-backend:local
+    container_name: healthcloud-backend
+    profiles: ["full"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/healthcloud
+      HEALTHCLOUD_DB_USER: ${HEALTHCLOUD_DB_USER:-healthcloud}
+      HEALTHCLOUD_DB_PASSWORD: ${HEALTHCLOUD_DB_PASSWORD:-healthcloud}
+      HEALTHCLOUD_AUDIT_HMAC_SECRET: ${HEALTHCLOUD_AUDIT_HMAC_SECRET:-dev-only-audit-hmac-secret-change-me}
+      HEALTHCLOUD_OUTBOX_RELAY_ENABLED: "false"
+    ports:
+      - "8080:8080"
 
 volumes:
   healthcloud-pgdata:
