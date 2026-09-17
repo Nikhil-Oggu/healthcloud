@@ -863,3 +863,24 @@ export interface BreakGlassGrantAdmin {
   createdAt: string
   expiresAt: string
 }
+
+// --- Dead-letter inspection + replay (§Phase 8) ---
+
+/**
+ * One dead-lettered message drained into the store (mirrors DeadLetterEventDto). PHI-free operational metadata:
+ * the original topic/key/payload, the outbox event id, the failure (class + message), and the one-way replay stamp
+ * (replayedAt/replayedBy — null until an admin re-drives it). ORG_ADMIN only.
+ */
+export interface DeadLetterEvent {
+  id: string
+  organizationId: string | null
+  sourceTopic: string
+  messageKey: string | null
+  payload: string
+  eventId: string | null
+  exceptionType: string
+  exceptionMessage: string | null
+  createdAt: string
+  replayedAt: string | null
+  replayedBy: string | null
+}

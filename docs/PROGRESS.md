@@ -127,10 +127,21 @@
   already-replayed record is a 409; the action is ORG_ADMIN-gated (403 otherwise). Verified against a real broker
   (`DeadLetterReplayApiIntegrationTest`: a seeded valid-payload record → replay → the consumer records a
   notification + the record is stamped + a second replay is 409 + a `DEAD_LETTER_REPLAYED` audit event exists; a
-  coordinator gets 403; another tenant's admin gets 404). **Honest limitations:** backend-only (no dead-letter UI
-  yet); records with a null `organizationId` aren't replayable by a tenant admin; `eventType`/`aggregateType`/
-  `correlationId` weren't captured at drain time so they aren't restored (not needed by the current consumer).
-  **Next:** the Phase 8 dead-letter/replay UI, or move on to Phase 9.
+  coordinator gets 403; another tenant's admin gets 404). **Honest limitations:** records with a null
+  `organizationId` aren't replayable by a tenant admin; `eventType`/`aggregateType`/`correlationId` weren't captured
+  at drain time so they aren't restored (not needed by the current consumer).
+  slice 7 ✅ — **dead-letter / replay UI** (frontend): a **Dead letters** page (`/dead-letters`, `src/deadletter/`)
+  — a table of the tenant's dead-lettered messages (When · Source topic · Event ID · Failure · Payload · Status) via
+  `useDeadLetterEvents` → `GET /api/v1/dead-letter-events`, with a **Replay** button (inline Confirm/Cancel, mirroring
+  the Access-review Revoke) on an un-replayed record → `useReplayDeadLetter` → `POST .../{id}/replay` (invalidates the
+  list so the row flips to a green **Replayed** chip); a replayed record shows the chip, no button. A **Dead letters**
+  nav button gated to **ORG_ADMIN** (matching the backend list gate — narrower than the AUDITOR+ORG_ADMIN audit/
+  access-review nav, so an auditor never lands on a 403 page). Verified by Vitest (`DeadLetterEventsPage.test.tsx`:
+  lists rows + marks the replayed one; Replay→Confirm calls the API with the id) + typecheck + build; no live browser
+  demo (no demo seed for poison messages, and the page is admin-gated). **Honest limitations:** ORG_ADMIN-only; no
+  pagination/filtering yet (a Phase-9 concern); null-org records never appear (backend limitation carried over).
+  **Phase 8 event-driven backend + ops UI COMPLETE ✅** (outbox → relay → Kafka → idempotent consumer → retry/DLT →
+  drain → inspect → replay → UI). **Next:** Phase 9 (search/reporting/accessibility).
 - **Phase 6 COMPLETE ✅ (advanced claims, slices 1–21):** all seven roadmap areas done — prior auth, referrals,
   appeals, anomaly signals, manual review, reprocessing, provider network. slice 1 ✅ — **prior authorization**: a top-level,
   patient-gated `prior_authorization` aggregate (request a planned procedure be pre-approved under a coverage

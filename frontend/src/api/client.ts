@@ -15,6 +15,7 @@ import type {
   BreakGlassGrant,
   BreakGlassGrantAdmin,
   CreateBreakGlassRequest,
+  DeadLetterEvent,
   Claim,
   ClaimStatusChange,
   ClaimStatusHistory,
@@ -513,6 +514,12 @@ export const api = {
 
   revokeBreakGlass: (id: string) =>
     request<BreakGlassGrantAdmin>(`/api/v1/break-glass/${id}/revoke`, { method: 'POST' }),
+
+  // --- Dead-letter inspection + replay (§Phase 8) ---
+  listDeadLetterEvents: () => request<DeadLetterEvent[]>('/api/v1/dead-letter-events'),
+
+  replayDeadLetterEvent: (id: string) =>
+    request<DeadLetterEvent>(`/api/v1/dead-letter-events/${id}/replay`, { method: 'POST' }),
 
   // --- Coverage plans + exclusions (§Phase 4/5) ---
   listCoveragePlans: () => request<CoveragePlan[]>('/api/v1/coverage-plans'),

@@ -24,6 +24,7 @@ import { ReprocessingBatchDetailPage } from './reprocessing/ReprocessingBatchDet
 import { AuditEventsPage } from './audit/AuditEventsPage'
 import { MyBreakGlassPage } from './breakglass/MyBreakGlassPage'
 import { AccessReviewPage } from './breakglass/AccessReviewPage'
+import { DeadLetterEventsPage } from './deadletter/DeadLetterEventsPage'
 import { DeniedPage } from './pages/DeniedPage'
 import { NotFoundPage } from './pages/NotFoundPage'
 
@@ -59,6 +60,7 @@ const router = createBrowserRouter([
       { path: 'audit', element: <AuditEventsPage /> },
       { path: 'break-glass', element: <MyBreakGlassPage /> },
       { path: 'access-review', element: <AccessReviewPage /> },
+      { path: 'dead-letters', element: <DeadLetterEventsPage /> },
       { path: 'denied', element: <DeniedPage /> },
     ],
   },

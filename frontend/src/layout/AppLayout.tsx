@@ -106,6 +106,11 @@ export function AppLayout() {
                 Access review
               </Button>
             )}
+            {roles.includes('ORG_ADMIN') && (
+              <Button color="inherit" onClick={() => navigate('/dead-letters')}>
+                Dead letters
+              </Button>
+            )}
             {roles.includes('PROVIDER') && (
               <Button color="inherit" onClick={() => navigate('/break-glass')}>
                 Emergency access
