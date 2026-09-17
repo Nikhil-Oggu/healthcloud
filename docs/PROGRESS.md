@@ -43,7 +43,7 @@
   16 ✅ documents UI — a Documents card on the patient detail page: upload, list with scan-status chips, and
   download of CLEAN files; the §19 loop is now visible end-to-end in the browser)**
 - **Repo:** https://github.com/Nikhil-Oggu/healthcloud (private, branch `main`)
-- **Phase 7 IN PROGRESS 🚧 (advanced security/governance):** slice 1 ✅ — **security audit event log** (the
+- **Phase 7 COMPLETE ✅ (advanced security/governance):** slice 1 ✅ — **security audit event log** (the
   audit-trail foundation): a tenant-owned, append-only, immutable `audit_event` + `AuditService.record(...)` written
   inside the domain action's own transaction (§31.6), wired into adjudication (`CLAIM_ADJUDICATED`) + consent revoke
   (`CONSENT_REVOKED`); a role-gated read `GET /api/v1/audit-events` (AUDITOR/ORG_ADMIN); the long-unused AUDITOR role
@@ -72,7 +72,7 @@
   `BREAK_GLASS_INVOKED`/`REVOKED` events are permanent — never purged, that would break the hash chain), and the
   purge itself is audited as a `RETENTION_PURGED` event in the same transaction (§31.6). Tenant-scoped; a live or
   recently-expired grant is never touched. Manual trigger (a scheduled purge is Phase 8). **Phase 7 COMPLETE ✅.**
-- **Phase 8 IN PROGRESS 🚧 (event-driven architecture):** slice 1 ✅ — **transactional outbox foundation**
+- **Phase 8 COMPLETE ✅ (event-driven architecture):** slice 1 ✅ — **transactional outbox foundation**
   (backend, no Kafka yet): the answer to the dual-write problem (a Kafka publish can't join a DB transaction). A
   new `outbox_event` table (V40) + `com.healthcloud.outbox` package — `OutboxService.record(aggregateType,
   aggregateId, eventType, payload)` writes an integration event from **inside the domain action's own transaction**
