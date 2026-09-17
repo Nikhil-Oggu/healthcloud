@@ -4,44 +4,17 @@
 > exists, or manually). Read this + `CLAUDE.md` + `docs/PLAN.md` at the start of every session.
 
 ## Current position
-- **Phase:** 0 ✅ · Environment ✅ · Phase 1 COMPLETE ✅ · Phase 2 COMPLETE ✅ (slices 1–8) ·
-  **Phase 4 COMPLETE ✅ (slice 1 ✅ medical code catalog — the global ICD-10/HCPCS/CPT vocabulary that
-  clinical summaries & claim lines reference; read-only, authenticated, not tenant-scoped ·
-  slice 2 ✅ clinical summaries — patient-scoped clinical notes pointing at an ICD-10-CM diagnosis; reuses the
-  `PatientAccessGuard` gate + consent field masking on the free-text narrative, coded diagnosis stays visible
-  → the first half of the §60 proof ·
-  slice 3 ✅ claims intake — the claim header + claim lines aggregate (lines bill CPT/HCPCS procedure codes from
-  the catalog; backend-computed total; top-level `/api/v1/claims` gated by patient → reviewer work queue);
-  created in DRAFT, no clinical narrative on a claim → the §60 reviewer half ·
-  slice 4 ✅ claim submission/validation state machine — `ClaimTransitions` pure policy + `claim_status_history`;
-  DRAFT→SUBMITTED→{ACCEPTED,REJECTED}/CANCELLED, submit-validation, optimistic-locked, one-tx history; the
-  CLAIMS_REVIEWER's accept/reject is their first write action ·
-  slice 5 ✅ coverage plan foundation — the org's benefit plans (deductible/coinsurance/copay/OOP-max, plan type);
-  tenant-owned but NOT patient-scoped (admin-gated create, no relationship gate); the parameters Phase-5
-  adjudication will apply ·
-  slice 6 ✅ patient eligibility — a patient's enrollment in a coverage plan for an effective-dated,
-  non-overlapping period; patient-scoped (reuses `PatientAccessGuard`), FKs the plan; `findCovering(date)` is the
-  hook Phase-5 adjudication walks. **Phase 4 foundations complete → next is Phase 5 (adjudication engine)**)** ·
-  **Phase 3 COMPLETE ✅ (slice 1 ✅ consent lifecycle · 2 ✅ decision engine §22.5 · 3 ✅ field masking §23 ·
-  4 ✅ provider↔patient record §14.3 · 5 ✅ object/relationship gate on patient reads §21 layer 6 ·
-  6 ✅ gate applied to the patient-nested endpoints — single `PatientAccessGuard` choke point ·
-  7 ✅ care_coordinator_assignment record §14.3 — the other half of the care team ·
-  8 ✅ CARE_TEAM consent scope wired — the §22.5 engine is now complete across all three tiers ·
-  9 ✅ consent management UI — patient detail page + record/revoke directives, the flagship is now visible ·
-  10 ✅ care-team assignment management UI — assign/revoke providers + coordinators on the patient detail page,
-  backed by new candidate-picker endpoints ·
-  11 ✅ object/relationship gate extended to service requests — a request is gated by its patient, so a provider
-  reaches only requests about assigned patients ·
-  12 ✅ patient self-service access — patient-user↔patient link (`patient.app_user_id`); a PATIENT sees only their
-  own record + requests + consent ·
-  13 ✅ patient self-service consent — a PATIENT records/revokes directives on their OWN record; the §22.5 engine
-  is now driven from the patient's own hand ·
-  14 ✅ secure documents part 1 — patient-scoped document metadata + a storage abstraction (local-FS stand-in for
-  private S3) + gated upload/download; access inherits the `PatientAccessGuard` gate ·
-  15 ✅ document malware scan + quarantine — a fake scanner (EICAR) flags uploads QUARANTINED and the download
-  gate withholds anything not CLEAN ·
-  16 ✅ documents UI — a Documents card on the patient detail page: upload, list with scan-status chips, and
-  download of CLEAN files; the §19 loop is now visible end-to-end in the browser)**
+- **Status:** Phases 0–8 COMPLETE ✅ · **Phase 9 NEXT** — search / reporting / accessibility (filters, pagination, CSV export with masking, WCAG 2.2 AA). The MVP (Phases 0–5) is feature-complete — engine AND UI.
+- **At a glance** (newest first; the detailed per-phase bullets and the dated log below carry the full record):
+  - **Phase 8 ✅** Event-driven — transactional outbox → relay → Kafka → idempotent consumer → retry/DLT → drain → inspect → replay (+ ops UI).
+  - **Phase 7 ✅** Advanced security/governance — audit log, per-org HMAC tamper-evident chain, break-glass emergency access, access review, data retention.
+  - **Phase 6 ✅** Advanced claims — prior auth, referrals, appeals, anomaly signals, manual review, reprocessing, provider network (all backend + UIs).
+  - **Phase 5 ✅** Basic adjudication engine — deterministic/explainable; deductible/copay/coinsurance/OOP-max + accumulators; versioned re-adjudication.
+  - **Phase 4 ✅** Clinical context & claims intake — global medical-code catalog, clinical summaries, claim aggregate, coverage plans + eligibility.
+  - **Phase 3 ✅** Consent, authorization, privacy & documents — §21 layered access gate, §22.5 consent+purpose engine, §23 field masking, secure documents.
+  - **Phase 2 ✅** Care coordination — patients, service requests + state machine, comments, assignment.
+  - **Phase 1 ✅** Foundation & multi-tenant identity — org/facility/user/role, session auth, tenant isolation, React shell.
+  - **Phase 0 ✅ · Environment ✅** repo skeleton, CLAUDE.md, PLAN.md, ADRs, local toolchain.
 - **Repo:** https://github.com/Nikhil-Oggu/healthcloud (private, branch `main`)
 - **Phase 7 COMPLETE ✅ (advanced security/governance):** slice 1 ✅ — **security audit event log** (the
   audit-trail foundation): a tenant-owned, append-only, immutable `audit_event` + `AuditService.record(...)` written
