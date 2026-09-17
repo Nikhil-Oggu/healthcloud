@@ -89,7 +89,7 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   slice 21, it backs the rendering-provider picker on claim create), `auth` (SecurityConfig, DevLoginController,
   CurrentUserController/Service, CsrfCookieFilter), `context` (UserContext + UserContextAccessor/Filter),
   `error` (ApiError, ErrorCode, GlobalExceptionHandler, CorrelationId),
-  `common` (Phase 9 — the reusable pagination foundation: `PageResponse<T>`, a stable page envelope
+  `common` (Phase 9 — the reusable pagination + search foundation: `PageResponse<T>`, a stable page envelope
   `{content, page, size, totalElements, totalPages, first, last}` returned by every paged list endpoint (we own
   the JSON shape rather than exposing Spring Data's `PageImpl`), with `of(Page<E>, mapper)` + `empty(pageable)`;
   and `PageRequests.toPageable(page, size, sort, allowedSortFields, defaultSort)`, a pure helper that clamps
@@ -606,7 +606,7 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   shim (`api.listClaims()` fetches one large page and returns `.content`) because non-queue callers still need the
   whole list; every other queue's list method was converted directly. All eight queues follow this shape (claims,
   prior-auth, referrals, appeals, claim-reviews, reprocessing, audit, dead-letters).
-- **Free-text search (§Phase 9 slice 6):** a queue's list endpoint may add a `q` search param alongside the
+- **Free-text search (§Phase 9 slices 6–8):** a queue's list endpoint may add a `q` search param alongside the
   filters. Normalize it with `SearchTerms.likeContains(q)` (blank → `null` = no search) and thread it into the
   `searchAll`/`searchForPatients` finder as one more optional in-SQL clause:
   `and (:q is null or lower(<text col>) like lower(cast(:q as string)) escape '\')`. The **`cast(:q as string)`**
@@ -927,11 +927,12 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   are not sortable). A column header toggles asc↔desc; any sort/size/filter change resets to page 0. The sort
   field strings and the filter values mirror the backend allowlist/enum exactly. Only the **claims** list keeps a
   non-paged `useClaims()` array hook as well (its name-resolution/`<select>` consumers need the whole list).
-- **Free-text search box (§Phase 9 slice 6):** a queue page that supports search holds the raw box in one
+- **Free-text search box (§Phase 9 slices 6–8):** a queue page that supports search holds the raw box in one
   `useState` and a **debounced** copy in another (a 300ms `setTimeout` in a `useEffect` on the raw value), and
   passes the debounced value as `q` to the paged hook — so we query once the typing settles, not per keystroke.
-  Typing resets to page 0 (like the other filters). The box searches the queue's business number; the claims page
-  is the first to have one.
+  Typing resets to page 0 (like the other filters). **All eight queue pages now have one**: the six numbered
+  queues search their business number (claim/auth/referral/appeal/review/batch), audit searches the correlation /
+  resource id, and dead-letters the event id / message key — the label names what each box matches.
 
 ## Repo layout
 `backend/` `frontend/` `worker/` `infrastructure/{terraform,environments}` `api/openapi/`
