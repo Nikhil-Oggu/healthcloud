@@ -320,8 +320,26 @@ export const api = {
     downloadBlob(`/api/v1/patients/${patientId}/documents/${documentId}/content`),
 
   // --- Claims (§Phase 4) + adjudication (§Phase 5) ---
-  // The claims queue is server-paginated (§Phase 9). Until the paged UI lands (next slice), this transitional
-  // shim requests one large page and returns just the rows, so existing callers keep receiving ClaimSummary[].
+  // A page of the claims work queue (§Phase 9) — returns the full PageResponse envelope so the UI can render
+  // page controls, totals, and sort state. Used by the claims queue page.
+  listClaimsPage: (params: {
+    patientId?: string
+    status?: ClaimStatus
+    page?: number
+    size?: number
+    sort?: string
+  }) => {
+    const q = new URLSearchParams()
+    if (params.patientId) q.set('patientId', params.patientId)
+    if (params.status) q.set('status', params.status)
+    if (params.page != null) q.set('page', String(params.page))
+    if (params.size != null) q.set('size', String(params.size))
+    if (params.sort) q.set('sort', params.sort)
+    return request<PageResponse<ClaimSummary>>(`/api/v1/claims?${q.toString()}`)
+  },
+
+  // A convenience shim over the paged endpoint that returns just the rows, for callers that need the whole list
+  // (name resolution, populating <select>s) rather than a page. Requests one large page and unwraps `.content`.
   listClaims: async (params?: { patientId?: string; status?: ClaimStatus }) => {
     const q = new URLSearchParams()
     if (params?.patientId) q.set('patientId', params.patientId)

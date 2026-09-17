@@ -1,8 +1,17 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api/client'
-import type { ClaimStatusChange, CreateClaimRequest } from '../api/types'
+import type { ClaimStatus, ClaimStatusChange, CreateClaimRequest } from '../api/types'
 
 export const CLAIMS_QUERY_KEY = ['claims'] as const
+
+/** The parameters that drive a page of the claims work queue (§Phase 9). */
+export interface ClaimsPageParams {
+  patientId?: string
+  status?: ClaimStatus
+  page: number
+  size: number
+  sort?: string
+}
 export const claimKey = (id: string) => ['claims', id] as const
 export const claimHistoryKey = (id: string) => ['claims', id, 'history'] as const
 export const adjudicationKey = (id: string) => ['claims', id, 'adjudication'] as const
@@ -12,6 +21,19 @@ export const anomaliesKey = (id: string) => ['claims', id, 'anomalies'] as const
 /** The current tenant's claims (backend scopes to the caller: provider → assigned; reviewer/admin → all). */
 export function useClaims() {
   return useQuery({ queryKey: CLAIMS_QUERY_KEY, queryFn: () => api.listClaims() })
+}
+
+/**
+ * A page of the claims work queue for the given params (§Phase 9). The query key carries the params so a
+ * page/sort/filter change refetches; it stays prefixed with {@link CLAIMS_QUERY_KEY} so a create still
+ * invalidates it. `keepPreviousData` keeps the current rows on screen while the next page loads (no flash).
+ */
+export function useClaimsPage(params: ClaimsPageParams) {
+  return useQuery({
+    queryKey: [...CLAIMS_QUERY_KEY, 'page', params],
+    queryFn: () => api.listClaimsPage(params),
+    placeholderData: keepPreviousData,
+  })
 }
 
 export function useClaim(id: string) {

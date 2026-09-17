@@ -4,9 +4,9 @@
 > exists, or manually). Read this + `CLAUDE.md` + `docs/PLAN.md` at the start of every session.
 
 ## Current position
-- **Status:** Phases 0–8 COMPLETE ✅ · **Phase 9 IN PROGRESS 🚧** — search / reporting / accessibility (filters, pagination, CSV export with masking, WCAG 2.2 AA). Slice 1 ✅ (server-side pagination + filtering for the claims work queue, backend + reusable `common` foundation). The MVP (Phases 0–5) is feature-complete — engine AND UI.
+- **Status:** Phases 0–8 COMPLETE ✅ · **Phase 9 IN PROGRESS 🚧** — search / reporting / accessibility (filters, pagination, CSV export with masking, WCAG 2.2 AA). Slice 1 ✅ (server-side pagination + filtering, backend + reusable `common` foundation) · slice 2 ✅ (the paged claims work-queue UI — page controls + sortable columns + status filter). The MVP (Phases 0–5) is feature-complete — engine AND UI.
 - **At a glance** (newest first; the detailed per-phase bullets and the dated log below carry the full record):
-  - **Phase 9 🚧** Search / reporting / accessibility — slice 1 ✅ server-side pagination + filtering (`PageResponse<T>` + `PageRequests` sort-allowlist; claims queue paged in SQL).
+  - **Phase 9 🚧** Search / reporting / accessibility — slice 1 ✅ server-side pagination + filtering (`PageResponse<T>` + `PageRequests` sort-allowlist; claims queue paged in SQL) · slice 2 ✅ paged claims-queue UI (MUI pagination + sortable columns + status filter).
   - **Phase 8 ✅** Event-driven — transactional outbox → relay → Kafka → idempotent consumer → retry/DLT → drain → inspect → replay (+ ops UI).
   - **Phase 7 ✅** Advanced security/governance — audit log, per-org HMAC tamper-evident chain, break-glass emergency access, access review, data retention.
   - **Phase 6 ✅** Advanced claims — prior auth, referrals, appeals, anomaly signals, manual review, reprocessing, provider network (all backend + UIs).
@@ -61,6 +61,15 @@
   path. The frontend is untouched behaviourally: a one-line `api.listClaims()` shim requests one large page and
   returns `.content`, so every consumer keeps receiving `ClaimSummary[]` — the real page-control UI is the next
   slice. Backend 443 tests (new `PageRequestsTest` + paged repo/API coverage); frontend 151 tests still green.
+  slice 2 ✅ — **the paged claims work-queue UI** (frontend). The browser now uses slice 1's envelope: a new
+  `api.listClaimsPage(...)` returns the full `PageResponse`, a `useClaimsPage(params)` hook (query key carries the
+  params, so a page/sort/filter change refetches; `keepPreviousData` avoids a loading flash), and the `ClaimsPage`
+  gains MUI **`TablePagination`** (page + rows-per-page 10/20/50), **`TableSortLabel`** on the server-sortable
+  columns (Claim # / Service date / Total charge / Status — Patient stays unsorted, it's resolved client-side),
+  and a **status-filter dropdown**. Default (no active sort) preserves newest-first (`createdAt DESC`). The array
+  `api.listClaims()`/`useClaims()` shim is **left untouched** — its 9 consumers (appeals/reviews/reprocessing name
+  resolution + selects) still need the whole list. Frontend 154 tests (+3 interaction tests: sort toggles asc/desc,
+  the pager requests page 1, the status dropdown filters); typecheck + build green. No backend change.
 - **Phase 8 COMPLETE ✅ (event-driven architecture):** slice 1 ✅ — **transactional outbox foundation**
   (backend, no Kafka yet): the answer to the dual-write problem (a Kafka publish can't join a DB transaction). A
   new `outbox_event` table (V40) + `com.healthcloud.outbox` package — `OutboxService.record(aggregateType,
@@ -340,6 +349,30 @@
   then `curl -b j.txt localhost:8080/api/v1/me`. Reset DB with `./scripts/db-reset.sh`.
 
 ## Log (newest first)
+
+### 2026-09-17 — Phase 9, slice 2 ✅ (paged claims work-queue UI — pagination + sortable columns + status filter, frontend)
+- **Why:** slice 1 made the endpoint server-paginated and returned a `PageResponse` envelope, but the browser still
+  used the transitional shim that swallowed it. This puts real page controls, sortable columns, and a status filter
+  on the claims queue. Frontend-only — the backend already supports every param.
+- **New paged path (kept the array shim):** `api.listClaimsPage({patientId,status,page,size,sort})` returns the full
+  `PageResponse<ClaimSummary>`; `useClaimsPage(params)` in `useClaims.ts` (query key `['claims','page',params]` so a
+  page/sort/filter change refetches, and still prefixed `['claims']` so a create invalidates it; `keepPreviousData`
+  keeps rows on screen while the next page loads). **`api.listClaims()` / `useClaims()` (array) were left untouched**
+  — their 9 consumers (appeals/reviews/reprocessing name resolution + `<select>`s) need the whole list, not a page.
+- **`ClaimsPage.tsx` rewrite:** MUI `TablePagination` (`component="div"`, rows-per-page 10/20/50, `count` from
+  `totalElements`), `TableSortLabel` on the four server-sortable columns (Claim # `claimNumber`, Service date
+  `serviceDate`, Total charge `totalChargeAmount`, Status `status`) toggling asc/desc — Patient is not sortable
+  (resolved client-side, not in the backend allowlist), and a **status** `TextField select` (All + the 6 statuses).
+  Any sort/size/filter change resets to page 0; no active sort by default → the backend's `createdAt DESC` newest-first
+  is preserved. Kept the role-gated create form, patient-name resolution, empty state, and the exported `money()`
+  (still imported by 3 other pages).
+- **Verify:** `npm run typecheck` clean, `npm test` **154** green (was 151 — the 3 kept ClaimsPage intents now assert
+  the default page/size/sort call, plus 3 new interaction tests: a header click sorts `serviceDate,asc` then toggles
+  `,desc`; the pager's next button requests `page:1`; the status dropdown filters `status:'SUBMITTED'`), `npm run build`
+  succeeds. Live browser check skipped (no backend running; RTL drives the components against the mocked API, as with
+  prior frontend slices).
+- **Next:** Phase 9 slice 3 — roll the pagination/sort/filter pattern out to the other work queues (prior-auth,
+  referrals, appeals, reviews, reprocessing, audit, dead-letters), then free-text search / CSV export / WCAG 2.2 AA.
 
 ### 2026-09-17 — Phase 9, slice 1 ✅ (server-side pagination + filtering for the claims work queue, backend)
 - **Why:** every work queue currently returns its whole list in one unbounded response, and the claims list even
