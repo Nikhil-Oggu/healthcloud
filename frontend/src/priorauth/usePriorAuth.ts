@@ -1,14 +1,36 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api/client'
-import type { CreatePriorAuthorizationRequest, PriorAuthStatusChange } from '../api/types'
+import type {
+  CreatePriorAuthorizationRequest,
+  PriorAuthorizationStatus,
+  PriorAuthStatusChange,
+} from '../api/types'
 
 export const PRIOR_AUTHS_QUERY_KEY = ['prior-authorizations'] as const
 export const priorAuthKey = (id: string) => ['prior-authorizations', id] as const
 export const priorAuthHistoryKey = (id: string) => ['prior-authorizations', id, 'history'] as const
 
-/** The current tenant's prior authorizations (backend scopes: provider → assigned; reviewer/admin → all). */
-export function usePriorAuthorizations() {
-  return useQuery({ queryKey: PRIOR_AUTHS_QUERY_KEY, queryFn: () => api.listPriorAuthorizations() })
+/** The parameters that drive a page of the prior-auth work queue (§Phase 9). */
+export interface PriorAuthsPageParams {
+  patientId?: string
+  status?: PriorAuthorizationStatus
+  page: number
+  size: number
+  sort?: string
+}
+
+/**
+ * A page of the prior-auth work queue for the given params (§Phase 9). The query key carries the params so a
+ * page/sort/filter change refetches; it stays prefixed with {@link PRIOR_AUTHS_QUERY_KEY} so a create/decision
+ * still invalidates it. `keepPreviousData` keeps the current rows on screen while the next page loads (no flash).
+ * The backend scopes to the caller (provider → assigned; reviewer/admin → all).
+ */
+export function usePriorAuthorizations(params: PriorAuthsPageParams) {
+  return useQuery({
+    queryKey: [...PRIOR_AUTHS_QUERY_KEY, 'page', params],
+    queryFn: () => api.listPriorAuthorizations(params),
+    placeholderData: keepPreviousData,
+  })
 }
 
 export function usePriorAuthorization(id: string) {

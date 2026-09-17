@@ -20,12 +20,16 @@ import com.healthcloud.patient.PatientRepository;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
@@ -126,6 +130,70 @@ class PriorAuthorizationRepositoryTest {
                 List.of(PriorAuthorizationStatus.REQUESTED, PriorAuthorizationStatus.APPROVED),
                 history.stream().map(PriorAuthorizationStatusHistory::getToStatus).toList(),
                 "history reads chronologically");
+    }
+
+    @Test
+    void searchAll_pages_counts_sorts_and_filters_by_status_in_the_database() {
+        Organization org = organizationRepository.save(new Organization("PA Search Org"));
+        AppUser author = appUserRepository.save(new AppUser("pas-" + UUID.randomUUID() + "@ex.org", "Author"));
+        Patient patient = patientRepository.save(
+                new Patient(org.getId(), "NC-8401", "Patient", LocalDate.of(1990, 1, 1)));
+        medicalCodeRepository.save(new MedicalCode(CodeSystem.CPT, "99213", "Office visit"));
+        CoveragePlan ppo = plan(org, "PA-PPO-S");
+
+        // Three REQUESTED with ascending service-from dates, plus one APPROVED.
+        savedAuth(org, patient, author, ppo, "PA-S1", LocalDate.of(2026, 1, 1), PriorAuthorizationStatus.REQUESTED);
+        savedAuth(org, patient, author, ppo, "PA-S2", LocalDate.of(2026, 2, 1), PriorAuthorizationStatus.REQUESTED);
+        savedAuth(org, patient, author, ppo, "PA-S3", LocalDate.of(2026, 3, 1), PriorAuthorizationStatus.REQUESTED);
+        savedAuth(org, patient, author, ppo, "PA-S4", LocalDate.of(2026, 4, 1), PriorAuthorizationStatus.APPROVED);
+
+        Page<PriorAuthorization> firstPage = priorAuthRepository.searchAll(
+                org.getId(), null, PageRequest.of(0, 2, Sort.by(Sort.Direction.DESC, "requestedServiceFrom")));
+        assertEquals(4, firstPage.getTotalElements(), "the count spans every matching row, not just the page");
+        assertEquals(2, firstPage.getTotalPages());
+        assertEquals(List.of("PA-S4", "PA-S3"),
+                firstPage.getContent().stream().map(PriorAuthorization::getAuthNumber).toList(),
+                "sorted by service-from date descending, in the database");
+        assertTrue(firstPage.isFirst());
+
+        Page<PriorAuthorization> approved = priorAuthRepository.searchAll(
+                org.getId(), PriorAuthorizationStatus.APPROVED, PageRequest.of(0, 10, Sort.by("createdAt")));
+        assertEquals(1, approved.getTotalElements());
+        assertEquals("PA-S4", approved.getContent().get(0).getAuthNumber());
+    }
+
+    @Test
+    void searchForPatients_scopes_to_the_given_patients_and_is_tenant_scoped() {
+        Organization org = organizationRepository.save(new Organization("PA Scope Org"));
+        AppUser author = appUserRepository.save(new AppUser("pasc-" + UUID.randomUUID() + "@ex.org", "Author"));
+        Patient p1 = patientRepository.save(new Patient(org.getId(), "NC-8501", "P1", LocalDate.of(1990, 1, 1)));
+        Patient p2 = patientRepository.save(new Patient(org.getId(), "NC-8502", "P2", LocalDate.of(1990, 1, 1)));
+        medicalCodeRepository.save(new MedicalCode(CodeSystem.CPT, "99213", "Office visit"));
+        CoveragePlan ppo = plan(org, "PA-PPO-SC");
+
+        savedAuth(org, p1, author, ppo, "PA-P1A", LocalDate.of(2026, 1, 1), PriorAuthorizationStatus.REQUESTED);
+        savedAuth(org, p1, author, ppo, "PA-P1B", LocalDate.of(2026, 2, 1), PriorAuthorizationStatus.REQUESTED);
+        savedAuth(org, p2, author, ppo, "PA-P2A", LocalDate.of(2026, 1, 1), PriorAuthorizationStatus.REQUESTED);
+
+        Page<PriorAuthorization> onlyP1 = priorAuthRepository.searchForPatients(
+                org.getId(), Set.of(p1.getId()), null, PageRequest.of(0, 10, Sort.by("createdAt")));
+        assertEquals(2, onlyP1.getTotalElements(), "only the requested patient's authorizations are visible");
+        assertTrue(onlyP1.getContent().stream().allMatch(a -> a.getPatientId().equals(p1.getId())));
+
+        Organization other = organizationRepository.save(new Organization("PA Other Org"));
+        Page<PriorAuthorization> crossTenant = priorAuthRepository.searchForPatients(
+                other.getId(), Set.of(p1.getId(), p2.getId()), null, PageRequest.of(0, 10, Sort.by("createdAt")));
+        assertEquals(0, crossTenant.getTotalElements());
+    }
+
+    /** Save a prior authorization with an explicit status (default on creation is REQUESTED). */
+    private PriorAuthorization savedAuth(Organization org, Patient patient, AppUser author, CoveragePlan plan,
+                                         String number, LocalDate serviceFrom, PriorAuthorizationStatus status) {
+        PriorAuthorization auth = new PriorAuthorization(
+                org.getId(), patient.getId(), number, plan.getId(), "CPT", "99213", serviceFrom, null,
+                author.getId());
+        auth.setStatus(status);
+        return priorAuthRepository.saveAndFlush(auth);
     }
 
     @Test

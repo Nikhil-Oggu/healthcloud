@@ -4,9 +4,9 @@
 > exists, or manually). Read this + `CLAUDE.md` + `docs/PLAN.md` at the start of every session.
 
 ## Current position
-- **Status:** Phases 0–8 COMPLETE ✅ · **Phase 9 IN PROGRESS 🚧** — search / reporting / accessibility (filters, pagination, CSV export with masking, WCAG 2.2 AA). Slice 1 ✅ (server-side pagination + filtering, backend + reusable `common` foundation) · slice 2 ✅ (the paged claims work-queue UI — page controls + sortable columns + status filter). The MVP (Phases 0–5) is feature-complete — engine AND UI.
+- **Status:** Phases 0–8 COMPLETE ✅ · **Phase 9 IN PROGRESS 🚧** — search / reporting / accessibility (filters, pagination, CSV export with masking, WCAG 2.2 AA). Slice 1 ✅ (server-side pagination + filtering, backend + reusable `common` foundation) · slice 2 ✅ (paged claims work-queue UI) · slice 3 ✅ (paged prior-authorizations queue — backend + UI). The MVP (Phases 0–5) is feature-complete — engine AND UI.
 - **At a glance** (newest first; the detailed per-phase bullets and the dated log below carry the full record):
-  - **Phase 9 🚧** Search / reporting / accessibility — slice 1 ✅ server-side pagination + filtering (`PageResponse<T>` + `PageRequests` sort-allowlist; claims queue paged in SQL) · slice 2 ✅ paged claims-queue UI (MUI pagination + sortable columns + status filter).
+  - **Phase 9 🚧** Search / reporting / accessibility — slice 1 ✅ server-side pagination + filtering (`PageResponse<T>` + `PageRequests` sort-allowlist; claims queue paged in SQL) · slice 2 ✅ paged claims-queue UI (MUI pagination + sortable columns + status filter) · slice 3 ✅ same pattern rolled out to the prior-authorizations queue (backend + UI).
   - **Phase 8 ✅** Event-driven — transactional outbox → relay → Kafka → idempotent consumer → retry/DLT → drain → inspect → replay (+ ops UI).
   - **Phase 7 ✅** Advanced security/governance — audit log, per-org HMAC tamper-evident chain, break-glass emergency access, access review, data retention.
   - **Phase 6 ✅** Advanced claims — prior auth, referrals, appeals, anomaly signals, manual review, reprocessing, provider network (all backend + UIs).
@@ -70,6 +70,18 @@
   `api.listClaims()`/`useClaims()` shim is **left untouched** — its 9 consumers (appeals/reviews/reprocessing name
   resolution + selects) still need the whole list. Frontend 154 tests (+3 interaction tests: sort toggles asc/desc,
   the pager requests page 1, the status dropdown filters); typecheck + build green. No backend change.
+  slice 3 ✅ — **the prior-authorizations queue, paged (backend + UI)** — the pattern proves it generalizes to a
+  second aggregate. Backend: `PriorAuthorizationRepository` gains `searchAll`/`searchForPatients` `@Query` finders
+  (`Page<PriorAuthorization>`, optional in-SQL status), `PriorAuthorizationService.list` takes a `Pageable` and
+  returns `PageResponse<PriorAuthorizationSummaryDto>` with **identical** authorization (patient gate; empty gated
+  set → empty page), and the controller adds `page`/`size`/`sort` (allowlist `{createdAt, authNumber, procedureCode,
+  requestedServiceFrom, status}`, default `createdAt DESC`); the three dead unpaged finders were removed and
+  `existsApprovedCovering` (the adjudication hook) preserved. Frontend: because **nothing but the queue page**
+  consumes this list, `api.listPriorAuthorizations` was converted **directly** to return the envelope (no array
+  shim needed, unlike claims); `usePriorAuthorizations(params)` is now paged (`keepPreviousData`), and
+  `PriorAuthorizationsPage` gained MUI `TablePagination` + `TableSortLabel` (Auth # / Procedure / Requested from /
+  Status; Patient stays client-resolved) + a status-filter dropdown. Backend 449 tests (+6: paged repo + API,
+  incl. provider-scoping + cross-tenant secure-404 through the paged path); frontend 157 tests (+3 interaction).
 - **Phase 8 COMPLETE ✅ (event-driven architecture):** slice 1 ✅ — **transactional outbox foundation**
   (backend, no Kafka yet): the answer to the dual-write problem (a Kafka publish can't join a DB transaction). A
   new `outbox_event` table (V40) + `com.healthcloud.outbox` package — `OutboxService.record(aggregateType,
@@ -349,6 +361,35 @@
   then `curl -b j.txt localhost:8080/api/v1/me`. Reset DB with `./scripts/db-reset.sh`.
 
 ## Log (newest first)
+
+### 2026-09-17 — Phase 9, slice 3 ✅ (paged prior-authorizations queue — pagination + sort + status filter, backend + UI)
+- **Why:** slice 1+2 built and proved the pattern on claims. This rolls it out to the prior-authorizations queue —
+  the closest structural twin — proving the reusable `common` foundation generalizes to a second aggregate. One
+  full-stack slice (backend + UI) because the work is now mechanical.
+- **Backend:** `PriorAuthorizationRepository` gains two `@Query` finders returning `Page<PriorAuthorization>` —
+  `searchAll` (broad role) and `searchForPatients` (gated/single-patient), each with an optional in-SQL status
+  filter (mirrors the claims finders). `PriorAuthorizationService.list(...)` takes a `Pageable` and returns
+  `PageResponse<PriorAuthorizationSummaryDto>` with **identical authorization** (patient gate §21 layer 6; empty
+  gated set → `PageResponse.empty`; the in-memory status `.filter` is gone). `PriorAuthorizationController.list`
+  adds `page`/`size`/`sort` (allowlist `{createdAt, authNumber, procedureCode, requestedServiceFrom, status}`,
+  default `createdAt DESC`). Removed the three now-dead unpaged finders; **kept `existsApprovedCovering`** (the
+  adjudication hook) untouched.
+- **Frontend (direct conversion, no shim):** unlike claims, **nothing but the queue page** consumes this list, so
+  `api.listPriorAuthorizations(params)` was changed directly to return the `PageResponse` envelope (no array shim
+  needed). `usePriorAuthorizations(params)` is now paged with `keepPreviousData` (query key carries the params;
+  still prefixed `['prior-authorizations']` so a create/decision invalidates it). `PriorAuthorizationsPage` gained
+  MUI `TablePagination` + `TableSortLabel` on the server-sortable columns (Auth # / Procedure / Requested from /
+  Status — Patient stays client-resolved) + a status-filter dropdown. Kept the create form, patient-name
+  resolution, and empty state.
+- **Verify:** backend `./mvnw -B verify` green — **449 tests** (was 443): extended `PriorAuthorizationRepositoryTest`
+  (+2 paged `searchAll`/`searchForPatients` — page/count/sort/status + tenant scoping) and
+  `PriorAuthorizationApiIntegrationTest` (+4 — page envelope + counts, size/page navigation, 400 on unknown sort,
+  status filter + service-from sort order; the existing provider-scoping + cross-tenant secure-404 tests still pass
+  through the paged path). Frontend `typecheck` + `npm test` **157** green (was 154 — the 3 kept page intents now
+  assert the default page/size/sort call, + 3 new interaction tests) + `build` clean. Live browser check skipped
+  (no backend running; RTL drives the components against the mocked API).
+- **Next:** Phase 9 slice 4 — continue the rollout to the remaining queues (referrals, appeals, reviews,
+  reprocessing, audit, dead-letters), then free-text search / CSV export with masking / WCAG 2.2 AA.
 
 ### 2026-09-17 — Phase 9, slice 2 ✅ (paged claims work-queue UI — pagination + sortable columns + status filter, frontend)
 - **Why:** slice 1 made the endpoint server-paginated and returned a `PageResponse` envelope, but the browser still

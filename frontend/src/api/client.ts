@@ -391,12 +391,22 @@ export const api = {
     request<ClaimAnomalySignal[]>(`/api/v1/claims/${id}/anomalies`),
 
   // --- Prior authorization (§Phase 6) ---
-  listPriorAuthorizations: (params?: { patientId?: string; status?: PriorAuthorizationStatus }) => {
+  // A page of the prior-auth work queue (§Phase 9) — returns the full PageResponse envelope for page controls,
+  // totals and sort state. Nothing else consumes this list, so there is no array shim (unlike claims).
+  listPriorAuthorizations: (params: {
+    patientId?: string
+    status?: PriorAuthorizationStatus
+    page?: number
+    size?: number
+    sort?: string
+  }) => {
     const q = new URLSearchParams()
-    if (params?.patientId) q.set('patientId', params.patientId)
-    if (params?.status) q.set('status', params.status)
-    const suffix = q.toString() ? `?${q.toString()}` : ''
-    return request<PriorAuthorizationSummary[]>(`/api/v1/prior-authorizations${suffix}`)
+    if (params.patientId) q.set('patientId', params.patientId)
+    if (params.status) q.set('status', params.status)
+    if (params.page != null) q.set('page', String(params.page))
+    if (params.size != null) q.set('size', String(params.size))
+    if (params.sort) q.set('sort', params.sort)
+    return request<PageResponse<PriorAuthorizationSummary>>(`/api/v1/prior-authorizations?${q.toString()}`)
   },
 
   createPriorAuthorization: (body: CreatePriorAuthorizationRequest) =>

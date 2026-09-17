@@ -1,10 +1,15 @@
 package com.healthcloud.priorauth;
 
+import com.healthcloud.common.PageRequests;
+import com.healthcloud.common.PageResponse;
 import jakarta.validation.Valid;
 import java.net.URI;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -26,18 +31,34 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/v1/prior-authorizations")
 public class PriorAuthorizationController {
 
+    /** Fields a caller may sort the prior-auth queue by (allowlisted — an unknown field is a clean 400). */
+    private static final Set<String> SORTABLE_FIELDS =
+            Set.of("createdAt", "authNumber", "procedureCode", "requestedServiceFrom", "status");
+
+    /** Default ordering when the caller supplies no {@code sort}: newest first (the queue's prior behavior). */
+    private static final Sort DEFAULT_SORT = Sort.by(Sort.Direction.DESC, "createdAt");
+
     private final PriorAuthorizationService service;
 
     public PriorAuthorizationController(PriorAuthorizationService service) {
         this.service = service;
     }
 
-    /** Prior authorizations in the caller's tenant (header-only), optionally filtered to a patient and/or status. */
+    /**
+     * A page of prior authorizations in the caller's tenant (header-only), optionally filtered to a patient and/or
+     * status (§Phase 9). Paging/sorting come from {@code page}/{@code size}/{@code sort} (e.g.
+     * {@code sort=requestedServiceFrom,desc}); an out-of-range {@code size} is clamped and an unknown sort field is
+     * a 400. Returns a {@link PageResponse}.
+     */
     @GetMapping
-    public List<PriorAuthorizationSummaryDto> list(
+    public PageResponse<PriorAuthorizationSummaryDto> list(
             @RequestParam(required = false) UUID patientId,
-            @RequestParam(required = false) PriorAuthorizationStatus status) {
-        return service.list(Optional.ofNullable(patientId), Optional.ofNullable(status));
+            @RequestParam(required = false) PriorAuthorizationStatus status,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(required = false) String sort) {
+        Pageable pageable = PageRequests.toPageable(page, size, sort, SORTABLE_FIELDS, DEFAULT_SORT);
+        return service.list(Optional.ofNullable(patientId), Optional.ofNullable(status), pageable);
     }
 
     /** One prior authorization by id, scoped to the caller's tenant (404 across tenants / if unreachable). */

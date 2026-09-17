@@ -206,9 +206,95 @@ class PriorAuthorizationApiIntegrationTest {
         assertTrue(cross.body().contains("NOT_FOUND"));
     }
 
+    @Test
+    void the_list_returns_a_page_envelope_with_total_counts() throws Exception {
+        Session coordinator = loginWithCsrf("coordinator@northcare.example.org");
+        String patientId = firstId(createPatient(coordinator).body());
+        String planId = firstCoveragePlanId(coordinator);
+        post(coordinator, "/api/v1/prior-authorizations", authJson(patientId, planId));
+        post(coordinator, "/api/v1/prior-authorizations", authJson(patientId, planId));
+
+        HttpResponse<String> list = get(coordinator.session, "/api/v1/prior-authorizations?patientId=" + patientId);
+        assertEquals(200, list.statusCode(), list.body());
+        assertTrue(list.body().contains("\"content\":["), "the response is a page envelope");
+        assertTrue(list.body().contains("\"totalElements\":2"), "both of the patient's authorizations are counted");
+        assertTrue(list.body().contains("\"page\":0"));
+        assertTrue(list.body().contains("\"first\":true"));
+    }
+
+    @Test
+    void paging_respects_size_and_page() throws Exception {
+        Session coordinator = loginWithCsrf("coordinator@northcare.example.org");
+        String patientId = firstId(createPatient(coordinator).body());
+        String planId = firstCoveragePlanId(coordinator);
+        post(coordinator, "/api/v1/prior-authorizations", authJson(patientId, planId));
+        post(coordinator, "/api/v1/prior-authorizations", authJson(patientId, planId));
+        post(coordinator, "/api/v1/prior-authorizations", authJson(patientId, planId));
+
+        HttpResponse<String> page0 =
+                get(coordinator.session, "/api/v1/prior-authorizations?patientId=" + patientId + "&size=2");
+        assertEquals(2, countAuthNumbers(page0.body()), "page 0 holds exactly the page size");
+        assertTrue(page0.body().contains("\"totalElements\":3"));
+        assertTrue(page0.body().contains("\"totalPages\":2"));
+        assertTrue(page0.body().contains("\"last\":false"));
+
+        HttpResponse<String> page1 =
+                get(coordinator.session, "/api/v1/prior-authorizations?patientId=" + patientId + "&size=2&page=1");
+        assertEquals(1, countAuthNumbers(page1.body()), "page 1 holds the remainder");
+        assertTrue(page1.body().contains("\"last\":true"));
+    }
+
+    @Test
+    void an_unknown_sort_field_is_a_400() throws Exception {
+        String coordinator = loginWithCsrf("coordinator@northcare.example.org").session;
+        HttpResponse<String> bad = get(coordinator, "/api/v1/prior-authorizations?sort=ssn");
+        assertEquals(400, bad.statusCode(), bad.body());
+        assertTrue(bad.body().contains("VALIDATION_FAILED"), "sorting by a non-allowlisted field is a clean 400");
+    }
+
+    @Test
+    void results_can_be_filtered_by_status_and_sorted_by_service_from() throws Exception {
+        Session coordinator = loginWithCsrf("coordinator@northcare.example.org");
+        String patientId = firstId(createPatient(coordinator).body());
+        String planId = firstCoveragePlanId(coordinator);
+        String earlier = authNumber(post(coordinator, "/api/v1/prior-authorizations",
+                authJsonOn(patientId, planId, "2026-01-05")).body());
+        String later = authNumber(post(coordinator, "/api/v1/prior-authorizations",
+                authJsonOn(patientId, planId, "2026-03-20")).body());
+
+        // Status filter runs in SQL: REQUESTED returns both, APPROVED returns neither (nothing was decided).
+        HttpResponse<String> requested =
+                get(coordinator.session, "/api/v1/prior-authorizations?patientId=" + patientId + "&status=REQUESTED");
+        assertTrue(requested.body().contains("\"totalElements\":2"), "both REQUESTED authorizations match");
+        HttpResponse<String> approved =
+                get(coordinator.session, "/api/v1/prior-authorizations?patientId=" + patientId + "&status=APPROVED");
+        assertTrue(approved.body().contains("\"totalElements\":0"), "none is APPROVED yet");
+
+        // Sort by service-from ascending → the earlier authorization appears before the later one.
+        String asc = get(coordinator.session,
+                "/api/v1/prior-authorizations?patientId=" + patientId + "&sort=requestedServiceFrom,asc").body();
+        assertTrue(asc.indexOf(earlier) < asc.indexOf(later), "ascending service-from order places earlier first");
+    }
+
     // --- helpers -------------------------------------------------------------
 
     private record Session(String session, String xsrf) {}
+
+    private String authJsonOn(String patientId, String planId, String from) {
+        return """
+                {"patientId":"%s","coveragePlanId":"%s","procedureCode":"99213","requestedServiceFrom":"%s"}"""
+                .formatted(patientId, planId, from);
+    }
+
+    /** Count the authorization summaries in a page body (each carries exactly one authNumber). */
+    private static int countAuthNumbers(String json) {
+        int count = 0;
+        Matcher m = AUTH_NUMBER.matcher(json);
+        while (m.find()) {
+            count++;
+        }
+        return count;
+    }
 
     private HttpResponse<String> createPatient(Session s) throws Exception {
         return post(s, "/api/v1/patients", """
