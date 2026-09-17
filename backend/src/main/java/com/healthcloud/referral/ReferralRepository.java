@@ -23,21 +23,26 @@ public interface ReferralRepository extends JpaRepository<Referral, UUID> {
     boolean existsByOrganizationIdAndReferralNumber(UUID organizationId, String referralNumber);
 
     /**
-     * A page of the tenant's referrals for a broad-role caller (§Phase 9), optionally filtered to one status. The
-     * status is filtered in SQL ({@code null} = any status); ordering/paging come from the {@link Pageable}.
+     * A page of the tenant's referrals for a broad-role caller (§Phase 9), optionally filtered to one status
+     * and/or a free-text search term. Both filters run in SQL ({@code null} status = any status; {@code null}
+     * {@code q} = no search — else a case-insensitive "contains" match on the referral number, a PHI-free
+     * identifier); ordering/paging come from the {@link Pageable}.
      */
     @Query("select r from Referral r where r.organizationId = :org "
-            + "and (:status is null or r.status = :status)")
-    Page<Referral> searchAll(UUID org, ReferralStatus status, Pageable pageable);
+            + "and (:status is null or r.status = :status) "
+            + "and (:q is null or lower(r.referralNumber) like lower(cast(:q as string)) escape '\\')")
+    Page<Referral> searchAll(UUID org, ReferralStatus status, String q, Pageable pageable);
 
     /**
      * A page of the tenant's referrals restricted to a set of patients (the gated-caller scoping — a provider's
-     * assigned patients, or a single {@code ?patientId=}), optionally filtered to one status. Callers must pass a
-     * non-empty {@code patientIds} (an empty accessible set is short-circuited in the service).
+     * assigned patients, or a single {@code ?patientId=}), optionally filtered to one status and/or a free-text
+     * referral-number search (see {@link #searchAll}). Callers must pass a non-empty {@code patientIds} (an empty
+     * accessible set is short-circuited in the service).
      */
     @Query("select r from Referral r where r.organizationId = :org "
             + "and r.patientId in :patientIds "
-            + "and (:status is null or r.status = :status)")
+            + "and (:status is null or r.status = :status) "
+            + "and (:q is null or lower(r.referralNumber) like lower(cast(:q as string)) escape '\\')")
     Page<Referral> searchForPatients(
-            UUID org, Collection<UUID> patientIds, ReferralStatus status, Pageable pageable);
+            UUID org, Collection<UUID> patientIds, ReferralStatus status, String q, Pageable pageable);
 }

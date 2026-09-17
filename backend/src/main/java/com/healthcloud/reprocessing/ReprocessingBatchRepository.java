@@ -22,10 +22,13 @@ public interface ReprocessingBatchRepository extends JpaRepository<ReprocessingB
     boolean existsByOrganizationIdAndBatchNumber(UUID organizationId, String batchNumber);
 
     /**
-     * A page of the tenant's reprocessing batches (§Phase 9), optionally filtered to one status. The status is
-     * filtered in SQL ({@code null} = any status); ordering/paging come from the {@link Pageable}.
+     * A page of the tenant's reprocessing batches (§Phase 9), optionally filtered to one status and/or a free-text
+     * search term. Both filters run in SQL ({@code null} status = any status; {@code null} {@code q} = no search —
+     * else a case-insensitive "contains" match on the batch number, a PHI-free identifier); ordering/paging come
+     * from the {@link Pageable}.
      */
     @Query("select b from ReprocessingBatch b where b.organizationId = :org "
-            + "and (:status is null or b.status = :status)")
-    Page<ReprocessingBatch> searchAll(UUID org, ReprocessingBatchStatus status, Pageable pageable);
+            + "and (:status is null or b.status = :status) "
+            + "and (:q is null or lower(b.batchNumber) like lower(cast(:q as string)) escape '\\')")
+    Page<ReprocessingBatch> searchAll(UUID org, ReprocessingBatchStatus status, String q, Pageable pageable);
 }

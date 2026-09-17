@@ -52,11 +52,13 @@ public class AppealController {
     public PageResponse<AppealSummaryDto> list(
             @RequestParam(required = false) UUID claimId,
             @RequestParam(required = false) AppealStatus status,
+            @RequestParam(required = false) String q,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size,
             @RequestParam(required = false) String sort) {
         Pageable pageable = PageRequests.toPageable(page, size, sort, SORTABLE_FIELDS, DEFAULT_SORT);
-        return service.list(Optional.ofNullable(claimId), Optional.ofNullable(status), pageable);
+        return service.list(
+                Optional.ofNullable(claimId), Optional.ofNullable(status), Optional.ofNullable(q), pageable);
     }
 
     /** One appeal by id, scoped to the caller's tenant (404 across tenants / if unreachable). */

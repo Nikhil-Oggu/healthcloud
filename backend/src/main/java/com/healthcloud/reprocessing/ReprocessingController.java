@@ -48,11 +48,12 @@ public class ReprocessingController {
     @GetMapping
     public PageResponse<ReprocessingBatchSummaryDto> list(
             @RequestParam(required = false) ReprocessingBatchStatus status,
+            @RequestParam(required = false) String q,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size,
             @RequestParam(required = false) String sort) {
         Pageable pageable = PageRequests.toPageable(page, size, sort, SORTABLE_FIELDS, DEFAULT_SORT);
-        return service.list(Optional.ofNullable(status), pageable);
+        return service.list(Optional.ofNullable(status), Optional.ofNullable(q), pageable);
     }
 
     /** One batch by id (header + per-claim items), scoped to the caller's tenant (404 across tenants). */

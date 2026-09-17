@@ -26,23 +26,27 @@ public interface PriorAuthorizationRepository extends JpaRepository<PriorAuthori
 
     /**
      * A page of the tenant's prior authorizations for a broad-role caller (§Phase 9), optionally filtered to one
-     * status. The status is filtered in SQL ({@code null} = any status); ordering/paging come from the
-     * {@link Pageable}. Mirrors {@code ClaimRepository.searchAll}.
+     * status and/or a free-text search term. Both filters run in SQL ({@code null} status = any status; {@code
+     * null} {@code q} = no search — else a case-insensitive "contains" match on the auth number, a PHI-free
+     * identifier); ordering/paging come from the {@link Pageable}. Mirrors {@code ClaimRepository.searchAll}.
      */
     @Query("select pa from PriorAuthorization pa where pa.organizationId = :org "
-            + "and (:status is null or pa.status = :status)")
-    Page<PriorAuthorization> searchAll(UUID org, PriorAuthorizationStatus status, Pageable pageable);
+            + "and (:status is null or pa.status = :status) "
+            + "and (:q is null or lower(pa.authNumber) like lower(cast(:q as string)) escape '\\')")
+    Page<PriorAuthorization> searchAll(UUID org, PriorAuthorizationStatus status, String q, Pageable pageable);
 
     /**
      * A page of the tenant's prior authorizations restricted to a set of patients (the gated-caller scoping — a
-     * provider's assigned patients, or a single {@code ?patientId=}), optionally filtered to one status. Callers
-     * must pass a non-empty {@code patientIds} (an empty accessible set is short-circuited in the service).
+     * provider's assigned patients, or a single {@code ?patientId=}), optionally filtered to one status and/or a
+     * free-text auth-number search (see {@link #searchAll}). Callers must pass a non-empty {@code patientIds} (an
+     * empty accessible set is short-circuited in the service).
      */
     @Query("select pa from PriorAuthorization pa where pa.organizationId = :org "
             + "and pa.patientId in :patientIds "
-            + "and (:status is null or pa.status = :status)")
+            + "and (:status is null or pa.status = :status) "
+            + "and (:q is null or lower(pa.authNumber) like lower(cast(:q as string)) escape '\\')")
     Page<PriorAuthorization> searchForPatients(
-            UUID org, Collection<UUID> patientIds, PriorAuthorizationStatus status, Pageable pageable);
+            UUID org, Collection<UUID> patientIds, PriorAuthorizationStatus status, String q, Pageable pageable);
 
     /**
      * Whether an APPROVED prior authorization for this patient/plan/procedure covers the given service date — the

@@ -86,7 +86,9 @@ describe('ReferralsPage', () => {
     expect(screen.getByText('I10')).toBeInTheDocument()
     expect(screen.getByText('REQUESTED')).toBeInTheDocument()
     // The first fetch uses the defaults: page 0, size 20, no sort, no status filter.
-    expect(listReferrals).toHaveBeenCalledWith({ page: 0, size: 20, sort: undefined, status: undefined })
+    expect(listReferrals).toHaveBeenCalledWith({
+      page: 0, size: 20, sort: undefined, status: undefined, q: undefined,
+    })
   })
 
   it('shows an empty state when there are none, and a reviewer sees no request form', async () => {
@@ -105,6 +107,17 @@ describe('ReferralsPage', () => {
     renderPage(<ReferralsPage />)
 
     expect(await screen.findByText('New request')).toBeInTheDocument()
+  })
+
+  it('typing in the search box queries the server by referral number (debounced)', async () => {
+    const user = userEvent.setup()
+    renderPage(<ReferralsPage />)
+    await screen.findByText('REF-ABC12345')
+
+    await user.type(screen.getByRole('textbox', { name: /search referral/i }), 'ABC12')
+    await waitFor(() =>
+      expect(listReferrals).toHaveBeenCalledWith(expect.objectContaining({ q: 'ABC12', page: 0 })),
+    )
   })
 
   it('clicking a column header sorts by that field, toggling asc/desc', async () => {

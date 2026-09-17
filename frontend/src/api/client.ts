@@ -400,17 +400,19 @@ export const api = {
   listPriorAuthorizations: (params: {
     patientId?: string
     status?: PriorAuthorizationStatus
+    q?: string
     page?: number
     size?: number
     sort?: string
   }) => {
-    const q = new URLSearchParams()
-    if (params.patientId) q.set('patientId', params.patientId)
-    if (params.status) q.set('status', params.status)
-    if (params.page != null) q.set('page', String(params.page))
-    if (params.size != null) q.set('size', String(params.size))
-    if (params.sort) q.set('sort', params.sort)
-    return request<PageResponse<PriorAuthorizationSummary>>(`/api/v1/prior-authorizations?${q.toString()}`)
+    const qs = new URLSearchParams()
+    if (params.patientId) qs.set('patientId', params.patientId)
+    if (params.status) qs.set('status', params.status)
+    if (params.q) qs.set('q', params.q)
+    if (params.page != null) qs.set('page', String(params.page))
+    if (params.size != null) qs.set('size', String(params.size))
+    if (params.sort) qs.set('sort', params.sort)
+    return request<PageResponse<PriorAuthorizationSummary>>(`/api/v1/prior-authorizations?${qs.toString()}`)
   },
 
   createPriorAuthorization: (body: CreatePriorAuthorizationRequest) =>
@@ -439,17 +441,19 @@ export const api = {
   listReferrals: (params: {
     patientId?: string
     status?: ReferralStatus
+    q?: string
     page?: number
     size?: number
     sort?: string
   }) => {
-    const q = new URLSearchParams()
-    if (params.patientId) q.set('patientId', params.patientId)
-    if (params.status) q.set('status', params.status)
-    if (params.page != null) q.set('page', String(params.page))
-    if (params.size != null) q.set('size', String(params.size))
-    if (params.sort) q.set('sort', params.sort)
-    return request<PageResponse<ReferralSummary>>(`/api/v1/referrals?${q.toString()}`)
+    const qs = new URLSearchParams()
+    if (params.patientId) qs.set('patientId', params.patientId)
+    if (params.status) qs.set('status', params.status)
+    if (params.q) qs.set('q', params.q)
+    if (params.page != null) qs.set('page', String(params.page))
+    if (params.size != null) qs.set('size', String(params.size))
+    if (params.sort) qs.set('sort', params.sort)
+    return request<PageResponse<ReferralSummary>>(`/api/v1/referrals?${qs.toString()}`)
   },
 
   createReferral: (body: CreateReferralRequest) =>
@@ -476,17 +480,19 @@ export const api = {
   listAppeals: (params: {
     claimId?: string
     status?: AppealStatus
+    q?: string
     page?: number
     size?: number
     sort?: string
   }) => {
-    const q = new URLSearchParams()
-    if (params.claimId) q.set('claimId', params.claimId)
-    if (params.status) q.set('status', params.status)
-    if (params.page != null) q.set('page', String(params.page))
-    if (params.size != null) q.set('size', String(params.size))
-    if (params.sort) q.set('sort', params.sort)
-    return request<PageResponse<AppealSummary>>(`/api/v1/appeals?${q.toString()}`)
+    const qs = new URLSearchParams()
+    if (params.claimId) qs.set('claimId', params.claimId)
+    if (params.status) qs.set('status', params.status)
+    if (params.q) qs.set('q', params.q)
+    if (params.page != null) qs.set('page', String(params.page))
+    if (params.size != null) qs.set('size', String(params.size))
+    if (params.sort) qs.set('sort', params.sort)
+    return request<PageResponse<AppealSummary>>(`/api/v1/appeals?${qs.toString()}`)
   },
 
   createAppeal: (body: CreateAppealRequest) =>
@@ -513,17 +519,19 @@ export const api = {
   listClaimReviews: (params: {
     claimId?: string
     status?: ClaimReviewStatus
+    q?: string
     page?: number
     size?: number
     sort?: string
   }) => {
-    const q = new URLSearchParams()
-    if (params.claimId) q.set('claimId', params.claimId)
-    if (params.status) q.set('status', params.status)
-    if (params.page != null) q.set('page', String(params.page))
-    if (params.size != null) q.set('size', String(params.size))
-    if (params.sort) q.set('sort', params.sort)
-    return request<PageResponse<ClaimReviewSummary>>(`/api/v1/claim-reviews?${q.toString()}`)
+    const qs = new URLSearchParams()
+    if (params.claimId) qs.set('claimId', params.claimId)
+    if (params.status) qs.set('status', params.status)
+    if (params.q) qs.set('q', params.q)
+    if (params.page != null) qs.set('page', String(params.page))
+    if (params.size != null) qs.set('size', String(params.size))
+    if (params.sort) qs.set('sort', params.sort)
+    return request<PageResponse<ClaimReviewSummary>>(`/api/v1/claim-reviews?${qs.toString()}`)
   },
 
   createClaimReview: (body: CreateClaimReviewRequest) =>
@@ -549,16 +557,18 @@ export const api = {
   // A page of the reprocessing work queue (§Phase 9) — returns the full PageResponse envelope (no array shim).
   listReprocessingBatches: (params: {
     status?: ReprocessingBatchStatus
+    q?: string
     page?: number
     size?: number
     sort?: string
   }) => {
-    const q = new URLSearchParams()
-    if (params.status) q.set('status', params.status)
-    if (params.page != null) q.set('page', String(params.page))
-    if (params.size != null) q.set('size', String(params.size))
-    if (params.sort) q.set('sort', params.sort)
-    return request<PageResponse<ReprocessingBatchSummary>>(`/api/v1/reprocessing-batches?${q.toString()}`)
+    const qs = new URLSearchParams()
+    if (params.status) qs.set('status', params.status)
+    if (params.q) qs.set('q', params.q)
+    if (params.page != null) qs.set('page', String(params.page))
+    if (params.size != null) qs.set('size', String(params.size))
+    if (params.sort) qs.set('sort', params.sort)
+    return request<PageResponse<ReprocessingBatchSummary>>(`/api/v1/reprocessing-batches?${qs.toString()}`)
   },
 
   getReprocessingBatch: (id: string) =>

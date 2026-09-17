@@ -8,6 +8,8 @@ export const reprocessingBatchKey = (id: string) => ['reprocessing-batches', id]
 /** The parameters that drive a page of the reprocessing work queue (§Phase 9). */
 export interface ReprocessingPageParams {
   status?: ReprocessingBatchStatus
+  /** Free-text search — a case-insensitive "contains" match on the batch number (§Phase 9 slice 7). */
+  q?: string
   page: number
   size: number
   sort?: string

@@ -10,6 +10,8 @@ export const referralHistoryKey = (id: string) => ['referrals', id, 'history'] a
 export interface ReferralsPageParams {
   patientId?: string
   status?: ReferralStatus
+  /** Free-text search — a case-insensitive "contains" match on the referral number (§Phase 9 slice 7). */
+  q?: string
   page: number
   size: number
   sort?: string

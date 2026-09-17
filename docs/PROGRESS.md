@@ -4,9 +4,9 @@
 > exists, or manually). Read this + `CLAUDE.md` + `docs/PLAN.md` at the start of every session.
 
 ## Current position
-- **Status:** Phases 0–8 COMPLETE ✅ · **Phase 9 IN PROGRESS 🚧** — search / reporting / accessibility (filters, pagination, CSV export with masking, WCAG 2.2 AA). Slice 1 ✅ (server-side pagination + filtering, backend + reusable `common` foundation) · slice 2 ✅ (paged claims work-queue UI) · slice 3 ✅ (paged prior-authorizations queue) · slice 4 ✅ (paged referrals + appeals + claim-reviews queues) · slice 5 ✅ (paged reprocessing + audit + dead-letter queues — **every work queue is now paginated**) · slice 6 ✅ (free-text search on the claims queue — backend `SearchTerms` foundation + `q` param + debounced search box). The MVP (Phases 0–5) is feature-complete — engine AND UI.
+- **Status:** Phases 0–8 COMPLETE ✅ · **Phase 9 IN PROGRESS 🚧** — search / reporting / accessibility (filters, pagination, CSV export with masking, WCAG 2.2 AA). Slice 1 ✅ (server-side pagination + filtering, backend + reusable `common` foundation) · slice 2 ✅ (paged claims work-queue UI) · slice 3 ✅ (paged prior-authorizations queue) · slice 4 ✅ (paged referrals + appeals + claim-reviews queues) · slice 5 ✅ (paged reprocessing + audit + dead-letter queues — **every work queue is now paginated**) · slice 6 ✅ (free-text search on the claims queue — backend `SearchTerms` foundation + `q` param + debounced search box) · slice 7 ✅ (free-text search rolled out to the five other numbered queues — prior-auth, referrals, appeals, claim-reviews, reprocessing). The MVP (Phases 0–5) is feature-complete — engine AND UI.
 - **At a glance** (newest first; the detailed per-phase bullets and the dated log below carry the full record):
-  - **Phase 9 🚧** Search / reporting / accessibility — slice 1 ✅ server-side pagination + filtering (`PageResponse<T>` + `PageRequests` sort-allowlist; claims queue paged in SQL) · slice 2 ✅ paged claims-queue UI (MUI pagination + sortable columns + status filter) · slice 3 ✅ prior-authorizations queue paged · slice 4 ✅ referrals + appeals + claim-reviews queues paged (patient-gated family complete) · slice 5 ✅ reprocessing + audit + dead-letter queues paged — **every work queue is now paginated** (audit also gained a server-side action filter + real paging in place of its 200-row cap) · slice 6 ✅ **free-text search** on the claims queue (reusable `SearchTerms` LIKE-escape helper + a `q` param matching the PHI-free claim number in SQL + a debounced search box).
+  - **Phase 9 🚧** Search / reporting / accessibility — slice 1 ✅ server-side pagination + filtering (`PageResponse<T>` + `PageRequests` sort-allowlist; claims queue paged in SQL) · slice 2 ✅ paged claims-queue UI (MUI pagination + sortable columns + status filter) · slice 3 ✅ prior-authorizations queue paged · slice 4 ✅ referrals + appeals + claim-reviews queues paged (patient-gated family complete) · slice 5 ✅ reprocessing + audit + dead-letter queues paged — **every work queue is now paginated** (audit also gained a server-side action filter + real paging in place of its 200-row cap) · slice 6 ✅ **free-text search** on the claims queue (reusable `SearchTerms` LIKE-escape helper + a `q` param matching the PHI-free claim number in SQL + a debounced search box) · slice 7 ✅ **free-text search across the five other numbered queues** (prior-auth/referrals/appeals/claim-reviews/reprocessing, each by its own business number — **six of eight queues searchable**).
   - **Phase 8 ✅** Event-driven — transactional outbox → relay → Kafka → idempotent consumer → retry/DLT → drain → inspect → replay (+ ops UI).
   - **Phase 7 ✅** Advanced security/governance — audit log, per-org HMAC tamper-evident chain, break-glass emergency access, access review, data retention.
   - **Phase 6 ✅** Advanced claims — prior auth, referrals, appeals, anomaly signals, manual review, reprocessing, provider network (all backend + UIs).
@@ -122,6 +122,17 @@
   non-paged `listClaims()` shim is untouched. **A real bug the tests caught:** without `cast(:q as string)`
   Postgres infers the nullable parameter as `bytea` and `lower(bytea)` 500s — the cast pins it to text. Backend
   474 tests (+6: new `SearchTermsTest` (4) + a repo search test + an API search test); frontend 170 tests (+1).
+  slice 7 ✅ — **free-text search rolled out to the five other numbered work queues** (prior-auth, referrals,
+  appeals, claim-reviews, reprocessing), reusing the slice-6 `SearchTerms` foundation unchanged. Each queue's
+  `searchAll`/`searchForPatients`/`searchForClaim` `@Query` gains the same in-SQL clause
+  `(:q is null or lower(<number>) like lower(cast(:q as string)) escape '\')` on its own PHI-free business number
+  (auth/referral/appeal/review/batch number); each service `list(...)` takes an `Optional<String> q` (normalized
+  via `SearchTerms.likeContains`) and each controller a `q` param — authorization paths unchanged. Frontend: each
+  queue page gained the same debounced (300ms) search box beside its status filter (resets to page 0), and each
+  `api.listXxx`/hook-params gained `q`. **Six of eight work queues are now searchable** — the two left (audit,
+  dead-letters) have no business number, so their search targets differ (audit → correlationId/resourceId;
+  dead-letters → eventId) and are a later slice. Backend 479 tests (+5: a repo search test on prior-auth/referral/
+  appeal/claim-review + an API search test on reprocessing); frontend 175 tests (+5: a search-box test per queue).
 - **Phase 8 COMPLETE ✅ (event-driven architecture):** slice 1 ✅ — **transactional outbox foundation**
   (backend, no Kafka yet): the answer to the dual-write problem (a Kafka publish can't join a DB transaction). A
   new `outbox_event` table (V40) + `com.healthcloud.outbox` package — `OutboxService.record(aggregateType,
@@ -401,6 +412,29 @@
   then `curl -b j.txt localhost:8080/api/v1/me`. Reset DB with `./scripts/db-reset.sh`.
 
 ## Log (newest first)
+
+### 2026-09-17 — Phase 9, slice 7 ✅ (free-text search rolled out to the five other numbered queues — backend + UI)
+- **Why:** slice 6 gave the claims queue a search box and built the reusable `SearchTerms` foundation. This rolls
+  that same search out to the other five queues that have a synthetic, PHI-free business number, so **six of the
+  eight work queues** now have a search box.
+- **Queues + what each searches:** prior-auth (`authNumber`), referrals (`referralNumber`), appeals
+  (`appealNumber`), claim-reviews (`reviewNumber`), reprocessing (`batchNumber`). Each is a coded identifier, not
+  PHI — we never search patient names.
+- **Backend (per queue, purely additive):** each `@Query` finder (`searchAll`/`searchForPatients`, plus
+  `searchForClaim` for appeals + claim-reviews) gains the same clause as claims —
+  `(:q is null or lower(<number>) like lower(cast(:q as string)) escape '\')`, keeping the `cast(:q as string)`
+  that avoids the Postgres `bytea` inference bug. Each service `list(...)` takes an `Optional<String> q`
+  (normalized with `SearchTerms.likeContains`) and each controller a `@RequestParam q`. **No new migrations, no
+  DTO changes, no `SearchTerms` change** — it reuses slice 6 as-is. Authorization (patient gate / role gate /
+  tenant scope / empty-set short-circuit) is untouched.
+- **Frontend (per queue):** the same debounced (300ms) search box beside the status filter, resetting to page 0;
+  `api.listXxx` params + the page hook's params gained `q`.
+- **Verification:** backend **479** tests green (`clean verify`; +5 — a repo search test on prior-auth/referral/
+  appeal/claim-review + an end-to-end `?q=` API test on reprocessing); frontend **175** tests + typecheck + build
+  green (+5 — a debounced-search interaction test per queue). One frontend test needed its per-test mocks set
+  (the reprocessing page test has no shared default mock) — fixed.
+- **Next:** Phase 9 slice 8 — search for the two non-numbered queues (audit by correlationId/resourceId,
+  dead-letters by eventId), then CSV export with masking, then WCAG 2.2 AA.
 
 ### 2026-09-17 — Phase 9, slice 6 ✅ (free-text search on the claims queue — backend + UI)
 - **Why:** every work queue is paginated now (slices 1–5). The first Phase 9 area beyond pagination is **search** —

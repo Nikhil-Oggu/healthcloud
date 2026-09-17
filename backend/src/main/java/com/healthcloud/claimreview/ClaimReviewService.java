@@ -3,6 +3,7 @@ package com.healthcloud.claimreview;
 import com.healthcloud.claim.Claim;
 import com.healthcloud.claim.ClaimRepository;
 import com.healthcloud.common.PageResponse;
+import com.healthcloud.common.SearchTerms;
 import com.healthcloud.context.UserContext;
 import com.healthcloud.context.UserContextAccessor;
 import com.healthcloud.error.ApiException;
@@ -171,10 +172,11 @@ public class ClaimReviewService {
      * {@link Pageable}), not in memory.
      */
     public PageResponse<ClaimReviewSummaryDto> list(
-            Optional<UUID> claimId, Optional<ClaimReviewStatus> status, Pageable pageable) {
+            Optional<UUID> claimId, Optional<ClaimReviewStatus> status, Optional<String> q, Pageable pageable) {
         UserContext caller = userContext.requireUser();
         UUID organizationId = userContext.requireOrganizationId();
         ClaimReviewStatus statusFilter = status.orElse(null);
+        String search = SearchTerms.likeContains(q.orElse(null)); // free-text on the review number (§Phase 9 slice 7)
 
         Page<ClaimReview> found;
         if (claimId.isPresent()) {
@@ -183,7 +185,7 @@ public class ClaimReviewService {
             Claim claim = claims.findByIdAndOrganizationId(claimId.get(), organizationId)
                     .orElseThrow(NotFoundException::new);
             accessGuard.requireAccessibleInTenant(claim.getPatientId());
-            found = reviews.searchForClaim(organizationId, claimId.get(), statusFilter, pageable);
+            found = reviews.searchForClaim(organizationId, claimId.get(), statusFilter, search, pageable);
         } else {
             Optional<Set<UUID>> accessibleIds = accessGuard.accessiblePatientIdsIfGated(caller, organizationId);
             if (accessibleIds.isPresent()) {
@@ -192,9 +194,9 @@ public class ClaimReviewService {
                     // A gated caller who can reach no patients sees an empty page (no DB round trip needed).
                     return PageResponse.empty(pageable);
                 }
-                found = reviews.searchForPatients(organizationId, visible, statusFilter, pageable);
+                found = reviews.searchForPatients(organizationId, visible, statusFilter, search, pageable);
             } else {
-                found = reviews.searchAll(organizationId, statusFilter, pageable);
+                found = reviews.searchAll(organizationId, statusFilter, search, pageable);
             }
         }
         return PageResponse.of(found, ClaimReviewSummaryDto::from);

@@ -91,7 +91,9 @@ describe('ClaimReviewsPage', () => {
     expect(screen.getByText('CLM-XYZ02')).toBeInTheDocument()
     expect(screen.getByText('OPEN')).toBeInTheDocument()
     // The first fetch uses the defaults: page 0, size 20, no sort, no status filter.
-    expect(listClaimReviews).toHaveBeenCalledWith({ page: 0, size: 20, sort: undefined, status: undefined })
+    expect(listClaimReviews).toHaveBeenCalledWith({
+      page: 0, size: 20, sort: undefined, status: undefined, q: undefined,
+    })
   })
 
   it('shows an empty state when there are none, and a provider sees no open form', async () => {
@@ -110,6 +112,17 @@ describe('ClaimReviewsPage', () => {
     renderPage(<ClaimReviewsPage />)
 
     expect(await screen.findByText('New review')).toBeInTheDocument()
+  })
+
+  it('typing in the search box queries the server by review number (debounced)', async () => {
+    const user = userEvent.setup()
+    renderPage(<ClaimReviewsPage />)
+    await screen.findByText('MRV-ABC12345')
+
+    await user.type(screen.getByRole('textbox', { name: /search review/i }), 'ABC12')
+    await waitFor(() =>
+      expect(listClaimReviews).toHaveBeenCalledWith(expect.objectContaining({ q: 'ABC12', page: 0 })),
+    )
   })
 
   it('clicking a column header sorts by that field, toggling asc/desc', async () => {

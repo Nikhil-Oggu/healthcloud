@@ -88,7 +88,9 @@ describe('PriorAuthorizationsPage', () => {
     expect(screen.getByText('99214')).toBeInTheDocument()
     expect(screen.getByText('REQUESTED')).toBeInTheDocument()
     // The first fetch uses the defaults: page 0, size 20, no sort, no status filter.
-    expect(listPriorAuthorizations).toHaveBeenCalledWith({ page: 0, size: 20, sort: undefined, status: undefined })
+    expect(listPriorAuthorizations).toHaveBeenCalledWith({
+      page: 0, size: 20, sort: undefined, status: undefined, q: undefined,
+    })
   })
 
   it('shows an empty state when there are none, and a reviewer sees no request form', async () => {
@@ -107,6 +109,17 @@ describe('PriorAuthorizationsPage', () => {
     renderPage(<PriorAuthorizationsPage />)
 
     expect(await screen.findByText('New request')).toBeInTheDocument()
+  })
+
+  it('typing in the search box queries the server by auth number (debounced)', async () => {
+    const user = userEvent.setup()
+    renderPage(<PriorAuthorizationsPage />)
+    await screen.findByText('PA-ABC12345')
+
+    await user.type(screen.getByRole('textbox', { name: /search auth/i }), 'ABC12')
+    await waitFor(() =>
+      expect(listPriorAuthorizations).toHaveBeenCalledWith(expect.objectContaining({ q: 'ABC12', page: 0 })),
+    )
   })
 
   it('clicking a column header sorts by that field, toggling asc/desc', async () => {

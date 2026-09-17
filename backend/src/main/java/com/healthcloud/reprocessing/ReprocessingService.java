@@ -8,6 +8,7 @@ import com.healthcloud.claim.Claim;
 import com.healthcloud.claim.ClaimRepository;
 import com.healthcloud.claim.ClaimStatus;
 import com.healthcloud.common.PageResponse;
+import com.healthcloud.common.SearchTerms;
 import com.healthcloud.context.UserContext;
 import com.healthcloud.context.UserContextAccessor;
 import com.healthcloud.coverage.CoveragePlan;
@@ -134,12 +135,17 @@ public class ReprocessingService {
         return ReprocessingBatchDto.from(batch, planName(organizationId, batch.getCoveragePlanId()), batchItems);
     }
 
-    /** All batches in the caller's tenant, newest first (the work queue), header-only. */
+    /**
+     * A page of the tenant's batches (the work queue), header-only, optionally filtered to one status and/or a
+     * free-text batch-number search (§Phase 9). Both filters run in SQL. No per-patient gate — a batch is a
+     * reviewer/admin work record scoped to a plan (not PHI); reads are tenant-scoped.
+     */
     public PageResponse<ReprocessingBatchSummaryDto> list(
-            Optional<ReprocessingBatchStatus> status, Pageable pageable) {
+            Optional<ReprocessingBatchStatus> status, Optional<String> q, Pageable pageable) {
         UUID organizationId = userContext.requireOrganizationId();
+        String search = SearchTerms.likeContains(q.orElse(null)); // free-text on the batch number (§Phase 9 slice 7)
         return PageResponse.of(
-                batches.searchAll(organizationId, status.orElse(null), pageable),
+                batches.searchAll(organizationId, status.orElse(null), search, pageable),
                 b -> ReprocessingBatchSummaryDto.from(b, planName(organizationId, b.getCoveragePlanId())));
     }
 

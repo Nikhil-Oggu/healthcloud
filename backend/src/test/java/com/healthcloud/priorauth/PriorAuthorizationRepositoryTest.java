@@ -148,7 +148,7 @@ class PriorAuthorizationRepositoryTest {
         savedAuth(org, patient, author, ppo, "PA-S4", LocalDate.of(2026, 4, 1), PriorAuthorizationStatus.APPROVED);
 
         Page<PriorAuthorization> firstPage = priorAuthRepository.searchAll(
-                org.getId(), null, PageRequest.of(0, 2, Sort.by(Sort.Direction.DESC, "requestedServiceFrom")));
+                org.getId(), null, null, PageRequest.of(0, 2, Sort.by(Sort.Direction.DESC, "requestedServiceFrom")));
         assertEquals(4, firstPage.getTotalElements(), "the count spans every matching row, not just the page");
         assertEquals(2, firstPage.getTotalPages());
         assertEquals(List.of("PA-S4", "PA-S3"),
@@ -157,9 +157,36 @@ class PriorAuthorizationRepositoryTest {
         assertTrue(firstPage.isFirst());
 
         Page<PriorAuthorization> approved = priorAuthRepository.searchAll(
-                org.getId(), PriorAuthorizationStatus.APPROVED, PageRequest.of(0, 10, Sort.by("createdAt")));
+                org.getId(), PriorAuthorizationStatus.APPROVED, null, PageRequest.of(0, 10, Sort.by("createdAt")));
         assertEquals(1, approved.getTotalElements());
         assertEquals("PA-S4", approved.getContent().get(0).getAuthNumber());
+    }
+
+    @Test
+    void searchAll_filters_by_a_free_text_auth_number_case_insensitively() {
+        Organization org = organizationRepository.save(new Organization("PA FreeText Org"));
+        AppUser author = appUserRepository.save(new AppUser("paft-" + UUID.randomUUID() + "@ex.org", "Author"));
+        Patient patient = patientRepository.save(
+                new Patient(org.getId(), "NC-8601", "Patient", LocalDate.of(1990, 1, 1)));
+        medicalCodeRepository.save(new MedicalCode(CodeSystem.CPT, "99213", "Office visit"));
+        CoveragePlan ppo = plan(org, "PA-PPO-FT");
+
+        savedAuth(org, patient, author, ppo, "PA-ALPHA1", LocalDate.of(2026, 1, 1), PriorAuthorizationStatus.REQUESTED);
+        savedAuth(org, patient, author, ppo, "PA-ALPHA2", LocalDate.of(2026, 2, 1), PriorAuthorizationStatus.REQUESTED);
+        savedAuth(org, patient, author, ppo, "PA-BETA1", LocalDate.of(2026, 3, 1), PriorAuthorizationStatus.REQUESTED);
+
+        // The term is the caller-safe %...% pattern SearchTerms produces, matched case-insensitively in SQL.
+        Page<PriorAuthorization> alphas = priorAuthRepository.searchAll(
+                org.getId(), null, "%alpha%", PageRequest.of(0, 10, Sort.by("authNumber")));
+        assertEquals(2, alphas.getTotalElements(), "both ALPHA auths match (lowercase term, uppercase numbers)");
+        assertEquals(List.of("PA-ALPHA1", "PA-ALPHA2"),
+                alphas.getContent().stream().map(PriorAuthorization::getAuthNumber).toList());
+        assertEquals(0, priorAuthRepository.searchAll(
+                org.getId(), null, "%zzz%", PageRequest.of(0, 10, Sort.by("authNumber"))).getTotalElements(),
+                "a non-matching term returns nothing");
+        assertEquals(3, priorAuthRepository.searchAll(
+                org.getId(), null, null, PageRequest.of(0, 10, Sort.by("authNumber"))).getTotalElements(),
+                "a null term disables the search clause");
     }
 
     @Test
@@ -176,13 +203,13 @@ class PriorAuthorizationRepositoryTest {
         savedAuth(org, p2, author, ppo, "PA-P2A", LocalDate.of(2026, 1, 1), PriorAuthorizationStatus.REQUESTED);
 
         Page<PriorAuthorization> onlyP1 = priorAuthRepository.searchForPatients(
-                org.getId(), Set.of(p1.getId()), null, PageRequest.of(0, 10, Sort.by("createdAt")));
+                org.getId(), Set.of(p1.getId()), null, null, PageRequest.of(0, 10, Sort.by("createdAt")));
         assertEquals(2, onlyP1.getTotalElements(), "only the requested patient's authorizations are visible");
         assertTrue(onlyP1.getContent().stream().allMatch(a -> a.getPatientId().equals(p1.getId())));
 
         Organization other = organizationRepository.save(new Organization("PA Other Org"));
         Page<PriorAuthorization> crossTenant = priorAuthRepository.searchForPatients(
-                other.getId(), Set.of(p1.getId(), p2.getId()), null, PageRequest.of(0, 10, Sort.by("createdAt")));
+                other.getId(), Set.of(p1.getId(), p2.getId()), null, null, PageRequest.of(0, 10, Sort.by("createdAt")));
         assertEquals(0, crossTenant.getTotalElements());
     }
 

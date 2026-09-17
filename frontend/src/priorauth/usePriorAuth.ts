@@ -14,6 +14,8 @@ export const priorAuthHistoryKey = (id: string) => ['prior-authorizations', id, 
 export interface PriorAuthsPageParams {
   patientId?: string
   status?: PriorAuthorizationStatus
+  /** Free-text search — a case-insensitive "contains" match on the auth number (§Phase 9 slice 7). */
+  q?: string
   page: number
   size: number
   sort?: string

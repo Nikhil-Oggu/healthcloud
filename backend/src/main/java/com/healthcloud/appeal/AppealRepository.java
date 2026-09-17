@@ -26,30 +26,37 @@ public interface AppealRepository extends JpaRepository<Appeal, UUID> {
     boolean existsByOrganizationIdAndClaimIdAndStatus(UUID organizationId, UUID claimId, AppealStatus status);
 
     /**
-     * A page of the tenant's appeals for a broad-role caller (§Phase 9), optionally filtered to one status. The
-     * status is filtered in SQL ({@code null} = any status); ordering/paging come from the {@link Pageable}.
+     * A page of the tenant's appeals for a broad-role caller (§Phase 9), optionally filtered to one status and/or a
+     * free-text search term. Both filters run in SQL ({@code null} status = any status; {@code null} {@code q} = no
+     * search — else a case-insensitive "contains" match on the appeal number, a PHI-free identifier);
+     * ordering/paging come from the {@link Pageable}.
      */
     @Query("select a from Appeal a where a.organizationId = :org "
-            + "and (:status is null or a.status = :status)")
-    Page<Appeal> searchAll(UUID org, AppealStatus status, Pageable pageable);
+            + "and (:status is null or a.status = :status) "
+            + "and (:q is null or lower(a.appealNumber) like lower(cast(:q as string)) escape '\\')")
+    Page<Appeal> searchAll(UUID org, AppealStatus status, String q, Pageable pageable);
 
     /**
      * A page of the tenant's appeals restricted to a set of patients (the gated-caller scoping — a provider's
-     * assigned patients), optionally filtered to one status. Callers must pass a non-empty {@code patientIds} (an
-     * empty accessible set is short-circuited in the service).
+     * assigned patients), optionally filtered to one status and/or a free-text appeal-number search (see
+     * {@link #searchAll}). Callers must pass a non-empty {@code patientIds} (an empty accessible set is
+     * short-circuited in the service).
      */
     @Query("select a from Appeal a where a.organizationId = :org "
             + "and a.patientId in :patientIds "
-            + "and (:status is null or a.status = :status)")
+            + "and (:status is null or a.status = :status) "
+            + "and (:q is null or lower(a.appealNumber) like lower(cast(:q as string)) escape '\\')")
     Page<Appeal> searchForPatients(
-            UUID org, Collection<UUID> patientIds, AppealStatus status, Pageable pageable);
+            UUID org, Collection<UUID> patientIds, AppealStatus status, String q, Pageable pageable);
 
     /**
      * A page of the tenant's appeals for one claim (the {@code ?claimId=} filter), optionally filtered to one
-     * status. The caller has already gated the claim by its patient in the service.
+     * status and/or a free-text appeal-number search (see {@link #searchAll}). The caller has already gated the
+     * claim by its patient in the service.
      */
     @Query("select a from Appeal a where a.organizationId = :org "
             + "and a.claimId = :claimId "
-            + "and (:status is null or a.status = :status)")
-    Page<Appeal> searchForClaim(UUID org, UUID claimId, AppealStatus status, Pageable pageable);
+            + "and (:status is null or a.status = :status) "
+            + "and (:q is null or lower(a.appealNumber) like lower(cast(:q as string)) escape '\\')")
+    Page<Appeal> searchForClaim(UUID org, UUID claimId, AppealStatus status, String q, Pageable pageable);
 }

@@ -85,7 +85,9 @@ describe('ReprocessingBatchesPage', () => {
     expect(await screen.findByText('North PPO')).toBeInTheDocument()
     expect(screen.getByText('COMPLETED')).toBeInTheDocument()
     // The first fetch uses the defaults: page 0, size 20, no sort, no status filter.
-    expect(listReprocessingBatches).toHaveBeenCalledWith({ page: 0, size: 20, sort: undefined, status: undefined })
+    expect(listReprocessingBatches).toHaveBeenCalledWith({
+      page: 0, size: 20, sort: undefined, status: undefined, q: undefined,
+    })
   })
 
   it('shows an empty state and a reviewer sees the Run form', async () => {
@@ -106,6 +108,19 @@ describe('ReprocessingBatchesPage', () => {
 
     expect(await screen.findByText('No batches yet.')).toBeInTheDocument()
     expect(screen.queryByText('Run a batch')).not.toBeInTheDocument()
+  })
+
+  it('typing in the search box queries the server by batch number (debounced)', async () => {
+    mockUser(['CLAIMS_REVIEWER'])
+    listReprocessingBatches.mockResolvedValue(pageOf([BATCH]))
+    const user = userEvent.setup()
+    renderPage(<ReprocessingBatchesPage />)
+    await screen.findByText('RPB-ABC12345')
+
+    await user.type(screen.getByRole('textbox', { name: /search batch/i }), 'ABC12')
+    await waitFor(() =>
+      expect(listReprocessingBatches).toHaveBeenCalledWith(expect.objectContaining({ q: 'ABC12', page: 0 })),
+    )
   })
 
   it('clicking a column header sorts, the pager advances, and the status filter narrows', async () => {

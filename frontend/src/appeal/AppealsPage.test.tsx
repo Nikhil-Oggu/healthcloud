@@ -91,7 +91,9 @@ describe('AppealsPage', () => {
     expect(screen.getByText('CLM-XYZ02')).toBeInTheDocument()
     expect(screen.getByText('SUBMITTED')).toBeInTheDocument()
     // The first fetch uses the defaults: page 0, size 20, no sort, no status filter.
-    expect(listAppeals).toHaveBeenCalledWith({ page: 0, size: 20, sort: undefined, status: undefined })
+    expect(listAppeals).toHaveBeenCalledWith({
+      page: 0, size: 20, sort: undefined, status: undefined, q: undefined,
+    })
   })
 
   it('shows an empty state when there are none, and a reviewer sees no submit form', async () => {
@@ -110,6 +112,17 @@ describe('AppealsPage', () => {
     renderPage(<AppealsPage />)
 
     expect(await screen.findByText('New appeal')).toBeInTheDocument()
+  })
+
+  it('typing in the search box queries the server by appeal number (debounced)', async () => {
+    const user = userEvent.setup()
+    renderPage(<AppealsPage />)
+    await screen.findByText('APL-ABC12345')
+
+    await user.type(screen.getByRole('textbox', { name: /search appeal/i }), 'ABC12')
+    await waitFor(() =>
+      expect(listAppeals).toHaveBeenCalledWith(expect.objectContaining({ q: 'ABC12', page: 0 })),
+    )
   })
 
   it('clicking a column header sorts by that field, toggling asc/desc', async () => {

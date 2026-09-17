@@ -149,16 +149,43 @@ class AppealRepositoryTest {
         savedAppeal(org, c3, patient, author, "APL-S3", AppealStatus.UPHELD);
 
         Page<Appeal> firstPage = appealRepository.searchAll(
-                org.getId(), null, PageRequest.of(0, 2, Sort.by(Sort.Direction.ASC, "appealNumber")));
+                org.getId(), null, null, PageRequest.of(0, 2, Sort.by(Sort.Direction.ASC, "appealNumber")));
         assertEquals(3, firstPage.getTotalElements(), "the count spans every matching row, not just the page");
         assertEquals(2, firstPage.getTotalPages());
         assertEquals(List.of("APL-S1", "APL-S2"),
                 firstPage.getContent().stream().map(Appeal::getAppealNumber).toList());
 
         Page<Appeal> upheld = appealRepository.searchAll(
-                org.getId(), AppealStatus.UPHELD, PageRequest.of(0, 10, Sort.by("createdAt")));
+                org.getId(), AppealStatus.UPHELD, null, PageRequest.of(0, 10, Sort.by("createdAt")));
         assertEquals(1, upheld.getTotalElements());
         assertEquals("APL-S3", upheld.getContent().get(0).getAppealNumber());
+    }
+
+    @Test
+    void searchAll_filters_by_a_free_text_appeal_number_case_insensitively() {
+        Organization org = organizationRepository.save(new Organization("Apl FreeText Org"));
+        AppUser author = appUserRepository.save(new AppUser("aplft-" + UUID.randomUUID() + "@ex.org", "Author"));
+        Patient patient = patientRepository.save(
+                new Patient(org.getId(), "NC-8601", "Patient", LocalDate.of(1990, 1, 1)));
+        Claim c1 = claim(org, patient, author, "CLM-AFT1");
+        Claim c2 = claim(org, patient, author, "CLM-AFT2");
+        Claim c3 = claim(org, patient, author, "CLM-AFT3");
+
+        savedAppeal(org, c1, patient, author, "APL-ALPHA1", AppealStatus.SUBMITTED);
+        savedAppeal(org, c2, patient, author, "APL-ALPHA2", AppealStatus.SUBMITTED);
+        savedAppeal(org, c3, patient, author, "APL-BETA1", AppealStatus.SUBMITTED);
+
+        Page<Appeal> alphas = appealRepository.searchAll(
+                org.getId(), null, "%alpha%", PageRequest.of(0, 10, Sort.by("appealNumber")));
+        assertEquals(2, alphas.getTotalElements(), "both ALPHA appeals match (lowercase term, uppercase numbers)");
+        assertEquals(List.of("APL-ALPHA1", "APL-ALPHA2"),
+                alphas.getContent().stream().map(Appeal::getAppealNumber).toList());
+        assertEquals(0, appealRepository.searchAll(
+                org.getId(), null, "%zzz%", PageRequest.of(0, 10, Sort.by("appealNumber"))).getTotalElements(),
+                "a non-matching term returns nothing");
+        assertEquals(3, appealRepository.searchAll(
+                org.getId(), null, null, PageRequest.of(0, 10, Sort.by("appealNumber"))).getTotalElements(),
+                "a null term disables the search clause");
     }
 
     @Test
@@ -175,17 +202,17 @@ class AppealRepositoryTest {
         savedAppeal(org, c3, p2, author, "APL-SP3", AppealStatus.SUBMITTED);
 
         Page<Appeal> onlyP1 = appealRepository.searchForPatients(
-                org.getId(), Set.of(p1.getId()), null, PageRequest.of(0, 10, Sort.by("createdAt")));
+                org.getId(), Set.of(p1.getId()), null, null, PageRequest.of(0, 10, Sort.by("createdAt")));
         assertEquals(2, onlyP1.getTotalElements(), "only the requested patients' appeals are visible");
 
         Page<Appeal> onlyC1 = appealRepository.searchForClaim(
-                org.getId(), c1.getId(), null, PageRequest.of(0, 10, Sort.by("createdAt")));
+                org.getId(), c1.getId(), null, null, PageRequest.of(0, 10, Sort.by("createdAt")));
         assertEquals(1, onlyC1.getTotalElements(), "the claim filter narrows to that claim's appeals");
         assertEquals("APL-SP1", onlyC1.getContent().get(0).getAppealNumber());
 
         Organization other = organizationRepository.save(new Organization("Apl Other Org"));
         Page<Appeal> crossTenant = appealRepository.searchForClaim(
-                other.getId(), c1.getId(), null, PageRequest.of(0, 10, Sort.by("createdAt")));
+                other.getId(), c1.getId(), null, null, PageRequest.of(0, 10, Sort.by("createdAt")));
         assertEquals(0, crossTenant.getTotalElements());
     }
 

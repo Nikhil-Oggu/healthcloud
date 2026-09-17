@@ -138,7 +138,7 @@ class ReferralRepositoryTest {
         savedReferral(org, patient, author, "REF-S4", ReferralStatus.APPROVED);
 
         Page<Referral> firstPage = referralRepository.searchAll(
-                org.getId(), null, PageRequest.of(0, 2, Sort.by(Sort.Direction.ASC, "referralNumber")));
+                org.getId(), null, null, PageRequest.of(0, 2, Sort.by(Sort.Direction.ASC, "referralNumber")));
         assertEquals(4, firstPage.getTotalElements(), "the count spans every matching row, not just the page");
         assertEquals(2, firstPage.getTotalPages());
         assertEquals(List.of("REF-S1", "REF-S2"),
@@ -146,9 +146,34 @@ class ReferralRepositoryTest {
                 "sorted by referral number ascending, in the database");
 
         Page<Referral> approved = referralRepository.searchAll(
-                org.getId(), ReferralStatus.APPROVED, PageRequest.of(0, 10, Sort.by("createdAt")));
+                org.getId(), ReferralStatus.APPROVED, null, PageRequest.of(0, 10, Sort.by("createdAt")));
         assertEquals(1, approved.getTotalElements());
         assertEquals("REF-S4", approved.getContent().get(0).getReferralNumber());
+    }
+
+    @Test
+    void searchAll_filters_by_a_free_text_referral_number_case_insensitively() {
+        Organization org = organizationRepository.save(new Organization("Ref FreeText Org"));
+        AppUser author = appUserRepository.save(new AppUser("rft-" + UUID.randomUUID() + "@ex.org", "Author"));
+        Patient patient = patientRepository.save(
+                new Patient(org.getId(), "NC-9601", "Patient", LocalDate.of(1990, 1, 1)));
+        medicalCodeRepository.save(new MedicalCode(CodeSystem.ICD10CM, "I10", "Hypertension"));
+
+        savedReferral(org, patient, author, "REF-ALPHA1", ReferralStatus.REQUESTED);
+        savedReferral(org, patient, author, "REF-ALPHA2", ReferralStatus.REQUESTED);
+        savedReferral(org, patient, author, "REF-BETA1", ReferralStatus.REQUESTED);
+
+        Page<Referral> alphas = referralRepository.searchAll(
+                org.getId(), null, "%alpha%", PageRequest.of(0, 10, Sort.by("referralNumber")));
+        assertEquals(2, alphas.getTotalElements(), "both ALPHA referrals match (lowercase term, uppercase numbers)");
+        assertEquals(List.of("REF-ALPHA1", "REF-ALPHA2"),
+                alphas.getContent().stream().map(Referral::getReferralNumber).toList());
+        assertEquals(0, referralRepository.searchAll(
+                org.getId(), null, "%zzz%", PageRequest.of(0, 10, Sort.by("referralNumber"))).getTotalElements(),
+                "a non-matching term returns nothing");
+        assertEquals(3, referralRepository.searchAll(
+                org.getId(), null, null, PageRequest.of(0, 10, Sort.by("referralNumber"))).getTotalElements(),
+                "a null term disables the search clause");
     }
 
     @Test
@@ -164,13 +189,13 @@ class ReferralRepositoryTest {
         savedReferral(org, p2, author, "REF-P2A", ReferralStatus.REQUESTED);
 
         Page<Referral> onlyP1 = referralRepository.searchForPatients(
-                org.getId(), Set.of(p1.getId()), null, PageRequest.of(0, 10, Sort.by("createdAt")));
+                org.getId(), Set.of(p1.getId()), null, null, PageRequest.of(0, 10, Sort.by("createdAt")));
         assertEquals(2, onlyP1.getTotalElements(), "only the requested patient's referrals are visible");
         assertTrue(onlyP1.getContent().stream().allMatch(r -> r.getPatientId().equals(p1.getId())));
 
         Organization other = organizationRepository.save(new Organization("Ref Other Org"));
         Page<Referral> crossTenant = referralRepository.searchForPatients(
-                other.getId(), Set.of(p1.getId(), p2.getId()), null, PageRequest.of(0, 10, Sort.by("createdAt")));
+                other.getId(), Set.of(p1.getId(), p2.getId()), null, null, PageRequest.of(0, 10, Sort.by("createdAt")));
         assertEquals(0, crossTenant.getTotalElements());
     }
 

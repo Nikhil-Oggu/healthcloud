@@ -4,6 +4,7 @@ import com.healthcloud.coding.CodeSystem;
 import com.healthcloud.coding.MedicalCode;
 import com.healthcloud.coding.MedicalCodeRepository;
 import com.healthcloud.common.PageResponse;
+import com.healthcloud.common.SearchTerms;
 import com.healthcloud.context.UserContext;
 import com.healthcloud.context.UserContextAccessor;
 import com.healthcloud.coverage.CoveragePlan;
@@ -183,17 +184,19 @@ public class PriorAuthorizationService {
      * in the database (the {@link Pageable}), not in memory.
      */
     public PageResponse<PriorAuthorizationSummaryDto> list(
-            Optional<UUID> patientId, Optional<PriorAuthorizationStatus> status, Pageable pageable) {
+            Optional<UUID> patientId, Optional<PriorAuthorizationStatus> status,
+            Optional<String> q, Pageable pageable) {
         UserContext caller = userContext.requireUser();
         UUID organizationId = userContext.requireOrganizationId();
         PriorAuthorizationStatus statusFilter = status.orElse(null);
+        String search = SearchTerms.likeContains(q.orElse(null)); // free-text on the auth number (§Phase 9 slice 7)
 
         Page<PriorAuthorization> found;
         if (patientId.isPresent()) {
             // Reuse the patient gate: an inaccessible patient (another tenant, or unassigned provider) → 404.
             accessGuard.requireAccessibleInTenant(patientId.get());
             found = priorAuths.searchForPatients(
-                    organizationId, Set.of(patientId.get()), statusFilter, pageable);
+                    organizationId, Set.of(patientId.get()), statusFilter, search, pageable);
         } else {
             Optional<Set<UUID>> accessibleIds = accessGuard.accessiblePatientIdsIfGated(caller, organizationId);
             if (accessibleIds.isPresent()) {
@@ -202,9 +205,9 @@ public class PriorAuthorizationService {
                     // A gated caller who can reach no patients sees an empty page (no DB round trip needed).
                     return PageResponse.empty(pageable);
                 }
-                found = priorAuths.searchForPatients(organizationId, visible, statusFilter, pageable);
+                found = priorAuths.searchForPatients(organizationId, visible, statusFilter, search, pageable);
             } else {
-                found = priorAuths.searchAll(organizationId, statusFilter, pageable);
+                found = priorAuths.searchAll(organizationId, statusFilter, search, pageable);
             }
         }
         return PageResponse.of(found, PriorAuthorizationSummaryDto::from);

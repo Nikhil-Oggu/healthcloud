@@ -63,16 +63,43 @@ class ClaimReviewRepositoryTest {
         savedReview(org, c3, patient, author, "MRV-S3", ClaimReviewStatus.RESOLVED);
 
         Page<ClaimReview> firstPage = reviewRepository.searchAll(
-                org.getId(), null, PageRequest.of(0, 2, Sort.by(Sort.Direction.ASC, "reviewNumber")));
+                org.getId(), null, null, PageRequest.of(0, 2, Sort.by(Sort.Direction.ASC, "reviewNumber")));
         assertEquals(3, firstPage.getTotalElements(), "the count spans every matching row, not just the page");
         assertEquals(2, firstPage.getTotalPages());
         assertEquals(List.of("MRV-S1", "MRV-S2"),
                 firstPage.getContent().stream().map(ClaimReview::getReviewNumber).toList());
 
         Page<ClaimReview> resolved = reviewRepository.searchAll(
-                org.getId(), ClaimReviewStatus.RESOLVED, PageRequest.of(0, 10, Sort.by("createdAt")));
+                org.getId(), ClaimReviewStatus.RESOLVED, null, PageRequest.of(0, 10, Sort.by("createdAt")));
         assertEquals(1, resolved.getTotalElements());
         assertEquals("MRV-S3", resolved.getContent().get(0).getReviewNumber());
+    }
+
+    @Test
+    void searchAll_filters_by_a_free_text_review_number_case_insensitively() {
+        Organization org = organizationRepository.save(new Organization("Mrv FreeText Org"));
+        AppUser author = appUserRepository.save(new AppUser("mrvft-" + UUID.randomUUID() + "@ex.org", "Author"));
+        Patient patient = patientRepository.save(
+                new Patient(org.getId(), "NC-9801", "Patient", LocalDate.of(1990, 1, 1)));
+        Claim c1 = claim(org, patient, author, "CLM-MFT1");
+        Claim c2 = claim(org, patient, author, "CLM-MFT2");
+        Claim c3 = claim(org, patient, author, "CLM-MFT3");
+
+        savedReview(org, c1, patient, author, "MRV-ALPHA1", ClaimReviewStatus.OPEN);
+        savedReview(org, c2, patient, author, "MRV-ALPHA2", ClaimReviewStatus.OPEN);
+        savedReview(org, c3, patient, author, "MRV-BETA1", ClaimReviewStatus.OPEN);
+
+        Page<ClaimReview> alphas = reviewRepository.searchAll(
+                org.getId(), null, "%alpha%", PageRequest.of(0, 10, Sort.by("reviewNumber")));
+        assertEquals(2, alphas.getTotalElements(), "both ALPHA reviews match (lowercase term, uppercase numbers)");
+        assertEquals(List.of("MRV-ALPHA1", "MRV-ALPHA2"),
+                alphas.getContent().stream().map(ClaimReview::getReviewNumber).toList());
+        assertEquals(0, reviewRepository.searchAll(
+                org.getId(), null, "%zzz%", PageRequest.of(0, 10, Sort.by("reviewNumber"))).getTotalElements(),
+                "a non-matching term returns nothing");
+        assertEquals(3, reviewRepository.searchAll(
+                org.getId(), null, null, PageRequest.of(0, 10, Sort.by("reviewNumber"))).getTotalElements(),
+                "a null term disables the search clause");
     }
 
     @Test
@@ -89,17 +116,17 @@ class ClaimReviewRepositoryTest {
         savedReview(org, c3, p2, author, "MRV-SP3", ClaimReviewStatus.OPEN);
 
         Page<ClaimReview> onlyP1 = reviewRepository.searchForPatients(
-                org.getId(), Set.of(p1.getId()), null, PageRequest.of(0, 10, Sort.by("createdAt")));
+                org.getId(), Set.of(p1.getId()), null, null, PageRequest.of(0, 10, Sort.by("createdAt")));
         assertEquals(2, onlyP1.getTotalElements(), "only the requested patients' reviews are visible");
 
         Page<ClaimReview> onlyC1 = reviewRepository.searchForClaim(
-                org.getId(), c1.getId(), null, PageRequest.of(0, 10, Sort.by("createdAt")));
+                org.getId(), c1.getId(), null, null, PageRequest.of(0, 10, Sort.by("createdAt")));
         assertEquals(1, onlyC1.getTotalElements(), "the claim filter narrows to that claim's reviews");
         assertEquals("MRV-SP1", onlyC1.getContent().get(0).getReviewNumber());
 
         Organization other = organizationRepository.save(new Organization("Mrv Other Org"));
         Page<ClaimReview> crossTenant = reviewRepository.searchForClaim(
-                other.getId(), c1.getId(), null, PageRequest.of(0, 10, Sort.by("createdAt")));
+                other.getId(), c1.getId(), null, null, PageRequest.of(0, 10, Sort.by("createdAt")));
         assertEquals(0, crossTenant.getTotalElements());
     }
 

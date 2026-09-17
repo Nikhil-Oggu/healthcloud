@@ -206,6 +206,30 @@ class ReprocessingApiIntegrationTest {
         assertTrue(bad.body().contains("VALIDATION_FAILED"), "sorting by a non-allowlisted field is a clean 400");
     }
 
+    @Test
+    void the_list_can_be_searched_by_batch_number() throws Exception {
+        Session admin = loginWithCsrf("admin@northcare.example.org");
+        String patientId = firstId(createPatient(admin).body());
+        String planId = createPlan(admin);
+        adjudicatedClaimOnPlan(admin, patientId, planId);
+        HttpResponse<String> batch = post(admin, "/api/v1/reprocessing-batches", batchJson(planId));
+        Matcher m = BATCH_NUMBER.matcher(batch.body());
+        assertTrue(m.find(), batch.body());
+        String batchNumber = m.group(1); // unique per tenant
+
+        // Searching by the batch's full number returns exactly it (search runs in SQL, case-insensitive).
+        HttpResponse<String> hit = get(admin.session, "/api/v1/reprocessing-batches?q=" + batchNumber + "&size=50");
+        assertEquals(200, hit.statusCode(), hit.body());
+        assertTrue(hit.body().contains(batchNumber), "the search finds the batch");
+        assertTrue(hit.body().contains("\"totalElements\":1"), "and narrows to exactly it");
+        assertTrue(get(admin.session, "/api/v1/reprocessing-batches?q=" + batchNumber.toLowerCase() + "&size=50")
+                .body().contains("\"totalElements\":1"), "a lowercase query matches the uppercase number");
+
+        // A non-matching term returns an empty page.
+        assertTrue(get(admin.session, "/api/v1/reprocessing-batches?q=RPB-NO-SUCH-ZZ&size=50")
+                .body().contains("\"totalElements\":0"), "a non-matching search returns nothing");
+    }
+
     // --- helpers -------------------------------------------------------------
 
     private record Session(String session, String xsrf) {}

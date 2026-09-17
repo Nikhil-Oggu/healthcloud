@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link as RouterLink } from 'react-router-dom'
 import {
   Chip,
@@ -46,12 +46,27 @@ export function ClaimReviewsPage() {
   const [page, setPage] = useState(0)
   const [size, setSize] = useState(20)
   const [status, setStatus] = useState<ClaimReviewStatus | ''>('')
+  // The raw search box, and the debounced value we actually query with (so we don't fire per keystroke).
+  const [search, setSearch] = useState('')
+  const [debouncedSearch, setDebouncedSearch] = useState('')
   // No active sort by default → the backend applies its default (createdAt DESC = newest first).
   const [sortField, setSortField] = useState<SortField | null>(null)
   const [sortDir, setSortDir] = useState<SortDir>('asc')
 
+  // Debounce the search box: settle for 300ms after the last keystroke before querying the server.
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(search), 300)
+    return () => clearTimeout(timer)
+  }, [search])
+
   const sort = sortField ? `${sortField},${sortDir}` : undefined
-  const reviews = useClaimReviews({ page, size, sort, status: status || undefined })
+  const reviews = useClaimReviews({
+    page,
+    size,
+    sort,
+    status: status || undefined,
+    q: debouncedSearch.trim() || undefined,
+  })
   const patients = usePatients()
   const claims = useClaims()
 
@@ -94,24 +109,38 @@ export function ClaimReviewsPage() {
 
       {canOpen && <CreateClaimReviewForm />}
 
-      <TextField
-        select
-        label="Status"
-        size="small"
-        value={status}
-        onChange={(e) => {
-          setStatus(e.target.value as ClaimReviewStatus | '')
-          setPage(0)
-        }}
-        sx={{ maxWidth: 220 }}
-      >
-        <MenuItem value="">All statuses</MenuItem>
-        {STATUSES.map((s) => (
-          <MenuItem key={s} value={s}>
-            {s}
-          </MenuItem>
-        ))}
-      </TextField>
+      <Stack direction="row" spacing={2} sx={{ flexWrap: 'wrap', rowGap: 2 }}>
+        <TextField
+          label="Search review #"
+          size="small"
+          value={search}
+          onChange={(e) => {
+            setSearch(e.target.value)
+            setPage(0)
+          }}
+          placeholder="e.g. MRV-1A2B"
+          sx={{ maxWidth: 260 }}
+        />
+
+        <TextField
+          select
+          label="Status"
+          size="small"
+          value={status}
+          onChange={(e) => {
+            setStatus(e.target.value as ClaimReviewStatus | '')
+            setPage(0)
+          }}
+          sx={{ maxWidth: 220 }}
+        >
+          <MenuItem value="">All statuses</MenuItem>
+          {STATUSES.map((s) => (
+            <MenuItem key={s} value={s}>
+              {s}
+            </MenuItem>
+          ))}
+        </TextField>
+      </Stack>
 
       <TableContainer component={Paper} variant="outlined">
         <Table aria-label="Claim reviews">

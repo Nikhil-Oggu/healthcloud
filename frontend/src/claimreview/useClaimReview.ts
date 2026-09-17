@@ -10,6 +10,8 @@ export const claimReviewHistoryKey = (id: string) => ['claim-reviews', id, 'hist
 export interface ClaimReviewsPageParams {
   claimId?: string
   status?: ClaimReviewStatus
+  /** Free-text search — a case-insensitive "contains" match on the review number (§Phase 9 slice 7). */
+  q?: string
   page: number
   size: number
   sort?: string

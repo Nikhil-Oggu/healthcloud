@@ -10,6 +10,8 @@ export const appealHistoryKey = (id: string) => ['appeals', id, 'history'] as co
 export interface AppealsPageParams {
   claimId?: string
   status?: AppealStatus
+  /** Free-text search — a case-insensitive "contains" match on the appeal number (§Phase 9 slice 7). */
+  q?: string
   page: number
   size: number
   sort?: string
