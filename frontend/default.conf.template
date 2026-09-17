@@ -1,0 +1,36 @@
+# nginx server block for the HealthCloud SPA (Phase 10, slice 3). ${BACKEND_UPSTREAM} is filled in at
+# container start by the base image's envsubst (from the env var of the same name). nginx's own
+# runtime variables ($uri, $host, ...) use no braces, so envsubst leaves them untouched.
+
+server {
+    listen 8080;
+    server_name _;
+
+    root /usr/share/nginx/html;
+    index index.html;
+
+    # Reverse-proxy the API and actuator to the backend, same-origin — the production mirror of the
+    # Vite dev proxy. Keeping the browser on one origin means the HttpOnly SESSION cookie and the
+    # readable XSRF-TOKEN cookie are first-party, so there is no CORS and no token handling in JS.
+    location /api/ {
+        proxy_pass ${BACKEND_UPSTREAM};
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location /actuator/ {
+        proxy_pass ${BACKEND_UPSTREAM};
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # SPA fallback: serve the requested file if it exists, otherwise index.html so client-side routes
+    # (e.g. /claims/123) resolve on a direct load or refresh (React Router).
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+}

@@ -1,0 +1,10 @@
+# Keep the Docker build context small. node_modules is reinstalled from the lockfile inside the build
+# stage, and dist is rebuilt — never ship either from the host (Phase 10, slice 3).
+node_modules
+dist
+dist-ssr
+coverage
+*.local
+.DS_Store
+Dockerfile
+.dockerignore

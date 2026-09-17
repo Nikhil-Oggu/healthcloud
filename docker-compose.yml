@@ -84,5 +84,22 @@ services:
     ports:
       - "8080:8080"
 
+  # The frontend SPA as its production container image (Phase 10, slice 3): a non-root nginx that serves
+  # the built static assets and reverse-proxies /api + /actuator to the `backend` service (same-origin, the
+  # production mirror of the Vite dev proxy). Opt-in via the `full` profile, like `backend`. Browse the app
+  # at http://localhost:8081. For a seeded, logged-in click-through, run the backend on its `local` profile
+  # (add SPRING_PROFILES_ACTIVE: local to the `backend` service above).
+  frontend:
+    build: ./frontend
+    image: healthcloud-frontend:local
+    container_name: healthcloud-frontend
+    profiles: ["full"]
+    depends_on:
+      - backend
+    environment:
+      BACKEND_UPSTREAM: http://backend:8080
+    ports:
+      - "8081:8080"
+
 volumes:
   healthcloud-pgdata:
