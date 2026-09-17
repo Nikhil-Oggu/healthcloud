@@ -1792,6 +1792,254 @@ deterministic demo heuristics, not a validated model, and that framing must surv
 
 ---
 
+## Phase 7 — Advanced Security & Governance: Audit Trail, Break-Glass & Retention (slices 1–8) — 2026-09-16
+
+> Backfill note: this section was written from the committed Phase 7 code plus `CLAUDE.md`/`docs/PROGRESS.md`, not
+> from a live build transcript (it was captured after the fact). The design, files, and decisions below are real and
+> verified against the source; per-slice build errors from the original sessions are not reconstructed here — where a
+> non-obvious decision exists we record it under "Key points" and "Failures" instead.
+
+### What we built
+
+The **security/governance** layer that makes the platform defensible, not just functional. Four capabilities:
+
+1. **A security audit trail** (slices 1–3) — an append-only, immutable log of security-relevant actions, made
+   **tamper-evident** with a per-organization HMAC hash chain, with an auditor-facing UI to read and verify it.
+2. **Break-glass emergency access** (slices 4–5) — a HIPAA "break the glass" pattern: a provider can self-grant
+   time-boxed access to a patient they're not assigned to, fully audited.
+3. **Access review** (slices 6–7) — oversight of standing emergency access: list every live grant and revoke one
+   early, with a UI.
+4. **Data retention** (slice 8) — purge long-expired operational data on a policy, while the audit trail is kept
+   permanently.
+
+The theme is **accountability**: not "can this be done" but "can we prove who did what, detect if the record was
+altered, grant emergency access without abandoning oversight, and hold operational data only as long as policy
+allows." The AUDITOR role — seeded since Phase 1 but unused until now — finally gets a job.
+
+### How it works
+
+**Slice 1 — the security audit event log.** `backend/src/main/java/com/healthcloud/audit/`.
+- `AuditEvent` (V36) — tenant-owned (`organization_id`), **append-only and immutable** (no `@Version`, no
+  UPDATE/DELETE path), carrying only **PHI-free** metadata: a coded `action` (`AuditAction` enum), `resource_type` /
+  `resource_id`, an `outcome` (`AuditOutcome` SUCCESS/DENIED), the request `correlation_id`, and a short `detail`.
+- `AuditService.record(action, resourceType, resourceId, outcome, detail)` — called from **inside a domain service's
+  own `@Transactional` method**, so the audit row commits atomically with the action it records (or both roll back).
+  Like `OutboxService` later, it is deliberately **not** `@Transactional`. Tenant + actor come from the backend
+  `UserContext`, never the client. First wired into `AdjudicationService.adjudicate` (a money decision) and
+  `ConsentDirectiveService.revoke` (a privacy decision).
+- `GET /api/v1/audit-events` — a role-gated read for **AUDITOR/ORG_ADMIN** (a disallowed role is a flat **403**, not
+  a secure 404 — this is a role-gated list, not an object lookup).
+
+**Slice 2 — tamper-evidence (the per-org HMAC hash chain).**
+- Each event now also carries `sequence_no`, `prev_hash`, and `entry_hash` (V37). The fingerprint is
+  `entry_hash = HMAC-SHA256(orgKey, canonical(event, prev_hash))`, so each entry commits to the entire history
+  before it — modify/delete/reorder/insert any row and its fingerprint no longer matches, and the break cascades to
+  every later row.
+- `AuditHashChain` — a **pure, DB-free policy class** (like the state machines) holding the ONE canonical
+  serialization + the HMAC, shared by writer and verifier so they compute identical hashes:
+
+```java
+// canonical() fixes field order, null handling, and a UTC micro-precision timestamp so a DB round-trip reproduces it.
+// entry_hash = lowercase-hex HMAC-SHA256(orgKey, canonical(... , prevHash)); prevHash chains each entry to its predecessor.
+public static String computeEntryHash(byte[] orgKey, String canonical) {
+    return HexFormat.of().formatHex(hmacSha256(orgKey, canonical.getBytes(StandardCharsets.UTF_8)));
+}
+```
+
+- `AuditSigningKeys` derives the **per-org key** as `HMAC(masterSecret, orgId)` from a master secret held in
+  configuration **outside the database it protects** (`healthcloud.audit.hmac-secret`, env-overridable dev default;
+  a real deployment uses a KMS/HSM in Phase 10). So tampering with `audit_event` alone cannot forge a valid
+  fingerprint — you'd also need the secret.
+- Appends **serialize per org** under a `PESSIMISTIC_WRITE`-locked `audit_chain_head` (V37) that holds the chain tip
+  (`last_hash` + `next_sequence`), using the insert-if-absent-then-lock pattern borrowed from `benefit_accumulator`.
+- `GET /api/v1/audit-events/verify` (AUDITOR/ORG_ADMIN) recomputes the chain in sequence order — position,
+  `prev_hash` link, recomputed `entry_hash` — and cross-checks the head to catch truncation, returning
+  `AuditChainVerificationDto{valid, entriesChecked, brokenAtSequence, reason}`.
+
+**Slice 3 — the audit-trail UI.** `frontend/src/audit/` — an `/audit` page (nav gated AUDITOR/ORG_ADMIN) with a
+recent-events table (When · Seq · Action chip · Resource · Outcome chip · Actor · Detail · **Fingerprint**) and a
+**Verify integrity** button that renders a green "Chain intact — N verified" or red "Tampering detected at
+sequence X — reason" alert. The verify is modeled as a mutation (a fresh server-side recompute per click); no crypto
+runs in the browser.
+
+**Slice 4 — break-glass emergency access (backend).** `backend/src/main/java/com/healthcloud/breakglass/`.
+- `BreakGlassGrant` (V38) — tenant-owned, immutable at creation; a **PROVIDER** self-declares time-boxed access to a
+  patient, recording a required `reason`; `expiresAt = now + healthcloud.break-glass.grant-duration-minutes`
+  (default 60).
+- `BreakGlassService.create` is PROVIDER-gated and loads the patient **directly by tenant** — deliberately **NOT**
+  through `PatientAccessGuard`, because the guard would 404 the very patient break-glass exists to reach (a
+  cross-tenant/unknown patient is still a secure 404 — break-glass never crosses tenants). The grant row + a
+  `BREAK_GLASS_INVOKED` audit event are written in **one transaction**; the audit detail is PHI-free (grant id +
+  expiry, never the free-text reason).
+- The key integration: **`PatientAccessGuard` consults live grants.** `requireAccessibleInTenant` allows a
+  provider-gated caller with no assignment if a live grant exists, and `accessiblePatientIdsIfGated` unions assigned
+  + break-glass patient ids. Because *every* patient-scoped read routes through this one guard, break-glass thereby
+  reaches the patient's **whole** record (requests/consent/documents/claims). Only the relationship layer is
+  overridden; tenant isolation and consent/field-masking are untouched.
+
+```java
+// PatientAccessGuard: a provider with no assignment is still allowed if a live emergency grant exists.
+if (isProviderGated(caller) && !isAssigned(...)
+        && !hasActiveBreakGlass(organizationId, caller.userId(), patientId)) {
+    throw new NotFoundException(); // secure 404
+}
+```
+
+**Slice 5 — break-glass UI.** `frontend/src/breakglass/` — because a provider breaks glass to reach a patient they
+*can't* see, the entry point is the **denied state**: `PatientDetailPage`'s error branch renders a `BreakGlassPanel`
+(reason form + "Break glass") instead of the generic error when the patient query is a **404** and the caller is a
+**PROVIDER**. On success it invalidates the patient query so the page reloads with access. A `/break-glass` page
+lists the caller's live grants. Nav "Emergency access" gated to PROVIDER.
+
+**Slice 6 — access review of break-glass (backend).** A grant gains **early revocation** — `revoked_at`/`revoked_by`
+(V39); "live" = `expires_at > now AND revoked_at IS NULL`, and the guard + every active-grant query filter on both,
+so a revocation cuts access off at once. `GET /api/v1/break-glass/all` (AUDITOR/ORG_ADMIN) lists every live grant
+with the provider name resolved; `POST /api/v1/break-glass/{id}/revoke` (**ORG_ADMIN only** — an auditor is
+read-only) ends a grant early (409 if not live, secure 404 cross-tenant) and writes a `BREAK_GLASS_REVOKED` audit
+event in one transaction.
+
+**Slice 7 — access-review UI.** `frontend/src/breakglass/AccessReviewPage.tsx` — an `/access-review` page listing
+every live grant (provider · patient link · reason · window) with a **Revoke** button (inline Confirm/Cancel, no
+`window.confirm`) shown only to ORG_ADMIN; an auditor sees it read-only. Nav gated AUDITOR/ORG_ADMIN.
+
+**Slice 8 — data retention.** `backend/src/main/java/com/healthcloud/retention/`.
+- `RetentionService.runBreakGlassPurge()` (ORG_ADMIN, tenant-scoped; `POST /api/v1/retention/break-glass/run`)
+  deletes the caller's-tenant `break_glass_grant` rows that expired more than `healthcloud.retention.break-glass-days`
+  (default 90) ago — removing the sensitive free-text reason once a grant is long expired — and records a
+  `RETENTION_PURGED` audit event in the **same transaction**.
+
+```java
+OffsetDateTime cutoff = OffsetDateTime.now().minusDays(breakGlassRetentionDays);
+long purged = grants.deleteByOrganizationIdAndExpiresAtBefore(organizationId, cutoff);
+audit.record(AuditAction.RETENTION_PURGED, AuditService.RESOURCE_BREAK_GLASS_GRANT, null,
+        AuditOutcome.SUCCESS, "Retention purge: removed " + purged + " ... older than " + breakGlassRetentionDays + " days");
+```
+
+- The audit trail is **never** purged (deleting a row would break the hash chain by design); the PHI-free
+  `BREAK_GLASS_*` events survive to prove the emergency access happened. Retention added **no migration** — it only
+  deletes existing operational rows.
+
+### Key points to remember
+
+- **`AuditService.record` is not `@Transactional`** — it joins the caller's transaction so the audit row commits
+  with the domain change. This is the same "join the caller's tx" trick reused by `OutboxService` in Phase 8.
+- **Tamper-evidence needs a secret held outside the protected data.** The per-org key derives from a master secret in
+  config/KMS, never in the DB. Otherwise an attacker who can edit `audit_event` could also recompute valid hashes.
+  The chain is HMAC (keyed), not a bare hash, for exactly this reason.
+- **Each entry chains to the previous** (`prev_hash` folded into the canonical form), so a single altered field
+  cascades — the verifier detects the earliest break. The head cross-check catches truncation of the newest rows.
+- **Per-org append serialization** uses a `PESSIMISTIC_WRITE` row lock on `audit_chain_head` (insert-if-absent then
+  lock) — the `benefit_accumulator` pattern — so concurrent audited actions in one org can't produce two events with
+  the same `sequence_no` or a forked chain.
+- **Canonical serialization must be deterministic across a DB round-trip.** The timestamp is stored/fingerprinted as
+  a micros-truncated UTC instant, field order and null handling are fixed, and the separator can't occur in the
+  coded fields — so the verifier reproduces the writer's bytes exactly.
+- **Break-glass overrides ONLY the relationship layer**, and only because `PatientAccessGuard` is the single choke
+  point every patient-scoped read passes through. Tenant isolation and consent/field-masking still apply. The guard
+  depends on the grant *repository* (not the services), so there's no bean cycle.
+- **Role-gated list vs object lookup.** A disallowed role on `GET /audit-events` or `/break-glass/all` is a flat
+  **403** (the resource class isn't hidden); an unreachable *specific* patient/claim stays a secure **404**. Know
+  which is which.
+- **Revocability changed the "live" definition.** After slice 6, "live" means `expires_at > now AND revoked_at IS
+  NULL` everywhere — the guard's checks and every active-grant query. Miss one and a revoked grant would still grant
+  access.
+- **Audit is permanent; operational data is on a retention policy.** Never purge audit rows (it breaks the chain).
+  Retention removes the sensitive break-glass `reason` once long-expired, but the PHI-free audit events proving the
+  access happened remain.
+- **`RESOURCE_*` are coded strings, not an enum.** A new audited resource type doesn't need a schema/enum change; the
+  `AuditAction` enum names the event, the resource type is a short constant.
+
+### Failures and how we fixed them
+
+Per the backfill note above, the original per-slice build errors from these sessions aren't reconstructed here. The
+non-obvious decisions worth recording (each a trap we designed around, verified in the committed code):
+
+- **Never store the audit key in the audited database.** Early instinct is a per-org key column; that would let
+  anyone who can edit `audit_event` forge fingerprints. The key derives from an out-of-DB master secret instead.
+- **Don't validate break-glass through `PatientAccessGuard`.** Doing so would 404 the exact patient the feature
+  exists to reach. `BreakGlassService.create` loads the patient directly by `(org, id)` — still a secure 404
+  cross-tenant, so no existence leak.
+- **When revocation was added, "live" had to change in every place at once** (guard + all queries), or a revoked
+  grant would keep working. This is why `isLive()`/the `revoked_at IS NULL` predicate live in shared spots.
+- **Retention must not touch the audit trail.** Purging audit rows would break the hash chain — so retention is
+  scoped strictly to operational `break_glass_grant` rows, and the purge is itself audited.
+
+### Interview Q&A
+
+#### 1. Beginner
+
+**Q: What is a security audit trail and what makes this one trustworthy?**
+A: An append-only log of security-relevant actions (who did what, to which resource, with what outcome). This one is
+immutable (no update/delete path) and **tamper-evident** — each entry is fingerprinted with an HMAC that chains to
+the previous entry, so any later change is detectable.
+
+**Q: What is "break the glass"?**
+A: A HIPAA pattern for emergencies: a clinician who normally couldn't access a patient's record can override the
+access control to reach it *now*, on the condition that the override is recorded and reviewable. Here a PROVIDER
+self-grants time-boxed access with a required reason, and it's audited.
+
+**Q: Why is break-glass not approval-gated?**
+A: Because it's for emergencies — waiting for an approval defeats the purpose. It's made safe *after the fact*: every
+invocation is audited, grants expire automatically, and an admin can review and revoke them.
+
+**Q: Why keep the audit trail forever but purge break-glass grants?**
+A: The audit trail is the accountability record — deleting from it would break the tamper-evidence chain. A
+break-glass grant is operational data that holds a sensitive free-text reason; once it's long expired and reviewed,
+policy says remove it. The audit events proving the access happened stay.
+
+#### 2. Intermediate
+
+**Q: Why HMAC instead of a plain SHA-256 hash for the chain?**
+A: A plain hash is unkeyed — anyone who edits a row could recompute a valid hash for the whole chain. HMAC is keyed;
+without the per-org secret you can't produce a valid fingerprint. The secret lives outside the database it protects,
+so compromising the DB isn't enough to forge the log.
+
+**Q: How does the chain detect deletion, reordering, or insertion — not just field edits?**
+A: Each entry includes the previous entry's hash and a monotonic `sequence_no` in what it signs. The verifier walks
+in sequence order checking position, the `prev_hash` link, and the recomputed `entry_hash`; a missing/reordered/
+inserted row breaks the sequence or the link. A separate head cross-check (stored tip vs recomputed tip) catches
+truncation of the most recent rows.
+
+**Q: Break-glass has to reach a patient the access guard would deny. How is that done without opening a hole?**
+A: `BreakGlassService.create` loads the patient directly by `(organizationId, id)` rather than through
+`PatientAccessGuard`. Tenant scoping still applies (cross-tenant is a secure 404), so nothing leaks across tenants;
+only the relationship layer is bypassed, and only for the caller who created a live grant. The guard then honors that
+grant for subsequent reads.
+
+**Q: Why does `AuditService.record` deliberately avoid `@Transactional`?**
+A: So it joins the caller's transaction. The audit event must commit atomically with the action it records — if it
+opened its own transaction, the log and the action could diverge on a failure. The same design is reused by the
+Phase 8 outbox writer.
+
+#### 3. Advanced
+
+**Q: Two audited actions happen concurrently in the same org. How do you prevent a forked chain or duplicate
+sequence numbers?**
+A: Appends serialize per org via a `PESSIMISTIC_WRITE` lock on the org's `audit_chain_head` row (insert-if-absent,
+then lock), so only one writer advances the tip at a time within a transaction. The next writer blocks until the
+first commits, then reads the new tip. It's the same row-lock pattern used for financial accumulators.
+
+**Q: What are the limits of this tamper-evidence, and how would production harden it?**
+A: It detects tampering by *anyone who lacks the key*; a holder of the master secret (or someone who can rewrite both
+the rows and re-derive keys) could forge it. Production would keep the secret in a KMS/HSM (Phase 10), rotate keys,
+optionally anchor periodic chain heads to an external notarization/WORM store, and ship audit events off-box so a
+DB-level actor can't both edit and re-sign. The canonical form must also stay frozen — changing serialization would
+invalidate historical verification.
+
+**Q: A revoked grant must stop working immediately. How is "immediately" actually guaranteed?**
+A: There's no cached authorization — `PatientAccessGuard` checks live grants on *every* patient-scoped read, and
+"live" is `expires_at > now AND revoked_at IS NULL` evaluated at check time. Revocation sets `revoked_at` in a
+committed transaction, so the very next read excludes it. The cost is a per-read grant check; the benefit is no stale
+access window.
+
+**Q: Retention deletes rows — how do you keep that from being an accountability hole?**
+A: Retention is scoped to *operational* data only (`break_glass_grant`), never the audit trail, and only to rows past
+a policy window (cutoff strictly in the past, so live/recent grants are untouched). The delete itself is audited as
+`RETENTION_PURGED` in the same transaction, with a PHI-free detail (count + window). So the sensitive reason is gone,
+but the permanent audit record shows that emergency access occurred and that a purge ran.
+
+---
+
 ## Phase 8 — Event-Driven Architecture: Transactional Outbox + Kafka (slices 1–7) — 2026-09-17
 
 ### What we built
