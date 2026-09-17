@@ -22,6 +22,7 @@ import type { AppealStatus } from '../api/types'
 import { appealStatusColor } from './statusColor'
 import { actionLabel, allowedActions, reasonRequired } from './transitions'
 import { useAppeal, useAppealHistory, useChangeAppealStatus } from './useAppeal'
+import { PageHeading } from '../components/PageHeading'
 
 export function AppealDetailPage() {
   const { id = '' } = useParams()
@@ -86,7 +87,7 @@ export function AppealDetailPage() {
       <Card variant="outlined">
         <CardContent>
           <Stack direction="row" spacing={2} sx={{ alignItems: 'center', mb: 1 }}>
-            <Typography variant="h5">Appeal {a.appealNumber}</Typography>
+            <PageHeading>Appeal {a.appealNumber}</PageHeading>
             <Chip label={a.status} color={appealStatusColor(a.status)} />
           </Stack>
           <Typography variant="body2" color="text.secondary">

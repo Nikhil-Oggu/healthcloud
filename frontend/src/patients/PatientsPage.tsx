@@ -27,6 +27,7 @@ import { useCurrentUser } from '../auth/useAuth'
 import { LoadingScreen } from '../components/LoadingScreen'
 import { ErrorScreen } from '../components/ErrorScreen'
 import { useCreatePatient, usePatients } from './usePatients'
+import { PageHeading } from '../components/PageHeading'
 
 const WRITE_ROLES = ['CARE_COORDINATOR', 'ORG_ADMIN']
 
@@ -85,7 +86,7 @@ export function PatientsPage() {
   return (
     <Stack spacing={3}>
       <Stack direction="row" spacing={2} sx={{ alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', rowGap: 1 }}>
-        <Typography variant="h5">Patients</Typography>
+        <PageHeading>Patients</PageHeading>
         <Button variant="outlined" onClick={onExport} disabled={exporting || patients.data.length === 0}>
           {exporting ? 'Exporting…' : 'Export CSV'}
         </Button>

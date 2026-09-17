@@ -26,6 +26,7 @@ import { ErrorScreen } from '../components/ErrorScreen'
 import { appealStatusColor } from './statusColor'
 import { CreateAppealForm } from './CreateAppealForm'
 import { useAppeals } from './useAppeal'
+import { PageHeading } from '../components/PageHeading'
 
 // Roles allowed to submit an appeal (mirrors the backend gate; the server still enforces it).
 const SUBMIT_ROLES = ['PROVIDER', 'CARE_COORDINATOR', 'ORG_ADMIN']
@@ -105,7 +106,7 @@ export function AppealsPage() {
 
   return (
     <Stack spacing={3}>
-      <Typography variant="h5">Appeals</Typography>
+      <PageHeading>Appeals</PageHeading>
 
       {canSubmit && <CreateAppealForm />}
 

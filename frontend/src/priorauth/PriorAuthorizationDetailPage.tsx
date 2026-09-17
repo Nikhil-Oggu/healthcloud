@@ -21,6 +21,7 @@ import type { PriorAuthorizationStatus } from '../api/types'
 import { priorAuthStatusColor } from './statusColor'
 import { actionLabel, allowedActions, reasonRequired } from './transitions'
 import { usePriorAuthorization, usePriorAuthHistory, useChangePriorAuthStatus } from './usePriorAuth'
+import { PageHeading } from '../components/PageHeading'
 
 export function PriorAuthorizationDetailPage() {
   const { id = '' } = useParams()
@@ -82,7 +83,7 @@ export function PriorAuthorizationDetailPage() {
       <Card variant="outlined">
         <CardContent>
           <Stack direction="row" spacing={2} sx={{ alignItems: 'center', mb: 1 }}>
-            <Typography variant="h5">Prior auth {a.authNumber}</Typography>
+            <PageHeading>Prior auth {a.authNumber}</PageHeading>
             <Chip label={a.status} color={priorAuthStatusColor(a.status)} />
           </Stack>
           <Typography variant="body2" color="text.secondary">

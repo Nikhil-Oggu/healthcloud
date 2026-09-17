@@ -33,6 +33,7 @@ import {
   useRequest,
   useRequestHistory,
 } from './useRequests'
+import { PageHeading } from '../components/PageHeading'
 
 // Participant roles that may comment — mirrors the backend gate (server still enforces it).
 const COMMENT_ROLES = ['PATIENT', 'PROVIDER', 'CARE_COORDINATOR', 'ORG_ADMIN']
@@ -95,7 +96,7 @@ export function RequestDetailPage() {
       <Card variant="outlined">
         <CardContent>
           <Stack direction="row" spacing={2} sx={{ alignItems: 'center', mb: 1 }}>
-            <Typography variant="h5">{r.title}</Typography>
+            <PageHeading>{r.title}</PageHeading>
             <Chip label={r.status} color={statusColor(r.status)} />
           </Stack>
           <Typography variant="body2" color="text.secondary">

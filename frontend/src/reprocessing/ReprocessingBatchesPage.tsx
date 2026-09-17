@@ -24,6 +24,7 @@ import { ErrorScreen } from '../components/ErrorScreen'
 import { reprocessingStatusColor } from './statusColor'
 import { CreateReprocessingBatchForm } from './CreateReprocessingBatchForm'
 import { useReprocessingBatches } from './useReprocessing'
+import { PageHeading } from '../components/PageHeading'
 
 // Roles allowed to run a batch (mirrors the backend gate; the server still enforces it).
 const RUN_ROLES = ['CLAIMS_REVIEWER', 'ORG_ADMIN']
@@ -96,7 +97,7 @@ export function ReprocessingBatchesPage() {
 
   return (
     <Stack spacing={3}>
-      <Typography variant="h5">Reprocessing</Typography>
+      <PageHeading>Reprocessing</PageHeading>
 
       {canRun && <CreateReprocessingBatchForm />}
 

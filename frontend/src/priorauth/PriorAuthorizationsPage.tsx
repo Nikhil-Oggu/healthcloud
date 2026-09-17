@@ -25,6 +25,7 @@ import { ErrorScreen } from '../components/ErrorScreen'
 import { priorAuthStatusColor } from './statusColor'
 import { CreatePriorAuthForm } from './CreatePriorAuthForm'
 import { usePriorAuthorizations } from './usePriorAuth'
+import { PageHeading } from '../components/PageHeading'
 
 // Roles allowed to request a prior auth (mirrors the backend gate; the server still enforces it).
 const REQUEST_ROLES = ['PROVIDER', 'CARE_COORDINATOR', 'ORG_ADMIN']
@@ -101,7 +102,7 @@ export function PriorAuthorizationsPage() {
 
   return (
     <Stack spacing={3}>
-      <Typography variant="h5">Prior authorizations</Typography>
+      <PageHeading>Prior authorizations</PageHeading>
 
       {canRequest && <CreatePriorAuthForm />}
 

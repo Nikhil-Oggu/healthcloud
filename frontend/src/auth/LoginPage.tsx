@@ -14,6 +14,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Navigate, useNavigate } from 'react-router-dom'
 import { api, ApiClientError } from '../api/client'
 import { ME_QUERY_KEY, useCurrentUser } from './useAuth'
+import { PageHeading } from '../components/PageHeading'
 
 /**
  * The seeded demo users (local `dev-login` only — NO password/MFA; replaced by Cognito later).
@@ -56,9 +57,9 @@ export function LoginPage() {
     <Box sx={{ display: 'flex', justifyContent: 'center', mt: 10, px: 2 }}>
       <Card sx={{ width: 420, maxWidth: '100%' }}>
         <CardContent>
-          <Typography variant="h5" gutterBottom>
+          <PageHeading gutterBottom>
             HealthCloud
-          </Typography>
+          </PageHeading>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
             Local development sign-in. Choose a seeded demo user — no password (dev only).
           </Typography>

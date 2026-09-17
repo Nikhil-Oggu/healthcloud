@@ -22,6 +22,7 @@ import type { ClaimReviewStatus } from '../api/types'
 import { claimReviewStatusColor } from './statusColor'
 import { actionLabel, allowedActions } from './transitions'
 import { useChangeClaimReviewStatus, useClaimReview, useClaimReviewHistory } from './useClaimReview'
+import { PageHeading } from '../components/PageHeading'
 
 export function ClaimReviewDetailPage() {
   const { id = '' } = useParams()
@@ -82,7 +83,7 @@ export function ClaimReviewDetailPage() {
       <Card variant="outlined">
         <CardContent>
           <Stack direction="row" spacing={2} sx={{ alignItems: 'center', mb: 1 }}>
-            <Typography variant="h5">Review {r.reviewNumber}</Typography>
+            <PageHeading>Review {r.reviewNumber}</PageHeading>
             <Chip label={r.status} color={claimReviewStatusColor(r.status)} />
           </Stack>
           <Typography variant="body2" color="text.secondary">

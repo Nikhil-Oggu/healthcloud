@@ -27,6 +27,7 @@ import { LoadingScreen } from '../components/LoadingScreen'
 import { ErrorScreen } from '../components/ErrorScreen'
 import { money } from '../claims/ClaimsPage'
 import { useCoveragePlans, useCreateCoveragePlan } from './useCoverage'
+import { PageHeading } from '../components/PageHeading'
 
 const ADMIN_ROLES = ['ORG_ADMIN']
 const PLAN_TYPES = ['HMO', 'PPO', 'EPO', 'HDHP'] as const
@@ -46,7 +47,7 @@ export function CoveragePlansPage() {
 
   return (
     <Stack spacing={3}>
-      <Typography variant="h5">Coverage plans</Typography>
+      <PageHeading>Coverage plans</PageHeading>
 
       {canCreate && <CreateCoveragePlanForm />}
 

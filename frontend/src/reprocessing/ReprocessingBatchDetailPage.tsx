@@ -20,6 +20,7 @@ import { LoadingScreen } from '../components/LoadingScreen'
 import { ErrorScreen } from '../components/ErrorScreen'
 import { itemOutcomeColor, reprocessingStatusColor } from './statusColor'
 import { useReprocessingBatch } from './useReprocessing'
+import { PageHeading } from '../components/PageHeading'
 
 export function ReprocessingBatchDetailPage() {
   const { id = '' } = useParams()
@@ -44,7 +45,7 @@ export function ReprocessingBatchDetailPage() {
       <Card variant="outlined">
         <CardContent>
           <Stack direction="row" spacing={2} sx={{ alignItems: 'center', mb: 1 }}>
-            <Typography variant="h5">Batch {b.batchNumber}</Typography>
+            <PageHeading>Batch {b.batchNumber}</PageHeading>
             <Chip label={b.status} color={reprocessingStatusColor(b.status)} />
           </Stack>
           <Typography variant="body2" color="text.secondary">

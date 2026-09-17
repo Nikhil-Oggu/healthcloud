@@ -26,6 +26,7 @@ import { ErrorScreen } from '../components/ErrorScreen'
 import { claimReviewStatusColor } from './statusColor'
 import { CreateClaimReviewForm } from './CreateClaimReviewForm'
 import { useClaimReviews } from './useClaimReview'
+import { PageHeading } from '../components/PageHeading'
 
 // Roles allowed to open a review (mirrors the backend gate; the server still enforces it).
 const OPEN_ROLES = ['CARE_COORDINATOR', 'CLAIMS_REVIEWER', 'ORG_ADMIN']
@@ -105,7 +106,7 @@ export function ClaimReviewsPage() {
 
   return (
     <Stack spacing={3}>
-      <Typography variant="h5">Manual review</Typography>
+      <PageHeading>Manual review</PageHeading>
 
       {canOpen && <CreateClaimReviewForm />}
 

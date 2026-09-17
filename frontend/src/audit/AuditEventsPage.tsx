@@ -23,6 +23,7 @@ import { LoadingScreen } from '../components/LoadingScreen'
 import { ErrorScreen } from '../components/ErrorScreen'
 import { auditActionColor, auditOutcomeColor } from './statusColor'
 import { useAuditEvents, useVerifyAuditChain } from './useAudit'
+import { PageHeading } from '../components/PageHeading'
 
 // The audit actions, for the server-side filter dropdown (mirrors the backend AuditAction enum).
 const ACTIONS: { value: AuditAction; label: string }[] = [
@@ -105,7 +106,7 @@ export function AuditEventsPage() {
   return (
     <Stack spacing={3}>
       <Stack direction="row" spacing={2} sx={{ alignItems: 'center', justifyContent: 'space-between' }}>
-        <Typography variant="h5">Audit trail</Typography>
+        <PageHeading>Audit trail</PageHeading>
         <Button variant="contained" onClick={() => verify.mutate()} disabled={verify.isPending}>
           {verify.isPending ? 'Verifying…' : 'Verify integrity'}
         </Button>

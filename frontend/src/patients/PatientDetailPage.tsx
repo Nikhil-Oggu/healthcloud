@@ -56,6 +56,7 @@ import {
 } from '../relationship/useAssignments'
 import { useCoveragePlans } from '../coverage/useCoverage'
 import { useEligibility, useEnrollEligibility } from '../coverage/useEligibility'
+import { PageHeading } from '../components/PageHeading'
 
 // Role-aware UI mirrors the backend gates (the server still enforces them):
 //  - consent: staff OR a PATIENT for their OWN record (self-service);
@@ -141,9 +142,9 @@ export function PatientDetailPage() {
         <Link component={RouterLink} to="/patients" variant="body2">
           ← Patients
         </Link>
-        <Typography variant="h5" sx={{ mt: 1 }}>
+        <PageHeading sx={{ mt: 1 }}>
           {p.fullName}
-        </Typography>
+        </PageHeading>
       </Box>
 
       <Card variant="outlined">

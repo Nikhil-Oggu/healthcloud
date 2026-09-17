@@ -19,6 +19,7 @@ import {
 import { LoadingScreen } from '../components/LoadingScreen'
 import { ErrorScreen } from '../components/ErrorScreen'
 import { useDeadLetterEvents, useReplayDeadLetter } from './useDeadLetter'
+import { PageHeading } from '../components/PageHeading'
 
 const ROWS_PER_PAGE_OPTIONS = [10, 20, 50]
 
@@ -88,7 +89,7 @@ export function DeadLetterEventsPage() {
 
   return (
     <Stack spacing={3}>
-      <Typography variant="h5">Dead letters</Typography>
+      <PageHeading>Dead letters</PageHeading>
       <Typography variant="body2" color="text.secondary">
         Messages that failed processing and were parked on a dead-letter topic, then drained here for inspection.
         Once the underlying cause is fixed, an administrator can replay one to re-drive it onto its source topic; the

@@ -37,6 +37,7 @@ import {
   useScanAnomalies,
 } from './useClaims'
 import { DIRECTORY_ROLES, useProviders } from './useProviders'
+import { PageHeading } from '../components/PageHeading'
 
 export function ClaimDetailPage() {
   const { id = '' } = useParams()
@@ -137,7 +138,7 @@ export function ClaimDetailPage() {
       <Card variant="outlined">
         <CardContent>
           <Stack direction="row" spacing={2} sx={{ alignItems: 'center', mb: 1 }}>
-            <Typography variant="h5">Claim {c.claimNumber}</Typography>
+            <PageHeading>Claim {c.claimNumber}</PageHeading>
             <Chip label={c.status} color={claimStatusColor(c.status)} />
           </Stack>
           <Typography variant="body2" color="text.secondary">

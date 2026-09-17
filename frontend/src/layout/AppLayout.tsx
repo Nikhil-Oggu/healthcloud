@@ -4,6 +4,7 @@ import {
   Button,
   Chip,
   Container,
+  Link,
   Stack,
   Toolbar,
   Typography,
@@ -36,13 +37,35 @@ export function AppLayout() {
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
+      {/* Skip link (WCAG 2.4.1): the first focusable element, hidden until focused, so a keyboard user can
+          jump past the nav straight to the page content. */}
+      <Link
+        href="#main"
+        sx={{
+          position: 'absolute',
+          left: 8,
+          top: -40,
+          zIndex: (theme) => theme.zIndex.tooltip + 1,
+          px: 2,
+          py: 1,
+          borderRadius: 1,
+          bgcolor: 'background.paper',
+          color: 'text.primary',
+          boxShadow: 3,
+          '&:focus': { top: 8 },
+        }}
+      >
+        Skip to main content
+      </Link>
+
       <AppBar position="static">
         <Toolbar>
-          <Typography variant="h6" sx={{ fontWeight: 700, mr: 4 }}>
+          {/* The brand is decorative here, not a heading — the page's own PageHeading is the <h1>. */}
+          <Typography variant="h6" component="div" sx={{ fontWeight: 700, mr: 4 }}>
             HealthCloud
           </Typography>
 
-          <Stack direction="row" spacing={1} sx={{ flexGrow: 1 }}>
+          <Stack component="nav" aria-label="Primary" direction="row" spacing={1} sx={{ flexGrow: 1 }}>
             <Button color="inherit" onClick={() => navigate('/')}>
               Home
             </Button>
@@ -144,7 +167,7 @@ export function AppLayout() {
         </Toolbar>
       </AppBar>
 
-      <Container component="main" sx={{ py: 4, flexGrow: 1 }}>
+      <Container component="main" id="main" tabIndex={-1} sx={{ py: 4, flexGrow: 1, outline: 'none' }}>
         <Outlet />
       </Container>
     </Box>

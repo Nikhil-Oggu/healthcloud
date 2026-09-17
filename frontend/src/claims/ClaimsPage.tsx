@@ -25,6 +25,7 @@ import { ErrorScreen } from '../components/ErrorScreen'
 import { claimStatusColor } from './statusColor'
 import { CreateClaimForm } from './CreateClaimForm'
 import { useClaimsPage } from './useClaims'
+import { PageHeading } from '../components/PageHeading'
 
 // Roles allowed to create a claim (mirrors the backend gate; the server still enforces it).
 const CREATE_ROLES = ['PROVIDER', 'CARE_COORDINATOR', 'ORG_ADMIN']
@@ -106,7 +107,7 @@ export function ClaimsPage() {
 
   return (
     <Stack spacing={3}>
-      <Typography variant="h5">Claims</Typography>
+      <PageHeading>Claims</PageHeading>
 
       {canCreate && <CreateClaimForm />}
 

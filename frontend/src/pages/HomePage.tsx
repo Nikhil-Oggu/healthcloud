@@ -1,5 +1,6 @@
 import { Card, CardContent, Chip, Stack, Typography } from '@mui/material'
 import { useCurrentUser } from '../auth/useAuth'
+import { PageHeading } from '../components/PageHeading'
 
 /** The first authenticated screen: shows the backend-derived identity for the signed-in user. */
 export function HomePage() {
@@ -14,9 +15,9 @@ export function HomePage() {
         <Typography variant="overline" color="text.secondary">
           Signed in as
         </Typography>
-        <Typography variant="h5" gutterBottom>
+        <PageHeading gutterBottom>
           {user.fullName}
-        </Typography>
+        </PageHeading>
 
         <Stack spacing={2} sx={{ mt: 1 }}>
           <Field label="Email" value={user.email} />

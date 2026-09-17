@@ -29,6 +29,7 @@ import { LoadingScreen } from '../components/LoadingScreen'
 import { ErrorScreen } from '../components/ErrorScreen'
 import { statusColor } from './statusColor'
 import { useCreateRequest, useRequests } from './useRequests'
+import { PageHeading } from '../components/PageHeading'
 
 const CREATE_ROLES = ['PATIENT', 'PROVIDER', 'CARE_COORDINATOR', 'ORG_ADMIN']
 const TYPES = ['CLAIM_SUPPORT', 'REFERRAL_REQUEST', 'DOCUMENT_REVIEW', 'APPOINTMENT_HELP', 'BENEFIT_CLARIFICATION'] as const
@@ -53,7 +54,7 @@ export function RequestsPage() {
 
   return (
     <Stack spacing={3}>
-      <Typography variant="h5">Service requests</Typography>
+      <PageHeading>Service requests</PageHeading>
 
       {canCreate && <CreateRequestForm />}
 

@@ -21,6 +21,7 @@ import type { ReferralStatus } from '../api/types'
 import { referralStatusColor } from './statusColor'
 import { actionLabel, allowedActions, reasonRequired } from './transitions'
 import { useReferral, useReferralHistory, useChangeReferralStatus } from './useReferral'
+import { PageHeading } from '../components/PageHeading'
 
 export function ReferralDetailPage() {
   const { id = '' } = useParams()
@@ -82,7 +83,7 @@ export function ReferralDetailPage() {
       <Card variant="outlined">
         <CardContent>
           <Stack direction="row" spacing={2} sx={{ alignItems: 'center', mb: 1 }}>
-            <Typography variant="h5">Referral {r.referralNumber}</Typography>
+            <PageHeading>Referral {r.referralNumber}</PageHeading>
             <Chip label={r.status} color={referralStatusColor(r.status)} />
           </Stack>
           <Typography variant="body2" color="text.secondary">

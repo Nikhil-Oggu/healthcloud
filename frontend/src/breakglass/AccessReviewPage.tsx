@@ -18,6 +18,7 @@ import { useCurrentUser } from '../auth/useAuth'
 import { LoadingScreen } from '../components/LoadingScreen'
 import { ErrorScreen } from '../components/ErrorScreen'
 import { useAllBreakGlassGrants, useRevokeBreakGlass } from './useBreakGlass'
+import { PageHeading } from '../components/PageHeading'
 
 // Only an admin may revoke (mirrors the backend; an auditor sees the list but no button).
 const REVOKE_ROLES = ['ORG_ADMIN']
@@ -39,7 +40,7 @@ export function AccessReviewPage() {
 
   return (
     <Stack spacing={3}>
-      <Typography variant="h5">Access review</Typography>
+      <PageHeading>Access review</PageHeading>
       <Typography variant="body2" color="text.secondary">
         Active break-glass emergency-access grants across the organization. Each was self-declared by a provider and
         is time-boxed and audited; an administrator can revoke one early to end access immediately.

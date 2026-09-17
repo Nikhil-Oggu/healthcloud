@@ -4,9 +4,9 @@
 > exists, or manually). Read this + `CLAUDE.md` + `docs/PLAN.md` at the start of every session.
 
 ## Current position
-- **Status:** Phases 0–8 COMPLETE ✅ · **Phase 9 IN PROGRESS 🚧** — search / reporting / accessibility (filters, pagination, CSV export with masking, WCAG 2.2 AA). Slice 1 ✅ (server-side pagination + filtering, backend + reusable `common` foundation) · slice 2 ✅ (paged claims work-queue UI) · slice 3 ✅ (paged prior-authorizations queue) · slice 4 ✅ (paged referrals + appeals + claim-reviews queues) · slice 5 ✅ (paged reprocessing + audit + dead-letter queues — **every work queue is now paginated**) · slice 6 ✅ (free-text search on the claims queue — backend `SearchTerms` foundation + `q` param + debounced search box) · slice 7 ✅ (free-text search rolled out to the five other numbered queues — prior-auth, referrals, appeals, claim-reviews, reprocessing) · slice 8 ✅ (free-text search on the last two queues — audit + dead-letters — so **all eight work queues are searchable**) · slice 9 ✅ (**CSV export with masking** — reusable `common.Csv` formatter + `GET /api/v1/patients/export.csv` reusing the field-masked list read + an Export CSV button). The MVP (Phases 0–5) is feature-complete — engine AND UI.
+- **Status:** Phases 0–9 COMPLETE ✅ · **Phase 9 COMPLETE ✅** — search / reporting / accessibility (pagination + free-text search across all eight queues, CSV export with masking, WCAG 2.2 AA-aligned accessibility pass). Slice 1 ✅ (server-side pagination + filtering, backend + reusable `common` foundation) · slice 2 ✅ (paged claims work-queue UI) · slice 3 ✅ (paged prior-authorizations queue) · slice 4 ✅ (paged referrals + appeals + claim-reviews queues) · slice 5 ✅ (paged reprocessing + audit + dead-letter queues — **every work queue is now paginated**) · slice 6 ✅ (free-text search on the claims queue — backend `SearchTerms` foundation + `q` param + debounced search box) · slice 7 ✅ (free-text search rolled out to the five other numbered queues — prior-auth, referrals, appeals, claim-reviews, reprocessing) · slice 8 ✅ (free-text search on the last two queues — audit + dead-letters — so **all eight work queues are searchable**) · slice 9 ✅ (**CSV export with masking** — reusable `common.Csv` formatter + `GET /api/v1/patients/export.csv` reusing the field-masked list read + an Export CSV button) · slice 10 ✅ (**WCAG 2.2 AA-aligned accessibility pass** — axe-core test gate + app-shell skip link/nav landmark/heading semantics via a shared `PageHeading`; **Phase 9 COMPLETE**). The MVP (Phases 0–5) is feature-complete — engine AND UI.
 - **At a glance** (newest first; the detailed per-phase bullets and the dated log below carry the full record):
-  - **Phase 9 🚧** Search / reporting / accessibility — slice 1 ✅ server-side pagination + filtering (`PageResponse<T>` + `PageRequests` sort-allowlist; claims queue paged in SQL) · slice 2 ✅ paged claims-queue UI (MUI pagination + sortable columns + status filter) · slice 3 ✅ prior-authorizations queue paged · slice 4 ✅ referrals + appeals + claim-reviews queues paged (patient-gated family complete) · slice 5 ✅ reprocessing + audit + dead-letter queues paged — **every work queue is now paginated** (audit also gained a server-side action filter + real paging in place of its 200-row cap) · slice 6 ✅ **free-text search** on the claims queue (reusable `SearchTerms` LIKE-escape helper + a `q` param matching the PHI-free claim number in SQL + a debounced search box) · slice 7 ✅ **free-text search across the five other numbered queues** (prior-auth/referrals/appeals/claim-reviews/reprocessing, each by its own business number) · slice 8 ✅ **free-text search on audit + dead-letters** (by their id fields — **all eight work queues now searchable**; Phase 9 search COMPLETE) · slice 9 ✅ **CSV export with masking** (reusable `common.Csv` formatter — RFC 4180 + formula-injection defusing — and `patients/export.csv` that reuses the field-masked list read so a masked DOB exports blank; Export CSV button on the patients page — the "field-masking meets data export" proof). **Remaining: WCAG 2.2 AA.**
+  - **Phase 9 ✅** Search / reporting / accessibility — slice 1 ✅ server-side pagination + filtering (`PageResponse<T>` + `PageRequests` sort-allowlist; claims queue paged in SQL) · slice 2 ✅ paged claims-queue UI (MUI pagination + sortable columns + status filter) · slice 3 ✅ prior-authorizations queue paged · slice 4 ✅ referrals + appeals + claim-reviews queues paged (patient-gated family complete) · slice 5 ✅ reprocessing + audit + dead-letter queues paged — **every work queue is now paginated** (audit also gained a server-side action filter + real paging in place of its 200-row cap) · slice 6 ✅ **free-text search** on the claims queue (reusable `SearchTerms` LIKE-escape helper + a `q` param matching the PHI-free claim number in SQL + a debounced search box) · slice 7 ✅ **free-text search across the five other numbered queues** (prior-auth/referrals/appeals/claim-reviews/reprocessing, each by its own business number) · slice 8 ✅ **free-text search on audit + dead-letters** (by their id fields — **all eight work queues now searchable**; Phase 9 search COMPLETE) · slice 9 ✅ **CSV export with masking** (reusable `common.Csv` formatter — RFC 4180 + formula-injection defusing — and `patients/export.csv` that reuses the field-masked list read so a masked DOB exports blank; Export CSV button on the patients page — the "field-masking meets data export" proof) · slice 10 ✅ **WCAG 2.2 AA-aligned accessibility pass** (axe-core test gate `expectNoAxeViolations`; app-shell skip link + `<nav>` landmark + brand-not-heading; a shared `PageHeading` gives every route one `<h1>`; verified in-browser). **Phase 9 COMPLETE ✅.**
   - **Phase 8 ✅** Event-driven — transactional outbox → relay → Kafka → idempotent consumer → retry/DLT → drain → inspect → replay (+ ops UI).
   - **Phase 7 ✅** Advanced security/governance — audit log, per-org HMAC tamper-evident chain, break-glass emergency access, access review, data retention.
   - **Phase 6 ✅** Advanced claims — prior auth, referrals, appeals, anomaly signals, manual review, reprocessing, provider network (all backend + UIs).
@@ -158,7 +158,21 @@
   Honest limitation: the whole accessible list is built in one response (no streaming) — fine at synthetic scale;
   the reusable `Csv` helper is ready to roll out to the work queues (reporting) in a later slice. Backend 492 tests
   (+9 `CsvTest` unit + 2 API: export respects masking, a provider's export is relationship-scoped); frontend 178
-  tests (+1 export-button test). **Remaining Phase 9 area: WCAG 2.2 AA accessibility.**
+  tests (+1 export-button test).
+  slice 10 ✅ — **WCAG 2.2 AA-aligned accessibility pass** (frontend, the last Phase 9 area): an automated
+  **axe-core** gate + app-shell and heading-semantics fixes. New reusable `src/test/axe.ts` →
+  **`expectNoAxeViolations(container)`** runs axe over rendered markup with the WCAG 2.0/2.1/2.2 A+AA rule tags
+  (color-contrast is disabled — it needs a real rendering engine jsdom lacks, so it's a browser check). App-shell
+  fixes in `AppLayout`: a **skip-to-content link** (first focusable, hidden until `:focus`, → `#main`) for WCAG
+  2.4.1, a **`<nav aria-label="Primary">`** landmark, a focusable **`<main id="main">`**, and the brand demoted
+  from `<h6>` to `component="div"` (not a heading). A shared **`PageHeading`** component (`variant="h5"
+  component="h1"`) is now every route's single top-level title (26 page titles converted), so each page has exactly
+  one `<h1>` and a correct heading order. **Verified in-browser** (logged in as admin): the skip link reveals on
+  focus and targets main, the Primary nav + main landmarks and a single `<h1>` are present, and the default MUI
+  theme's contrast reads fine on the core screens. **Honest scope (rules 2–3):** AA-*aligned* — automated axe A/AA
+  + keyboard/landmark/heading criteria + in-browser contrast on core screens — **not certified**; a full
+  page-by-page audit and a Playwright+axe E2E gate (per the §29 stack) are documented follow-ups. Frontend 181
+  tests (+3: a shell a11y test + axe on NotFound/Denied); backend untouched. **Phase 9 COMPLETE ✅.**
 - **Phase 8 COMPLETE ✅ (event-driven architecture):** slice 1 ✅ — **transactional outbox foundation**
   (backend, no Kafka yet): the answer to the dual-write problem (a Kafka publish can't join a DB transaction). A
   new `outbox_event` table (V40) + `com.healthcloud.outbox` package — `OutboxService.record(aggregateType,
@@ -438,6 +452,41 @@
   then `curl -b j.txt localhost:8080/api/v1/me`. Reset DB with `./scripts/db-reset.sh`.
 
 ## Log (newest first)
+
+### 2026-09-17 — Phase 9, slice 10 ✅ (WCAG 2.2 AA-aligned accessibility pass — axe gate + shell + headings, frontend)
+- **Why:** the last Phase 9 area — accessibility. Rather than a one-off cleanup, this establishes an **automated
+  gate** the suite keeps enforcing, then fixes the cross-cutting shell + heading issues that every page inherits.
+- **Honest framing (rules 2–3):** I don't claim "WCAG 2.2 AA certified". This is **AA-aligned**: automated axe
+  A/AA checks + the keyboard/landmark/heading criteria + an in-browser contrast check on the core screens. A tool
+  can't certify; a full page-by-page audit + a real-browser Playwright+axe gate are documented follow-ups.
+- **Foundation:** added `axe-core` (devDep) + `src/test/axe.ts` → **`expectNoAxeViolations(container)`**, which runs
+  axe with the `wcag2a/2aa/21a/21aa/22aa` tags and fails with a readable violation list. **color-contrast is
+  disabled** in the helper — axe reads computed pixels via canvas, which jsdom doesn't implement, so it can't run
+  under jsdom (it throws canvas errors); contrast is verified in the browser instead.
+- **App shell (`AppLayout`, one file, every page benefits):** a **Skip to main content** link (the first focusable
+  element, visually hidden until `:focus`, `href="#main"`) — WCAG 2.4.1 Bypass Blocks; the nav wrapped in
+  **`<nav aria-label="Primary">`**; the `<main>` given `id="main" tabIndex={-1}` as the skip target; and the brand
+  "HealthCloud" changed from `variant="h6"` (an `<h6>`) to `component="div"` so it no longer competes as a heading.
+- **Headings:** new shared **`components/PageHeading.tsx`** (`variant="h5" component="h1"`, keeps the visual size)
+  adopted as the single top-level title on **all 26 pages** (a Node codemod for the 20 simple inline titles + the
+  import; 6 special cases — `sx`/`gutterBottom`/a nested span — done by hand). Now every route has exactly one
+  `<h1>` and a correct heading order; card/section subheadings keep their lower levels. (`NotFoundPage` lost its
+  last `Typography` use → dropped the unused import.)
+- **Tests:** `src/test/accessibility.test.tsx` — a shell test asserting the skip link (`href="#main"`), the named
+  Primary nav landmark, and exactly one `<h1>` (+ axe), and axe on `NotFoundPage`/`DeniedPage`. +3 tests.
+- **In-browser verification** (backend up, logged in as `admin@northcare.example.org`): the accessibility tree
+  shows `link "Skip to main content" → #main`, `navigation "Primary"`, `main`, brand as plain text (not a heading),
+  and a single `heading level 1`; pressing Tab reveals the skip link top-left; the default MUI theme's contrast
+  (white nav on primary-blue, dark `<h1>` on white) reads fine on the core screens.
+- **Verified:** frontend `typecheck` + **181 tests** (was 178, +3) + `build` all green. Backend untouched.
+- **WCAG 2.2 note:** 2.4.1 addressed (skip link); 2.4.11 Focus Not Obscured is fine (the AppBar is
+  `position="static"`, so it never covers focused content); target-size (2.5.8) + a full contrast/focus sweep across
+  all pages are part of the documented follow-up.
+- **Files:** `frontend/`: `test/axe.ts` (new), `test/accessibility.test.tsx` (new), `components/PageHeading.tsx`
+  (new), `layout/AppLayout.tsx`, + 26 page components (title → `PageHeading`), `package.json`/lock (axe-core);
+  CLAUDE.md.
+- **Phase 9 COMPLETE ✅** (pagination + free-text search + CSV export + accessibility). Next phase: 10 (AWS deploy
+  & CI/CD) — a big, on-demand phase; or a Playwright+axe E2E accessibility gate as an optional slice first.
 
 ### 2026-09-17 — Phase 9, slice 9 ✅ (CSV export with masking — the reporting piece, backend + UI)
 - **Why:** Phase 9 is "search / **reporting** / accessibility." This adds the reporting piece — download a list as

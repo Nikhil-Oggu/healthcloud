@@ -15,6 +15,7 @@ import {
 import { LoadingScreen } from '../components/LoadingScreen'
 import { ErrorScreen } from '../components/ErrorScreen'
 import { useMyBreakGlassGrants } from './useBreakGlass'
+import { PageHeading } from '../components/PageHeading'
 
 /**
  * A provider's break-glass home: the patients they currently hold time-boxed emergency access to. Each links to the
@@ -28,7 +29,7 @@ export function MyBreakGlassPage() {
 
   return (
     <Stack spacing={3}>
-      <Typography variant="h5">Emergency access</Typography>
+      <PageHeading>Emergency access</PageHeading>
       <Typography variant="body2" color="text.secondary">
         Patients you currently have break-glass access to. Access is time-boxed and every use is audited. To break
         the glass for a new patient, open that patient and use the emergency-access panel.

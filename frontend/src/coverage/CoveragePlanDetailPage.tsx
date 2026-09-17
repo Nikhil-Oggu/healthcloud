@@ -40,6 +40,7 @@ import {
   useRemoveNetworkProvider,
   useRemovePriorAuthRequirement,
 } from './useCoverage'
+import { PageHeading } from '../components/PageHeading'
 
 const ADMIN_ROLES = ['ORG_ADMIN']
 
@@ -64,9 +65,9 @@ export function CoveragePlanDetailPage() {
 
       <Card variant="outlined">
         <CardContent>
-          <Typography variant="h5" gutterBottom>
+          <PageHeading gutterBottom>
             {p.name} <Typography component="span" color="text.secondary">({p.planCode})</Typography>
-          </Typography>
+          </PageHeading>
           <Typography variant="body2" color="text.secondary">
             {p.planType} · deductible {money(p.deductibleAmount)} · coinsurance {percent(p.coinsuranceRate)} ·
             copay {money(p.copayAmount)} · out-of-pocket max{' '}
