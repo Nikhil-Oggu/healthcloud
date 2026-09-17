@@ -52,7 +52,8 @@ healthcare portfolio application built on **synthetic data only**. Full frozen d
 - **Thin controllers.** Business rules, authorization, state transitions, claim math, audit creation,
   and event creation live in dedicated service/domain components. Repositories are tenant-safe by design.
 - **One transaction** for important state changes: domain change + status/version history + audit event
-  + outbox event, all atomic. Kafka publish happens only after commit.
+  + outbox event, all atomic (realized in Phase 8 — see the `outbox` package). Kafka publish happens only after
+  commit, via the outbox relay.
 - **Concurrency:** optimistic locking (version columns) for requests/claims/consent/assignments;
   row locks for financial accumulators.
 - **Idempotency:** retriable commands (create request, submit claim, start adjudication) require an Idempotency-Key.
@@ -64,7 +65,8 @@ Non-interactive shells must set the toolchain first (interactive terminals get i
 export JAVA_HOME="/opt/homebrew/opt/openjdk@25"
 export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$HOME/.docker/bin:$PATH"
 ```
-- **DB up:** `docker compose up -d postgres`  ·  **DB reset (reseed):** `./scripts/db-reset.sh`
+- **Infra up:** `docker compose up -d postgres kafka` (Kafka in KRaft mode, Phase 8)  ·  **DB reset (reseed):**
+  `./scripts/db-reset.sh` · Tests use Testcontainers, not this compose stack, so it need not be running for `verify`.
 - **Run app (seeds demo data):** `cd backend && ./mvnw spring-boot:run -Dspring-boot.run.profiles=local`
 - **Tests:** `cd backend && ./mvnw test` (uses Testcontainers → Docker must be running)
 - **Health:** `curl localhost:8080/actuator/health` · **Login+me:**
@@ -78,7 +80,7 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   Checks: `npm run typecheck`, `npm test` (Vitest), `npm run build`. Node runs from `openjdk@25`'s
   sibling `node@24` — use `export PATH="/opt/homebrew/opt/node@24/bin:$PATH"` in non-interactive shells.
 
-## Current implementation (Phase 1–4 COMPLETE; Phase 5 COMPLETE — slices 1–12 done; MVP (Phase 0–5) feature-complete, engine AND UI. Phase 6 (advanced claims) COMPLETE ✅ — slices 1–21 done: prior authorization, wired into adjudication, + prior-auth UI (queue/detail/decisions + request form) + plan-prior-auth-requirement admin card, + referrals (backend: care-coordination aggregate + decision lifecycle; + UI: queue/detail/decisions + request form), + appeals (backend: dispute a claim's decision + resolution lifecycle; + UI: queue/detail/decisions + submit form; + overturn wired into re-adjudication), + claim anomaly signals (backend: a deterministic detector + reviewer scan; + UI: Anomalies card + Scan button on the claim detail page), + claim manual review (backend: open/resolve/cancel a review case on a claim; + UI: queue/detail/decisions + open form), + reprocessing (backend: batch re-adjudication of a coverage plan's claims after a config change; + UI: batch queue/detail + Run form), + provider network (backend: plan network config + a rendering provider on the claim + the engine marks a covered line OUT_OF_NETWORK when its rendering provider is outside the covering plan's network; + UI: plan network admin card + the OUT_OF_NETWORK line chip + the rendering-provider picker on claim create, backed by a GET /api/v1/providers directory read) — this completes Phase 6's advanced-claims areas. **Phase 7 (advanced security/governance) IN PROGRESS 🚧** — slice 1 done: the **security audit event log** (a tenant-owned, append-only, immutable `audit_event` + `AuditService.record(...)` written inside the domain action's own transaction, wired into adjudication + consent revoke; a role-gated read `GET /api/v1/audit-events` for AUDITOR/ORG_ADMIN); slice 2 done: the trail is now **tamper-evident** — a per-org HMAC-SHA256 hash chain (`sequence_no`/`prev_hash`/`entry_hash` appended under a pessimistic-locked `audit_chain_head`, keyed by a per-org key derived from a config master secret held out of the DB) + `GET /api/v1/audit-events/verify` that detects any modified/deleted/reordered/inserted/truncated row; slice 3 done: the **audit-trail UI** (`src/audit/` — an auditor-facing `/audit` page with a recent-events table + a Verify-integrity button, nav gated to AUDITOR/ORG_ADMIN); slice 4 done: **break-glass emergency access** (backend — a PROVIDER self-grants time-boxed access to an unassigned patient with a recorded reason via `POST /api/v1/break-glass`; `PatientAccessGuard` honours a live grant; a `BREAK_GLASS_INVOKED` audit event is written; never crosses tenants); slice 5 done: the **break-glass UI** (`src/breakglass/` — a PROVIDER who hits a patient's secure-404 gets an emergency-access panel to break the glass, plus a `/break-glass` page listing their live grants); slice 6 done: **access review of break-glass** (backend — an admin/auditor lists every live grant via `GET /api/v1/break-glass/all`, and an admin revokes one early via `POST /api/v1/break-glass/{id}/revoke`, cutting off access at once + auditing a `BREAK_GLASS_REVOKED` event); slice 7 done: the **access-review UI** (`src/breakglass/AccessReviewPage.tsx` — an `/access-review` page of all live grants with a Revoke button, nav gated to AUDITOR/ORG_ADMIN); next is retention (the last Phase 7 area); see docs/PROGRESS.md for status)
+## Current implementation (Phase 1–4 COMPLETE; Phase 5 COMPLETE — slices 1–12 done; MVP (Phase 0–5) feature-complete, engine AND UI. Phase 6 (advanced claims) COMPLETE ✅ — slices 1–21 done: prior authorization, wired into adjudication, + prior-auth UI (queue/detail/decisions + request form) + plan-prior-auth-requirement admin card, + referrals (backend: care-coordination aggregate + decision lifecycle; + UI: queue/detail/decisions + request form), + appeals (backend: dispute a claim's decision + resolution lifecycle; + UI: queue/detail/decisions + submit form; + overturn wired into re-adjudication), + claim anomaly signals (backend: a deterministic detector + reviewer scan; + UI: Anomalies card + Scan button on the claim detail page), + claim manual review (backend: open/resolve/cancel a review case on a claim; + UI: queue/detail/decisions + open form), + reprocessing (backend: batch re-adjudication of a coverage plan's claims after a config change; + UI: batch queue/detail + Run form), + provider network (backend: plan network config + a rendering provider on the claim + the engine marks a covered line OUT_OF_NETWORK when its rendering provider is outside the covering plan's network; + UI: plan network admin card + the OUT_OF_NETWORK line chip + the rendering-provider picker on claim create, backed by a GET /api/v1/providers directory read) — this completes Phase 6's advanced-claims areas. **Phase 7 (advanced security/governance) IN PROGRESS 🚧** — slice 1 done: the **security audit event log** (a tenant-owned, append-only, immutable `audit_event` + `AuditService.record(...)` written inside the domain action's own transaction, wired into adjudication + consent revoke; a role-gated read `GET /api/v1/audit-events` for AUDITOR/ORG_ADMIN); slice 2 done: the trail is now **tamper-evident** — a per-org HMAC-SHA256 hash chain (`sequence_no`/`prev_hash`/`entry_hash` appended under a pessimistic-locked `audit_chain_head`, keyed by a per-org key derived from a config master secret held out of the DB) + `GET /api/v1/audit-events/verify` that detects any modified/deleted/reordered/inserted/truncated row; slice 3 done: the **audit-trail UI** (`src/audit/` — an auditor-facing `/audit` page with a recent-events table + a Verify-integrity button, nav gated to AUDITOR/ORG_ADMIN); slice 4 done: **break-glass emergency access** (backend — a PROVIDER self-grants time-boxed access to an unassigned patient with a recorded reason via `POST /api/v1/break-glass`; `PatientAccessGuard` honours a live grant; a `BREAK_GLASS_INVOKED` audit event is written; never crosses tenants); slice 5 done: the **break-glass UI** (`src/breakglass/` — a PROVIDER who hits a patient's secure-404 gets an emergency-access panel to break the glass, plus a `/break-glass` page listing their live grants); slice 6 done: **access review of break-glass** (backend — an admin/auditor lists every live grant via `GET /api/v1/break-glass/all`, and an admin revokes one early via `POST /api/v1/break-glass/{id}/revoke`, cutting off access at once + auditing a `BREAK_GLASS_REVOKED` event); slice 7 done: the **access-review UI** (`src/breakglass/AccessReviewPage.tsx` — an `/access-review` page of all live grants with a Revoke button, nav gated to AUDITOR/ORG_ADMIN); slice 8 done: **data retention** (an ORG_ADMIN purges long-expired `break_glass_grant` rows for their tenant via `POST /api/v1/retention/break-glass/run` past a configurable window, while the audit trail is preserved and the purge is itself audited `RETENTION_PURGED`) — **Phase 7 COMPLETE ✅**. **Phase 8 (event-driven: transactional outbox + Kafka) IN PROGRESS 🚧** — slice 1 done: the **transactional-outbox foundation** (an `outbox_event` row written INSIDE the domain tx via `OutboxService.record(...)`, §31.6; first emitter `AdjudicationService.adjudicate` → a PHI-free `claim.adjudicated` event); slice 2 done: the **outbox relay + Kafka** (a KRaft broker in docker-compose; `OutboxRelay`, a `@Scheduled` poller, publishes committed rows to Kafka after commit and stamps `published_at`); slice 3 done: an **idempotent consumer** (`ClaimAdjudicatedConsumer` `@KafkaListener` → a PHI-free `claim_adjudication_notification` feed, deduped on `event_id`); slice 4 done: consumer **retry/backoff + a dead-letter topic** (a `DefaultErrorHandler` + `DeadLetterPublishingRecoverer` → `claim.adjudicated.DLT`; structural failures non-retryable); slice 5 done: **dead-letter drain + inspection** (a `DeadLetterDrainer` into `dead_letter_event` + a role-gated `GET /api/v1/dead-letter-events`); next is DLT replay; see docs/PROGRESS.md for status)
 - **Backend packages** under `com.healthcloud`: `organization` (Organization, Facility, FacilityMembership),
   `identity` (AppUser, Role, OrganizationMembership, UserRole; plus the **provider directory** read
   `GET /api/v1/providers` — `ProviderController`/`ProviderDirectoryService` list the caller's tenant's active
@@ -468,7 +470,8 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   and cross-checks the head (catching truncation), returning `AuditChainVerificationDto{valid, entriesChecked,
   brokenAtSequence, reason}`. **UI (slice 3):** an auditor-facing **Audit** page — see `src/audit/` under Frontend
   below. The audit trail also records `BREAK_GLASS_INVOKED` / `BREAK_GLASS_REVOKED` events (see the `breakglass`
-  package). **Deferred:** retention),
+  package). Audit events are **permanent** — never purged (that would break the hash chain); data retention purges
+  only operational data (see the `retention` package)),
   `breakglass` (Phase 7 slice 4 — **break-glass emergency access**, the HIPAA "break the glass" pattern.
   `POST /api/v1/break-glass` (self-grant) + `GET /api/v1/break-glass` (the caller's live grants). A `break_glass_grant`
   is tenant-owned + immutable (created and simply expires — no `@Version`; early admin revocation is a later
@@ -493,7 +496,45 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   `BREAK_GLASS_REVOKED` audit event in one tx. The access-review capability is scoped to break-glass for now (standing
   assignments + role memberships are later slices). **UI (slice 5):** a provider-facing break-glass panel on a
   patient's denied page + a `/break-glass` grants list, plus the **access-review page** (slice 7) — see `src/breakglass/`
-  under Frontend below. **Deferred:** retention),
+  under Frontend below. Long-expired grants are purged by the data-retention job (see the `retention` package); the
+  audit events proving break-glass happened are permanent),
+  `retention` (Phase 7 slice 8 — **data retention**, the last Phase 7 area: the policy for how long OPERATIONAL data
+  lives, in tension with the permanent audit trail. `RetentionService.runBreakGlassPurge()` (ORG_ADMIN, tenant-scoped;
+  `POST /api/v1/retention/break-glass/run`) deletes the caller's-tenant `break_glass_grant` rows that expired more than
+  `healthcloud.retention.break-glass-days` (default 90) ago — removing the sensitive free-text emergency reason once a
+  grant is long expired — and records a `RETENTION_PURGED` audit event in the **same transaction** (§31.6). The audit
+  trail is NEVER purged (deleting a row would break the hash chain); a live or recently-expired grant is untouched.
+  **Honest limitation:** a manual admin trigger (a scheduled purge is a Phase-8 worker concern); audit-event retention
+  is intentionally out of scope. `AuditAction.RETENTION_PURGED` + `AuditService.RESOURCE_BREAK_GLASS_GRANT`),
+  `outbox` (Phase 8 slices 1–2 — the **transactional outbox**, the event-driven write side. A Kafka publish cannot
+  join a DB transaction (the dual-write problem), so `OutboxService.record(aggregateType, aggregateId, eventType,
+  payload)` writes an `outbox_event` row from **inside a domain service's own `@Transactional` method** — it is NOT
+  `@Transactional` itself, joining the caller's tx exactly like `AuditService` — so the event commits atomically with
+  the domain change (§31.6, the "+ outbox event" half of the one-tx quartet, now real). Payload is Jackson-serialized,
+  minimum-necessary + PHI-free (rule 5). First emitter: `AdjudicationService.adjudicate` → a `claim.adjudicated`
+  event (`ClaimAdjudicatedEvent` — claim id/number, version, outcome, money split; no patient/clinical data). The
+  **`OutboxRelay`** (`OutboxRelayScheduler`, a `@Scheduled` poller gated by `healthcloud.outbox.relay.enabled`,
+  `@EnableScheduling` on the app) publishes pending rows (oldest-first, bounded batch) to Kafka AFTER commit — topic =
+  `event_type`, key = `aggregate_id`, payload as value, metadata in headers — then stamps `published_at` (a partial
+  index backs the poll; `published_at IS NULL` = pending). **At-least-once** delivery; **single-instance** (multi-instance
+  needs `SELECT … FOR UPDATE SKIP LOCKED`)),
+  `notification` (Phase 8 slices 3–4 — the event-driven **read side**. `ClaimAdjudicatedConsumer` (`@KafkaListener`
+  on `claim.adjudicated`, `autoStartup = ${healthcloud.kafka.consumers.enabled:true}`) builds a PHI-free
+  `claim_adjudication_notification` feed **purely from the event** (payload + headers), never re-reading the claim
+  (loose coupling). **Idempotent** for at-least-once delivery: it skips an event it has already recorded
+  (`existsByEventId`) and a `UNIQUE(event_id)` is the backstop (a `DataIntegrityViolationException` is caught → treated
+  as processed). `KafkaConsumerErrorConfig` (slice 4) adds a `DefaultErrorHandler` (auto-applied by Boot): a bounded
+  `FixedBackOff` retry (`healthcloud.kafka.consumers.retry.max-attempts`/`backoff-ms`) then a
+  `DeadLetterPublishingRecoverer` → `<topic>.DLT`; **structural failures** (bad header → `IllegalArgumentException`,
+  malformed payload → `JacksonException`) are non-retryable and go straight to the DLT, so a poison record never blocks
+  the partition),
+  `deadletter` (Phase 8 slice 5 — **dead-letter drain + inspection**. `DeadLetterDrainer` (`@KafkaListener` on
+  `claim.adjudicated.DLT`) drains failed records into `dead_letter_event` — original topic/key/payload, the
+  `eventId`/`organizationId` app headers, and Spring's `kafka_dlt-*` failure metadata (exception class + message) —
+  turning "what's dead-lettered" into an ordinary read. Idempotent via `UNIQUE(dlt_topic, dlt_partition, dlt_offset)`.
+  `GET /api/v1/dead-letter-events` (ORG_ADMIN, tenant-scoped; role-gated list → flat 403). **Honest limitation:**
+  replay (re-driving a record onto the source topic) is a later slice; records with no `organizationId` header aren't
+  listable by a tenant admin (a platform-operator view is a future refinement)),
   `devdata` (DevDataSeeder, local-only — also seeds the global `medical_code` catalog once, then a couple of
   synthetic `clinical_summary` rows per assigned patient, one sample DRAFT `claim` (header + two procedure
   lines + its null→DRAFT status-history row) for the first patient, and two `coverage_plan` rows per org (a PPO
@@ -615,6 +656,14 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   - A `RANDOM_PORT` test may also `@Autowired` repositories to assert one-transaction side-effects (e.g. that a
     `request_status_history` row was written) — the test runs in the same context as the embedded server.
   - Every new tenant-owned resource gets a cross-tenant test proving another tenant's id → **secure 404**.
+  - **Kafka tests (Phase 8)** add a real broker via `KafkaTestcontainersConfiguration` (a `ConfluentKafkaContainer`
+    with `@ServiceConnection`), imported ONLY by the Kafka tests so the rest of the suite stays broker-free. The relay
+    scheduler and the `@KafkaListener` consumers are disabled across the suite by `src/test/resources/application-local.yml`
+    (which augments — never shadows — the main `application.yml`); a Kafka test either drives the relay/consumer path
+    directly (`relay.publishPending()`, publish via `KafkaTemplate`) or re-enables consumers with
+    `@SpringBootTest(properties = "healthcloud.kafka.consumers.enabled=true")`. Read the broker address from the
+    container (`container.getBootstrapServers()`), not the `spring.kafka.bootstrap-servers` property (`@ServiceConnection`
+    wires a `ConnectionDetails` bean, leaving the property at its default).
 - **Frontend** (`frontend/`, Phase 1 slice 6+): Vite + React + TS, React Router 7, TanStack Query 5, MUI 9.
   Structure: `api/` (typed `fetch` client + `ApiClientError` + CSRF header injection), `auth/` (`useCurrentUser`
   querying `/api/v1/me`, `ProtectedRoute`, `LoginPage`), `layout/AppLayout`, `pages/`, `components/`. Auth =
@@ -624,6 +673,13 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
 ## Boot 4.1 notes (learned; avoid re-discovering)
 - Testcontainers is **2.0.x** here → artifacts are `testcontainers-junit-jupiter` / `testcontainers-postgresql`.
 - Spring Session needs the **starter** `spring-boot-starter-session-jdbc` (the raw library alone doesn't auto-configure).
+- **Kafka** needs the **starter** `spring-boot-starter-kafka` (the raw `spring-kafka` lib alone brings no Boot
+  auto-config → no `KafkaTemplate` bean). Inject the auto-configured template as a **raw** `KafkaTemplate` — Boot's
+  `KafkaTemplate<?,?>` bean does not satisfy a `KafkaTemplate<String,String>` injection point (wildcard vs specific).
+  Testcontainers 2.0.x's `org.testcontainers.kafka.KafkaContainer` (apache/kafka) mis-computes `advertised.listeners`
+  on this host → use `ConfluentKafkaContainer` (`confluentinc/cp-kafka`) instead. No `@KafkaListener`/`KafkaAdmin`
+  topic beans, so the app makes **no broker connection at startup** — only the relay/consumers connect (and only when
+  enabled), so the broker-free tests are unaffected.
 - Some test types moved packages: `@AutoConfigureMockMvc` → `org.springframework.boot.webmvc.test.autoconfigure`.
 - MockMvc doesn't run the Spring Session filter → test real session cookies with RANDOM_PORT + HttpClient.
 - **Jackson 3** here: `ObjectMapper` is `tools.jackson.databind.ObjectMapper` (not `com.fasterxml.jackson.databind`);
