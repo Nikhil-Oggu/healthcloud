@@ -41,6 +41,15 @@ container, add `SPRING_PROFILES_ACTIVE: local` under the `backend` service's `en
 `docker-compose.yml`. The outbox relay is disabled for the containerized run (cross-container Kafka
 networking is a later slice); the app makes no broker connection at startup regardless.
 
+### The image is also built & published by CI (Phase 10 slice 2)
+On every push to `main`, CI builds this image and publishes it to **GHCR** (after the backend tests
+pass), tagged with the short commit SHA and `latest`. Pull the published image with:
+```bash
+docker pull ghcr.io/nikhil-oggu/healthcloud-backend:latest
+```
+(If the package is private, either make it public once in the repo's **Packages** settings, or
+`docker login ghcr.io` with a personal access token that has `read:packages`.)
+
 ## Notes
 - Schema is owned by **Flyway** (`src/main/resources/db/migration`). Hibernate never auto-creates tables (`ddl-auto: validate`).
 - DB connection defaults to `healthcloud/healthcloud` on `localhost:5432` (override via `HEALTHCLOUD_DB_USER` / `HEALTHCLOUD_DB_PASSWORD`).
