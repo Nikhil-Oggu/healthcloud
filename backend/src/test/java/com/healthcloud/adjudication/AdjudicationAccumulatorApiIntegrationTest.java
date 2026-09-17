@@ -31,8 +31,13 @@ import org.springframework.test.context.ActiveProfiles;
 class AdjudicationAccumulatorApiIntegrationTest {
 
     private static final Pattern FIRST_ID = Pattern.compile("\"id\":\"([0-9a-fA-F-]{36})\"");
+    // Select the SEEDED "Standard PPO" by its unique plan code (…-PPO-STD), not "the first PPO in the list".
+    // These tests share one database + tenant with the other adjudication tests, several of which create their
+    // own PPO-type plans (e.g. "Adjudication Fee Schedule Plan", code AFS-…). The plan list is ordered by plan
+    // code ascending, so an AFS-… plan sorts before …-PPO-STD and a "first PPO" match would grab the wrong plan
+    // (its fee-scheduled 99213 breaks these exact-amount assertions). Matching the plan code is order-independent.
     private static final Pattern PPO_ID =
-            Pattern.compile("\\{\"id\":\"([0-9a-fA-F-]{36})\"[^}]*\"planType\":\"PPO\"");
+            Pattern.compile("\\{\"id\":\"([0-9a-fA-F-]{36})\",\"planCode\":\"[^\"]*PPO-STD\"");
 
     @Value("${local.server.port}")
     int port;

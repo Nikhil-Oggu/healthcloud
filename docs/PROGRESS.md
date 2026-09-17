@@ -454,6 +454,28 @@
 
 ## Log (newest first)
 
+### 2026-09-17 — Fix: flaky adjudication tests that were failing CI (test-only, unblocks the image publish)
+- **Found while verifying slice 2:** the `backend` CI job had been red since before Phase 10 (the docs-only push
+  `567c4dc`, no code change, failed identically) — so `backend-image` (which `needs: backend`) never published.
+  Two tests in `AdjudicationAccumulatorApiIntegrationTest` failed **in CI but passed locally**.
+- **Root cause (test pollution + non-deterministic ordering, not a product bug):** these tests assert exact dollar
+  amounts using the **seeded "Standard PPO"** but located it by regex as *"the first plan whose type is PPO"* from
+  the tenant's plan list. The list is ordered by **plan code ascending**, and other adjudication tests create their
+  own PPO-type plans (e.g. `AdjudicationFeeScheduleApiIntegrationTest` → "Adjudication Fee Schedule Plan", code
+  `AFS-…`, which prices 99213 to $120). `AFS-…` sorts before the seeded `…-PPO-STD`, so once it exists the
+  accumulator test grabbed the wrong plan and its deductible math broke. Local runs order the test classes
+  differently, hiding it.
+- **Fix (test-only):** select the seeded plan by its **unique plan code (`…-PPO-STD`)** instead of "first PPO" —
+  order-independent, the way `CoveragePlanApiIntegrationTest` already does it. Applied to
+  `AdjudicationAccumulatorApiIntegrationTest`; also hardened `AdjudicationApiIntegrationTest` (its `firstPlanId`
+  helper grabbed the first plan of any type → renamed `seededPpoPlanId`, same code match) since it relied on the
+  same luck. The other adjudication tests create their own uniquely-coded plans, so they're already isolated. No
+  production code changed.
+- **Verified:** full backend `./mvnw -B clean verify` green locally — **492 tests, 0 failures** (the suite runs all
+  classes against one shared DB, so it reproduces the CI conditions; the fix holds regardless of order).
+- **Files:** `backend/src/test/java/com/healthcloud/adjudication/AdjudicationAccumulatorApiIntegrationTest.java`,
+  `AdjudicationApiIntegrationTest.java`.
+
 ### 2026-09-17 — Phase 10, slice 2 ✅ (build + publish the backend image in CI → GHCR)
 - **Why:** slice 1 proved the image builds on my Mac. A CI/CD pipeline needs it to build on a clean machine on
   every change and to produce a **versioned, pullable artifact** a deploy can grab — exactly what AWS ECS Fargate

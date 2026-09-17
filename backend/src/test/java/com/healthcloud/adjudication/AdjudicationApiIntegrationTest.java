@@ -32,6 +32,12 @@ import org.springframework.test.context.ActiveProfiles;
 class AdjudicationApiIntegrationTest {
 
     private static final Pattern FIRST_ID = Pattern.compile("\"id\":\"([0-9a-fA-F-]{36})\"");
+    // Select the SEEDED "Standard PPO" by its unique plan code (…-PPO-STD), not "the first plan in the list".
+    // These tests share one database + tenant with the other adjudication tests, several of which create their
+    // own coverage plans; the plan list is ordered by plan code ascending, so "first plan" is not deterministic
+    // across environments. The seeded PPO covers this suite's 99213 + 80053 lines, so its outcomes are stable.
+    private static final Pattern SEEDED_PPO_ID =
+            Pattern.compile("\\{\"id\":\"([0-9a-fA-F-]{36})\",\"planCode\":\"[^\"]*PPO-STD\"");
 
     @Value("${local.server.port}")
     int port;
@@ -53,7 +59,7 @@ class AdjudicationApiIntegrationTest {
     void a_reviewer_adjudicates_a_covered_claim_and_reads_the_breakdown() throws Exception {
         Session coordinator = loginWithCsrf("coordinator@northcare.example.org");
         String patientId = firstId(createPatient(coordinator).body());
-        enroll(coordinator, patientId, firstPlanId(coordinator));
+        enroll(coordinator, patientId, seededPpoPlanId(coordinator));
 
         Session reviewer = loginWithCsrf("reviewer@northcare.example.org");
         String claimId = acceptedClaim(coordinator, reviewer, patientId);
@@ -118,7 +124,7 @@ class AdjudicationApiIntegrationTest {
     void re_adjudicating_an_adjudicated_claim_creates_a_new_version() throws Exception {
         Session coordinator = loginWithCsrf("coordinator@northcare.example.org");
         String patientId = firstId(createPatient(coordinator).body());
-        enroll(coordinator, patientId, firstPlanId(coordinator));
+        enroll(coordinator, patientId, seededPpoPlanId(coordinator));
         Session reviewer = loginWithCsrf("reviewer@northcare.example.org");
         String claimId = acceptedClaim(coordinator, reviewer, patientId);
 
@@ -259,8 +265,10 @@ class AdjudicationApiIntegrationTest {
         return claimId;
     }
 
-    private String firstPlanId(Session s) throws Exception {
-        return firstId(get(s.session, "/api/v1/coverage-plans").body());
+    private String seededPpoPlanId(Session s) throws Exception {
+        Matcher m = SEEDED_PPO_ID.matcher(get(s.session, "/api/v1/coverage-plans").body());
+        assertTrue(m.find(), "expected the seeded Standard PPO in the catalog");
+        return m.group(1);
     }
 
     private void enroll(Session s, String patientId, String planId) throws Exception {
