@@ -2,8 +2,11 @@ package com.healthcloud.patient;
 
 import jakarta.validation.Valid;
 import java.net.URI;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.UUID;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -31,6 +34,20 @@ public class PatientController {
     @GetMapping
     public List<PatientDto> list() {
         return patientService.listForCurrentTenant();
+    }
+
+    /**
+     * Export the caller's patients as a CSV download (§Phase 9 — reporting). The literal {@code /export.csv} path
+     * is matched ahead of {@code /{id}} by Spring, so it never tries to bind "export.csv" as a UUID. The file
+     * inherits the list's tenant scoping, relationship gate, and consent masking (see {@link PatientService}).
+     */
+    @GetMapping(value = "/export.csv", produces = "text/csv")
+    public ResponseEntity<String> exportCsv() {
+        String csv = patientService.exportCsvForCurrentTenant();
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"patients.csv\"")
+                .contentType(new MediaType("text", "csv", StandardCharsets.UTF_8))
+                .body(csv);
     }
 
     /** One patient by id, scoped to the caller's organization (404 across tenants). */

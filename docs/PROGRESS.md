@@ -4,9 +4,9 @@
 > exists, or manually). Read this + `CLAUDE.md` + `docs/PLAN.md` at the start of every session.
 
 ## Current position
-- **Status:** Phases 0–8 COMPLETE ✅ · **Phase 9 IN PROGRESS 🚧** — search / reporting / accessibility (filters, pagination, CSV export with masking, WCAG 2.2 AA). Slice 1 ✅ (server-side pagination + filtering, backend + reusable `common` foundation) · slice 2 ✅ (paged claims work-queue UI) · slice 3 ✅ (paged prior-authorizations queue) · slice 4 ✅ (paged referrals + appeals + claim-reviews queues) · slice 5 ✅ (paged reprocessing + audit + dead-letter queues — **every work queue is now paginated**) · slice 6 ✅ (free-text search on the claims queue — backend `SearchTerms` foundation + `q` param + debounced search box) · slice 7 ✅ (free-text search rolled out to the five other numbered queues — prior-auth, referrals, appeals, claim-reviews, reprocessing) · slice 8 ✅ (free-text search on the last two queues — audit + dead-letters — so **all eight work queues are searchable**). The MVP (Phases 0–5) is feature-complete — engine AND UI.
+- **Status:** Phases 0–8 COMPLETE ✅ · **Phase 9 IN PROGRESS 🚧** — search / reporting / accessibility (filters, pagination, CSV export with masking, WCAG 2.2 AA). Slice 1 ✅ (server-side pagination + filtering, backend + reusable `common` foundation) · slice 2 ✅ (paged claims work-queue UI) · slice 3 ✅ (paged prior-authorizations queue) · slice 4 ✅ (paged referrals + appeals + claim-reviews queues) · slice 5 ✅ (paged reprocessing + audit + dead-letter queues — **every work queue is now paginated**) · slice 6 ✅ (free-text search on the claims queue — backend `SearchTerms` foundation + `q` param + debounced search box) · slice 7 ✅ (free-text search rolled out to the five other numbered queues — prior-auth, referrals, appeals, claim-reviews, reprocessing) · slice 8 ✅ (free-text search on the last two queues — audit + dead-letters — so **all eight work queues are searchable**) · slice 9 ✅ (**CSV export with masking** — reusable `common.Csv` formatter + `GET /api/v1/patients/export.csv` reusing the field-masked list read + an Export CSV button). The MVP (Phases 0–5) is feature-complete — engine AND UI.
 - **At a glance** (newest first; the detailed per-phase bullets and the dated log below carry the full record):
-  - **Phase 9 🚧** Search / reporting / accessibility — slice 1 ✅ server-side pagination + filtering (`PageResponse<T>` + `PageRequests` sort-allowlist; claims queue paged in SQL) · slice 2 ✅ paged claims-queue UI (MUI pagination + sortable columns + status filter) · slice 3 ✅ prior-authorizations queue paged · slice 4 ✅ referrals + appeals + claim-reviews queues paged (patient-gated family complete) · slice 5 ✅ reprocessing + audit + dead-letter queues paged — **every work queue is now paginated** (audit also gained a server-side action filter + real paging in place of its 200-row cap) · slice 6 ✅ **free-text search** on the claims queue (reusable `SearchTerms` LIKE-escape helper + a `q` param matching the PHI-free claim number in SQL + a debounced search box) · slice 7 ✅ **free-text search across the five other numbered queues** (prior-auth/referrals/appeals/claim-reviews/reprocessing, each by its own business number) · slice 8 ✅ **free-text search on audit + dead-letters** (by their id fields — **all eight work queues now searchable**; Phase 9 search COMPLETE).
+  - **Phase 9 🚧** Search / reporting / accessibility — slice 1 ✅ server-side pagination + filtering (`PageResponse<T>` + `PageRequests` sort-allowlist; claims queue paged in SQL) · slice 2 ✅ paged claims-queue UI (MUI pagination + sortable columns + status filter) · slice 3 ✅ prior-authorizations queue paged · slice 4 ✅ referrals + appeals + claim-reviews queues paged (patient-gated family complete) · slice 5 ✅ reprocessing + audit + dead-letter queues paged — **every work queue is now paginated** (audit also gained a server-side action filter + real paging in place of its 200-row cap) · slice 6 ✅ **free-text search** on the claims queue (reusable `SearchTerms` LIKE-escape helper + a `q` param matching the PHI-free claim number in SQL + a debounced search box) · slice 7 ✅ **free-text search across the five other numbered queues** (prior-auth/referrals/appeals/claim-reviews/reprocessing, each by its own business number) · slice 8 ✅ **free-text search on audit + dead-letters** (by their id fields — **all eight work queues now searchable**; Phase 9 search COMPLETE) · slice 9 ✅ **CSV export with masking** (reusable `common.Csv` formatter — RFC 4180 + formula-injection defusing — and `patients/export.csv` that reuses the field-masked list read so a masked DOB exports blank; Export CSV button on the patients page — the "field-masking meets data export" proof). **Remaining: WCAG 2.2 AA.**
   - **Phase 8 ✅** Event-driven — transactional outbox → relay → Kafka → idempotent consumer → retry/DLT → drain → inspect → replay (+ ops UI).
   - **Phase 7 ✅** Advanced security/governance — audit log, per-org HMAC tamper-evident chain, break-glass emergency access, access review, data retention.
   - **Phase 6 ✅** Advanced claims — prior auth, referrals, appeals, anomaly signals, manual review, reprocessing, provider network (all backend + UIs).
@@ -143,6 +143,22 @@
   by a `searchAll` `@Query`); both controllers add a `q` param; role gates (AUDITOR/ORG_ADMIN; ORG_ADMIN)
   unchanged. Frontend: a debounced search box on both pages. Backend 481 tests (+2 API: audit search by resourceId,
   dead-letter search by eventId — one needed the `assertFalse` import); frontend 177 tests (+2 search-box tests).
+  slice 9 ✅ — **CSV export with masking** (backend + UI): the **reporting** piece of Phase 9, and the place where
+  §23 field masking meets data export. A new reusable **`com.healthcloud.common.Csv`** formatter (pure/DB-free, like
+  `SearchTerms`): `field(raw)` RFC 4180-quotes a value containing a comma/quote/line-break and **defuses a leading
+  formula trigger** (`= + - @` → prefixed `'`) so a downloaded file can't run a spreadsheet CSV-injection; `row(cells)`
+  joins fielded cells with a `\r\n` terminator. A new **`GET /api/v1/patients/export.csv`** (`text/csv` attachment)
+  **reuses `PatientService.listForCurrentTenant()`** — the *same* read the JSON list uses — so the export inherits
+  every layer of it: tenant scope, the relationship gate (a provider exports only their assigned patients), and
+  **consent field masking** — a masked `dateOfBirth` is already `null` in the DTO, so it serializes as a **blank
+  cell**, never a raw column read (§23.3: the backend is the only trusted masker; no second unmasked read path).
+  Columns are PHI-minimal (Patient ID · MRN · Full name · Date of birth · Status) — the same ones the JSON read
+  already exposes. Frontend: an **Export CSV** button on the patients page (mirrors the document-download handler —
+  fetch the blob, object-URL save as `patients.csv`), shown to any viewer since the backend scopes/masks the file.
+  Honest limitation: the whole accessible list is built in one response (no streaming) — fine at synthetic scale;
+  the reusable `Csv` helper is ready to roll out to the work queues (reporting) in a later slice. Backend 492 tests
+  (+9 `CsvTest` unit + 2 API: export respects masking, a provider's export is relationship-scoped); frontend 178
+  tests (+1 export-button test). **Remaining Phase 9 area: WCAG 2.2 AA accessibility.**
 - **Phase 8 COMPLETE ✅ (event-driven architecture):** slice 1 ✅ — **transactional outbox foundation**
   (backend, no Kafka yet): the answer to the dual-write problem (a Kafka publish can't join a DB transaction). A
   new `outbox_event` table (V40) + `com.healthcloud.outbox` package — `OutboxService.record(aggregateType,
@@ -422,6 +438,45 @@
   then `curl -b j.txt localhost:8080/api/v1/me`. Reset DB with `./scripts/db-reset.sh`.
 
 ## Log (newest first)
+
+### 2026-09-17 — Phase 9, slice 9 ✅ (CSV export with masking — the reporting piece, backend + UI)
+- **Why:** Phase 9 is "search / **reporting** / accessibility." This adds the reporting piece — download a list as
+  CSV — and it's the interesting one because **field masking (§23) has to hold on the export path too**, not just
+  the JSON reads. If a caller sees a patient's DOB as "Restricted" on screen, the CSV they download must have a
+  **blank** DOB cell — never the real value.
+- **The key idea:** the export **calls the same service read the JSON API uses** (`PatientService.list...`), not a
+  second finder that reads raw columns. So it inherits *everything* — tenant scope, the relationship gate (a
+  provider exports only their assigned patients), and consent masking. A masked field is already `null` in the DTO
+  the read returns, so it serializes as an empty cell. §23.3 in one sentence: the backend is the only trusted
+  masker, so don't build an unmasked back-door read for export.
+- **Target = the patient list**, because the patient read is the *one* place §23 masking actually bites
+  (`dateOfBirth`). The eight work queues are PHI-free by design (business numbers, no masked fields), so exporting
+  them is pure formatting — the reusable helper is ready for that in a later slice, but the masking-critical target
+  goes first.
+- **New reusable foundation — `com.healthcloud.common.Csv`** (pure/DB-free, like `SearchTerms`/`PageRequests`):
+  `field(raw)` RFC 4180-quotes a value with a comma/quote/line-break (doubling embedded quotes) and **defuses a
+  leading formula trigger** (`= + - @ \t \r` → prefixed with `'`) so opening the file in Excel/Sheets can't execute
+  a **CSV-injection** formula (the one free-text column is a patient name); `row(cells)` joins fielded cells with
+  commas + a `\r\n` terminator. 9 unit tests.
+- **Backend:** `PatientService.exportCsvForCurrentTenant()` builds the CSV from the already-masked DTO list;
+  `GET /api/v1/patients/export.csv` (`produces="text/csv"`, `Content-Disposition: attachment; filename=patients.csv`)
+  streams it. Columns are PHI-minimal (Patient ID · MRN · Full name · Date of birth · Status). The literal
+  `export.csv` path is matched ahead of `/{id}` by Spring.
+- **Frontend:** an **Export CSV** button on the patients page — reuses the `downloadBlob` client helper + the
+  object-URL save pattern from document download (saves `patients.csv`); an `exporting` state + an error alert.
+  Shown to any viewer (the backend scopes + masks the file per caller).
+- **Proof (tests):** `CsvTest` (9) covers quoting/escaping/formula-defusing/`\r\n`. Two API tests: (1) the export
+  respects masking — a patient with a consent GRANT exports a real DOB while a no-consent patient's DOB is a blank
+  cell (CSV mirrors JSON exactly); (2) a **provider's export excludes an unassigned patient's MRN** (the
+  relationship gate carries to export). Plus a frontend test that the button triggers `api.exportPatientsCsv`.
+- **Verified:** backend `./mvnw -B clean verify` → **492 tests, BUILD SUCCESS** (was 481, +11). Frontend
+  `typecheck` + **178 tests** (was 177, +1) + `build` all green.
+- **Honest limitation:** the whole accessible list is built in one response (no streaming/pagination) — fine at
+  synthetic scale; streaming is a later refinement.
+- **Remaining Phase 9 area:** WCAG 2.2 AA accessibility.
+- **Files:** `backend/.../common/Csv.java` (new) + `CsvTest.java` (new); `patient/PatientService.java`,
+  `patient/PatientController.java`; `patient/PatientFieldMaskingApiIntegrationTest.java` (+2 tests);
+  `frontend/src/api/client.ts`, `frontend/src/patients/PatientsPage.tsx` + `PatientsPage.test.tsx`; CLAUDE.md.
 
 ### 2026-09-17 — Phase 9, slice 8 ✅ (free-text search on audit + dead-letters — search now covers all eight queues)
 - **Why:** slices 6–7 gave the six *numbered* queues a search box. This finishes search by covering the two that

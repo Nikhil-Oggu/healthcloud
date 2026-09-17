@@ -22,7 +22,7 @@ import {
   TextField,
   Typography,
 } from '@mui/material'
-import { ApiClientError } from '../api/client'
+import { api, ApiClientError } from '../api/client'
 import { useCurrentUser } from '../auth/useAuth'
 import { LoadingScreen } from '../components/LoadingScreen'
 import { ErrorScreen } from '../components/ErrorScreen'
@@ -50,6 +50,30 @@ export function PatientsPage() {
   const { data: user } = useCurrentUser()
   const patients = usePatients()
   const canWrite = (user?.roles ?? []).some((r) => WRITE_ROLES.includes(r))
+  const [exporting, setExporting] = useState(false)
+  const [exportError, setExportError] = useState<string | null>(null)
+
+  // Download the patient list as CSV. The backend scopes + masks the file (a provider gets only their assigned
+  // patients; a masked DOB is a blank cell), so this is safe to offer to any viewer. Mirrors the document download.
+  async function onExport() {
+    setExportError(null)
+    setExporting(true)
+    try {
+      const blob = await api.exportPatientsCsv()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = 'patients.csv'
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(url)
+    } catch (err) {
+      setExportError(err instanceof ApiClientError ? err.message : 'Could not export patients.')
+    } finally {
+      setExporting(false)
+    }
+  }
 
   if (patients.isPending) {
     return <LoadingScreen />
@@ -60,7 +84,14 @@ export function PatientsPage() {
 
   return (
     <Stack spacing={3}>
-      <Typography variant="h5">Patients</Typography>
+      <Stack direction="row" spacing={2} sx={{ alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', rowGap: 1 }}>
+        <Typography variant="h5">Patients</Typography>
+        <Button variant="outlined" onClick={onExport} disabled={exporting || patients.data.length === 0}>
+          {exporting ? 'Exporting…' : 'Export CSV'}
+        </Button>
+      </Stack>
+
+      {exportError && <Alert severity="error">{exportError}</Alert>}
 
       {canWrite && <AddPatientForm />}
 

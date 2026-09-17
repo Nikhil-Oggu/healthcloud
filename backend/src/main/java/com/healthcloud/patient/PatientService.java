@@ -1,5 +1,6 @@
 package com.healthcloud.patient;
 
+import com.healthcloud.common.Csv;
 import com.healthcloud.consent.ConsentPolicyService;
 import com.healthcloud.consent.ConsentPurpose;
 import com.healthcloud.context.UserContext;
@@ -74,6 +75,29 @@ public class PatientService {
         return rows.stream()
                 .map(patient -> toFieldSafeDto(patient, organizationId, caller.userId()))
                 .toList();
+    }
+
+    /** The CSV header row for a patient export — mirrors the columns of {@link #exportCsvForCurrentTenant()}. */
+    private static final List<String> CSV_HEADER = List.of("Patient ID", "MRN", "Full name", "Date of birth", "Status");
+
+    /**
+     * Export the caller's-tenant patients as CSV (§Phase 9 — reporting). This deliberately reuses
+     * {@link #listForCurrentTenant()}, so the export travels the <b>same</b> read path as the JSON API and inherits
+     * every layer of it — tenant scoping, the relationship gate (a provider exports only assigned patients), and
+     * consent field masking (§23.3): a masked {@code dateOfBirth} is already {@code null} in the DTO, so it exports as
+     * an empty cell. The exporter never reads raw columns — that would be a second, unmasked read path.
+     */
+    public String exportCsvForCurrentTenant() {
+        StringBuilder csv = new StringBuilder(Csv.row(CSV_HEADER));
+        for (PatientDto patient : listForCurrentTenant()) {
+            csv.append(Csv.row(List.of(
+                    patient.id().toString(),
+                    patient.medicalRecordNumber(),
+                    patient.fullName(),
+                    patient.dateOfBirth() == null ? "" : patient.dateOfBirth().toString(), // masked → blank cell
+                    patient.status().name())));
+        }
+        return csv.toString();
     }
 
     /**

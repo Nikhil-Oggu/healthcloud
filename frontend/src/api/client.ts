@@ -321,6 +321,11 @@ export const api = {
   downloadDocument: (patientId: string, documentId: string) =>
     downloadBlob(`/api/v1/patients/${patientId}/documents/${documentId}/content`),
 
+  // Export the tenant's patient list as a CSV blob (§Phase 9 — reporting). The backend scopes the file to what
+  // this caller may see and masks fields exactly as the JSON read does, so the download is safe to trigger for any
+  // viewer. GET (no CSRF header needed); errors surface as ApiClientError like any other download.
+  exportPatientsCsv: () => downloadBlob('/api/v1/patients/export.csv'),
+
   // --- Claims (§Phase 4) + adjudication (§Phase 5) ---
   // A page of the claims work queue (§Phase 9) — returns the full PageResponse envelope so the UI can render
   // page controls, totals, and sort state. Used by the claims queue page.

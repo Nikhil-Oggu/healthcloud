@@ -14,13 +14,14 @@ vi.mock('../api/client', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../api/client')>()
   return {
     ...actual,
-    api: { ...actual.api, listPatients: vi.fn(), createPatient: vi.fn() },
+    api: { ...actual.api, listPatients: vi.fn(), createPatient: vi.fn(), exportPatientsCsv: vi.fn() },
   }
 })
 vi.mock('../auth/useAuth', () => ({ useCurrentUser: vi.fn() }))
 
 const listPatients = vi.mocked(api.listPatients)
 const createPatient = vi.mocked(api.createPatient)
+const exportPatientsCsv = vi.mocked(api.exportPatientsCsv)
 const useCurrentUserMock = vi.mocked(useCurrentUser)
 
 const PATIENT: Patient = {
@@ -110,6 +111,25 @@ describe('PatientsPage', () => {
         dateOfBirth: '1990-01-01',
       }),
     )
+  })
+
+  it('exports the patient list as CSV when Export CSV is clicked', async () => {
+    mockUserWithRoles(['PROVIDER'])
+    listPatients.mockResolvedValue([PATIENT])
+    exportPatientsCsv.mockResolvedValue(new Blob(['Patient ID,MRN\r\n'], { type: 'text/csv' }))
+    // jsdom has no object-URL API — stub it for the download handler.
+    const createObjectURL = vi.fn(() => 'blob:patients')
+    const revokeObjectURL = vi.fn()
+    vi.stubGlobal('URL', { ...URL, createObjectURL, revokeObjectURL })
+
+    renderPage(<PatientsPage />)
+    await screen.findByText('Sam Sample')
+
+    await userEvent.click(screen.getByRole('button', { name: 'Export CSV' }))
+
+    await waitFor(() => expect(exportPatientsCsv).toHaveBeenCalledTimes(1))
+    expect(createObjectURL).toHaveBeenCalled()
+    vi.unstubAllGlobals()
   })
 
   it('shows validation errors and does not submit an empty form', async () => {

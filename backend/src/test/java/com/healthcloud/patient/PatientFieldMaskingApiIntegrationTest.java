@@ -126,6 +126,53 @@ class PatientFieldMaskingApiIntegrationTest {
                 "another actor still sees the DOB under the org-wide grant");
     }
 
+    @Test
+    void the_patient_list_can_be_exported_as_csv_and_respects_field_masking() throws Exception {
+        Session coordinator = loginWithCsrf("coordinator@northcare.example.org");
+
+        // One patient with no consent → DOB masked; one with an org grant → DOB visible. Distinct DOBs so each
+        // assertion is about its own patient, uncontaminated by other rows in the tenant.
+        String maskedMrn = "MK-" + suffix();
+        String maskedDob = "1967-07-07";
+        assertEquals(201, createPatient(coordinator, maskedMrn, maskedDob).statusCode());
+
+        String grantedMrn = "MK-" + suffix();
+        String grantedDob = "1955-03-03";
+        String grantedId = firstId(createPatient(coordinator, grantedMrn, grantedDob).body());
+        assertEquals(201, post(coordinator, consentBase(grantedId), DEMOGRAPHICS_GRANT).statusCode());
+
+        HttpResponse<String> csv = get(coordinator.session, "/api/v1/patients/export.csv");
+        assertEquals(200, csv.statusCode(), csv.body());
+        assertTrue(csv.headers().firstValue("content-type").orElse("").contains("text/csv"),
+                "the export is served as text/csv");
+        assertTrue(csv.headers().firstValue("content-disposition").orElse("").contains("attachment"),
+                "the export is a file download");
+        assertTrue(csv.headers().firstValue("content-disposition").orElse("").contains("patients.csv"));
+        assertTrue(csv.body().startsWith("Patient ID,MRN,Full name,Date of birth,Status\r\n"),
+                "the CSV opens with the header row: " + csv.body());
+
+        // Both patients are rows in the export...
+        assertTrue(csv.body().contains(maskedMrn), "the no-consent patient is exported");
+        assertTrue(csv.body().contains(grantedMrn), "the granted patient is exported");
+        // ...but masking carries to the export path: the masked DOB is a blank cell, the granted one is present.
+        assertFalse(csv.body().contains(maskedDob), "a masked DOB must not appear in the CSV");
+        assertTrue(csv.body().contains(grantedDob), "a consented DOB is exported");
+    }
+
+    @Test
+    void a_providers_csv_export_is_scoped_to_their_assigned_patients() throws Exception {
+        Session coordinator = loginWithCsrf("coordinator@northcare.example.org");
+        // A patient the provider is NOT assigned to — the relationship gate must keep it out of their export.
+        String unassignedMrn = "MK-" + suffix();
+        assertEquals(201, createPatient(coordinator, unassignedMrn).statusCode());
+
+        Session provider = loginWithCsrf("provider@northcare.example.org");
+        HttpResponse<String> csv = get(provider.session, "/api/v1/patients/export.csv");
+        assertEquals(200, csv.statusCode(), csv.body());
+        assertFalse(csv.body().contains(unassignedMrn),
+                "the export inherits the relationship gate — an unassigned patient is not in the file");
+    }
+
     // --- helpers -------------------------------------------------------------
 
     private record Session(String session, String xsrf) {}
