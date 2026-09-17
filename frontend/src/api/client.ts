@@ -327,17 +327,19 @@ export const api = {
   listClaimsPage: (params: {
     patientId?: string
     status?: ClaimStatus
+    q?: string
     page?: number
     size?: number
     sort?: string
   }) => {
-    const q = new URLSearchParams()
-    if (params.patientId) q.set('patientId', params.patientId)
-    if (params.status) q.set('status', params.status)
-    if (params.page != null) q.set('page', String(params.page))
-    if (params.size != null) q.set('size', String(params.size))
-    if (params.sort) q.set('sort', params.sort)
-    return request<PageResponse<ClaimSummary>>(`/api/v1/claims?${q.toString()}`)
+    const qs = new URLSearchParams()
+    if (params.patientId) qs.set('patientId', params.patientId)
+    if (params.status) qs.set('status', params.status)
+    if (params.q) qs.set('q', params.q)
+    if (params.page != null) qs.set('page', String(params.page))
+    if (params.size != null) qs.set('size', String(params.size))
+    if (params.sort) qs.set('sort', params.sort)
+    return request<PageResponse<ClaimSummary>>(`/api/v1/claims?${qs.toString()}`)
   },
 
   // A convenience shim over the paged endpoint that returns just the rows, for callers that need the whole list

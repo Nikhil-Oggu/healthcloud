@@ -27,22 +27,27 @@ public interface ClaimRepository extends JpaRepository<Claim, UUID> {
     List<Claim> findByOrganizationIdAndPatientIdOrderByCreatedAtDesc(UUID organizationId, UUID patientId);
 
     /**
-     * A page of the tenant's claims for a broad-role caller (§Phase 9), optionally filtered to one status. The
-     * status is filtered in SQL (not in memory) and {@code null} means "any status". Ordering and paging come
-     * from the {@link Pageable}.
+     * A page of the tenant's claims for a broad-role caller (§Phase 9), optionally filtered to one status and/or a
+     * free-text search term. Both filters run in SQL (not in memory): {@code null} status means "any status", and a
+     * {@code null} {@code q} means "no search" — otherwise it is a case-insensitive "contains" match on the claim
+     * number (a synthetic, PHI-free identifier), built by {@link com.healthcloud.common.SearchTerms#likeContains}.
+     * Ordering and paging come from the {@link Pageable}.
      */
     @Query("select c from Claim c where c.organizationId = :org "
-            + "and (:status is null or c.status = :status)")
-    Page<Claim> searchAll(UUID org, ClaimStatus status, Pageable pageable);
+            + "and (:status is null or c.status = :status) "
+            + "and (:q is null or lower(c.claimNumber) like lower(cast(:q as string)) escape '\\')")
+    Page<Claim> searchAll(UUID org, ClaimStatus status, String q, Pageable pageable);
 
     /**
      * A page of the tenant's claims restricted to a set of patients (the gated-caller scoping — a provider's
-     * assigned patients, or a single {@code ?patientId=}), optionally filtered to one status. Callers must pass a
-     * non-empty {@code patientIds} (an empty accessible set is short-circuited to an empty page in the service).
+     * assigned patients, or a single {@code ?patientId=}), optionally filtered to one status and/or a free-text
+     * search term (see {@link #searchAll}). Callers must pass a non-empty {@code patientIds} (an empty accessible
+     * set is short-circuited to an empty page in the service).
      */
     @Query("select c from Claim c where c.organizationId = :org "
             + "and c.patientId in :patientIds "
-            + "and (:status is null or c.status = :status)")
+            + "and (:status is null or c.status = :status) "
+            + "and (:q is null or lower(c.claimNumber) like lower(cast(:q as string)) escape '\\')")
     Page<Claim> searchForPatients(
-            UUID org, Collection<UUID> patientIds, ClaimStatus status, Pageable pageable);
+            UUID org, Collection<UUID> patientIds, ClaimStatus status, String q, Pageable pageable);
 }

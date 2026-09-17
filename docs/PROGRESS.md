@@ -4,9 +4,9 @@
 > exists, or manually). Read this + `CLAUDE.md` + `docs/PLAN.md` at the start of every session.
 
 ## Current position
-- **Status:** Phases 0–8 COMPLETE ✅ · **Phase 9 IN PROGRESS 🚧** — search / reporting / accessibility (filters, pagination, CSV export with masking, WCAG 2.2 AA). Slice 1 ✅ (server-side pagination + filtering, backend + reusable `common` foundation) · slice 2 ✅ (paged claims work-queue UI) · slice 3 ✅ (paged prior-authorizations queue) · slice 4 ✅ (paged referrals + appeals + claim-reviews queues) · slice 5 ✅ (paged reprocessing + audit + dead-letter queues — **every work queue is now paginated**). The MVP (Phases 0–5) is feature-complete — engine AND UI.
+- **Status:** Phases 0–8 COMPLETE ✅ · **Phase 9 IN PROGRESS 🚧** — search / reporting / accessibility (filters, pagination, CSV export with masking, WCAG 2.2 AA). Slice 1 ✅ (server-side pagination + filtering, backend + reusable `common` foundation) · slice 2 ✅ (paged claims work-queue UI) · slice 3 ✅ (paged prior-authorizations queue) · slice 4 ✅ (paged referrals + appeals + claim-reviews queues) · slice 5 ✅ (paged reprocessing + audit + dead-letter queues — **every work queue is now paginated**) · slice 6 ✅ (free-text search on the claims queue — backend `SearchTerms` foundation + `q` param + debounced search box). The MVP (Phases 0–5) is feature-complete — engine AND UI.
 - **At a glance** (newest first; the detailed per-phase bullets and the dated log below carry the full record):
-  - **Phase 9 🚧** Search / reporting / accessibility — slice 1 ✅ server-side pagination + filtering (`PageResponse<T>` + `PageRequests` sort-allowlist; claims queue paged in SQL) · slice 2 ✅ paged claims-queue UI (MUI pagination + sortable columns + status filter) · slice 3 ✅ prior-authorizations queue paged · slice 4 ✅ referrals + appeals + claim-reviews queues paged (patient-gated family complete) · slice 5 ✅ reprocessing + audit + dead-letter queues paged — **every work queue is now paginated** (audit also gained a server-side action filter + real paging in place of its 200-row cap).
+  - **Phase 9 🚧** Search / reporting / accessibility — slice 1 ✅ server-side pagination + filtering (`PageResponse<T>` + `PageRequests` sort-allowlist; claims queue paged in SQL) · slice 2 ✅ paged claims-queue UI (MUI pagination + sortable columns + status filter) · slice 3 ✅ prior-authorizations queue paged · slice 4 ✅ referrals + appeals + claim-reviews queues paged (patient-gated family complete) · slice 5 ✅ reprocessing + audit + dead-letter queues paged — **every work queue is now paginated** (audit also gained a server-side action filter + real paging in place of its 200-row cap) · slice 6 ✅ **free-text search** on the claims queue (reusable `SearchTerms` LIKE-escape helper + a `q` param matching the PHI-free claim number in SQL + a debounced search box).
   - **Phase 8 ✅** Event-driven — transactional outbox → relay → Kafka → idempotent consumer → retry/DLT → drain → inspect → replay (+ ops UI).
   - **Phase 7 ✅** Advanced security/governance — audit log, per-org HMAC tamper-evident chain, break-glass emergency access, access review, data retention.
   - **Phase 6 ✅** Advanced claims — prior auth, referrals, appeals, anomaly signals, manual review, reprocessing, provider network (all backend + UIs).
@@ -108,6 +108,20 @@
   all three direct-converted (no shim); pages gained MUI `TablePagination` + `TableSortLabel` (+ reprocessing status
   / audit action dropdowns). Backend 468 tests (+6 API: envelope + sort-400 + the new filters; role-gate 403 +
   tenant-scoping still hold through the paged path); frontend 169 tests (+3 interaction).
+  slice 6 ✅ — **free-text search on the claims queue (backend + UI)** — the first Phase 9 area beyond pagination.
+  A new reusable **`com.healthcloud.common.SearchTerms.likeContains(raw)`** helper (pure, DB-free, like
+  `PageRequests`) turns a search box into a safe SQL `LIKE` pattern: blank/whitespace → `null` (no filter), else a
+  `%…%` "contains" pattern with the `LIKE` wildcards `\ % _` **escaped** so a literal `%` matches a percent sign,
+  not the whole table. `GET /api/v1/claims` gains a `q` param, threaded through `ClaimService.list` into the
+  `searchAll`/`searchForPatients` `@Query` finders as one more in-SQL clause
+  `(:q is null or lower(c.claimNumber) like lower(cast(:q as string)) escape '\')` — a **case-insensitive contains
+  match on the claim number**, a synthetic PHI-free identifier (we deliberately do **not** search patient names —
+  rule 5 + no sensitive data in query strings). **All the §21 authorization is unchanged** (patient gate / role
+  gate / tenant scope / empty-set short-circuit) — search is just one more optional filter on the same paths. UI:
+  a **debounced** search box (300ms) on the claims page beside the status filter; typing resets to page 0, and the
+  non-paged `listClaims()` shim is untouched. **A real bug the tests caught:** without `cast(:q as string)`
+  Postgres infers the nullable parameter as `bytea` and `lower(bytea)` 500s — the cast pins it to text. Backend
+  474 tests (+6: new `SearchTermsTest` (4) + a repo search test + an API search test); frontend 170 tests (+1).
 - **Phase 8 COMPLETE ✅ (event-driven architecture):** slice 1 ✅ — **transactional outbox foundation**
   (backend, no Kafka yet): the answer to the dual-write problem (a Kafka publish can't join a DB transaction). A
   new `outbox_event` table (V40) + `com.healthcloud.outbox` package — `OutboxService.record(aggregateType,
@@ -387,6 +401,37 @@
   then `curl -b j.txt localhost:8080/api/v1/me`. Reset DB with `./scripts/db-reset.sh`.
 
 ## Log (newest first)
+
+### 2026-09-17 — Phase 9, slice 6 ✅ (free-text search on the claims queue — backend + UI)
+- **Why:** every work queue is paginated now (slices 1–5). The first Phase 9 area beyond pagination is **search** —
+  a real queue needs a "type part of a number and jump to it" box. This adds it to the claims queue and lays the
+  reusable foundation the other queues will adopt, exactly as slice 1 did with pagination.
+- **What we search, and why it's PHI-safe:** a case-insensitive **"contains" match on the claim number** (`CLM-…`,
+  a synthetic, coded identifier). We deliberately do **not** search patient names — that would drag PHI into the
+  query string (rule 5 + the privacy rule against sensitive data in URLs) and require cross-table joins.
+- **New reusable helper — `com.healthcloud.common.SearchTerms`** (pure, DB-free, like `PageRequests`):
+  `likeContains(raw)` trims; blank/whitespace → `null` ("no filter", so an empty box lists everything); else a
+  `%…%` pattern with the SQL `LIKE` wildcards `\ % _` **escaped** (a user typing `50%` searches for a percent
+  sign, not half the table). Unit-tested in `SearchTermsTest` (4 tests).
+- **Backend claims:** `GET /api/v1/claims` gains an optional `q` param → `ClaimService.list(..., Optional<String>
+  q, ...)` (normalized via `SearchTerms`) → the `searchAll`/`searchForPatients` `@Query` finders gain one more
+  in-SQL clause: `(:q is null or lower(c.claimNumber) like lower(cast(:q as string)) escape '\')`. Filtering runs
+  in the database, not in memory. **All the §21 authorization is unchanged** — a claim is still gated by its
+  patient (provider → assigned; broad roles → the tenant's queue; cross-tenant → secure 404; empty accessible set
+  short-circuits to an empty page) — search is just one more optional filter on the same paths.
+- **The bug the tests caught (worth remembering):** the first build **failed** — `function lower(bytea) does not
+  exist`. When a nullable `String` parameter is used in a JPQL query, Postgres/Hibernate infers its type as
+  `bytea`, so `lower(:q)` blows up at runtime with a 500. The fix is an explicit **`cast(:q as string)`**, which
+  pins the parameter to text. This is why we run the real DB via Testcontainers — a mock would have passed. All
+  eight failures traced to this one cause; the cast fixed every one.
+- **Frontend claims:** a **debounced** search box (300ms — a `setTimeout` in a `useEffect` on the raw value, so we
+  query once typing settles, not per keystroke) on `ClaimsPage`, beside the status filter; typing resets to page 0.
+  `ClaimsPageParams` + `api.listClaimsPage` gained `q`; the non-paged `listClaims()` shim is untouched.
+- **Verification:** backend **474** tests green (`clean verify`; +6 — `SearchTermsTest` 4, a repo search test, an
+  API search test); frontend **170** tests + typecheck + build green (+1 interaction test).
+- **Next:** Phase 9 slice 7 — roll free-text search out to the other queues (prior-auth/referrals/appeals/reviews/
+  reprocessing/audit/dead-letters, each by its own business number, reusing `SearchTerms`), then CSV export with
+  masking, then WCAG 2.2 AA.
 
 ### 2026-09-17 — Phase 9, slice 5 ✅ (paged reprocessing + audit + dead-letter queues — backend + UI)
 - **Why:** slices 1–4 paginated the five patient-gated queues. This does the three **non-patient-gated** queues —

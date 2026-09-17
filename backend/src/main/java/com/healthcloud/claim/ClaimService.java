@@ -4,6 +4,7 @@ import com.healthcloud.coding.CodeSystem;
 import com.healthcloud.coding.MedicalCode;
 import com.healthcloud.coding.MedicalCodeRepository;
 import com.healthcloud.common.PageResponse;
+import com.healthcloud.common.SearchTerms;
 import com.healthcloud.context.UserContext;
 import com.healthcloud.context.UserContextAccessor;
 import com.healthcloud.error.ApiException;
@@ -217,24 +218,28 @@ public class ClaimService {
     }
 
     /**
-     * A page of claims in the caller's tenant (header-only), optionally filtered to one patient and/or a status
-     * (§Phase 9 — server-side pagination + filtering). The authorization is unchanged from the unpaged list: a
-     * claim is gated by its patient (§21 layer 6), so a provider sees only claims for patients they are actively
-     * assigned to, while broad roles (coordinator/admin/reviewer) see the tenant's claims — the reviewer's work
-     * queue. The difference is that filtering, sorting, counting and paging now happen in the database (the
-     * {@link Pageable}), not in memory.
+     * A page of claims in the caller's tenant (header-only), optionally filtered to one patient, a status, and/or a
+     * free-text search term (§Phase 9 — server-side pagination + filtering + search). The authorization is
+     * unchanged from the unpaged list: a claim is gated by its patient (§21 layer 6), so a provider sees only
+     * claims for patients they are actively assigned to, while broad roles (coordinator/admin/reviewer) see the
+     * tenant's claims — the reviewer's work queue. Filtering, searching, sorting, counting and paging all happen in
+     * the database (the {@link Pageable}), not in memory. The search term is a case-insensitive "contains" match on
+     * the claim number (a synthetic, PHI-free identifier — we deliberately do not search patient names); a blank
+     * box means "no search" (see {@link SearchTerms#likeContains}).
      */
     public PageResponse<ClaimSummaryDto> list(
-            Optional<UUID> patientId, Optional<ClaimStatus> status, Pageable pageable) {
+            Optional<UUID> patientId, Optional<ClaimStatus> status, Optional<String> q, Pageable pageable) {
         UserContext caller = userContext.requireUser();
         UUID organizationId = userContext.requireOrganizationId();
         ClaimStatus statusFilter = status.orElse(null);
+        String search = SearchTerms.likeContains(q.orElse(null));
 
         Page<Claim> found;
         if (patientId.isPresent()) {
             // Reuse the patient gate: an inaccessible patient (another tenant, or unassigned provider) → 404.
             accessGuard.requireAccessibleInTenant(patientId.get());
-            found = claims.searchForPatients(organizationId, Set.of(patientId.get()), statusFilter, pageable);
+            found = claims.searchForPatients(
+                    organizationId, Set.of(patientId.get()), statusFilter, search, pageable);
         } else {
             Optional<Set<UUID>> accessibleIds = accessGuard.accessiblePatientIdsIfGated(caller, organizationId);
             if (accessibleIds.isPresent()) {
@@ -243,9 +248,9 @@ public class ClaimService {
                     // A gated caller who can reach no patients sees an empty page (no DB round trip needed).
                     return PageResponse.empty(pageable);
                 }
-                found = claims.searchForPatients(organizationId, visible, statusFilter, pageable);
+                found = claims.searchForPatients(organizationId, visible, statusFilter, search, pageable);
             } else {
-                found = claims.searchAll(organizationId, statusFilter, pageable);
+                found = claims.searchAll(organizationId, statusFilter, search, pageable);
             }
         }
         return PageResponse.of(found, ClaimSummaryDto::from);

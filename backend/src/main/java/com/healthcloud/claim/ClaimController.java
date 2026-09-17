@@ -44,19 +44,23 @@ public class ClaimController {
     }
 
     /**
-     * A page of claims in the caller's tenant (header-only), optionally filtered to one patient and/or a status
-     * (§Phase 9). Paging/sorting come from {@code page}/{@code size}/{@code sort} (e.g. {@code sort=serviceDate,desc});
-     * an out-of-range {@code size} is clamped and an unknown sort field is a 400. Returns a {@link PageResponse}.
+     * A page of claims in the caller's tenant (header-only), optionally filtered to one patient, a status, and/or a
+     * free-text search term {@code q} (§Phase 9). {@code q} is a case-insensitive "contains" match on the claim
+     * number (a PHI-free identifier). Paging/sorting come from {@code page}/{@code size}/{@code sort} (e.g.
+     * {@code sort=serviceDate,desc}); an out-of-range {@code size} is clamped and an unknown sort field is a 400.
+     * Returns a {@link PageResponse}.
      */
     @GetMapping
     public PageResponse<ClaimSummaryDto> list(
             @RequestParam(required = false) UUID patientId,
             @RequestParam(required = false) ClaimStatus status,
+            @RequestParam(required = false) String q,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size,
             @RequestParam(required = false) String sort) {
         Pageable pageable = PageRequests.toPageable(page, size, sort, SORTABLE_FIELDS, DEFAULT_SORT);
-        return service.list(Optional.ofNullable(patientId), Optional.ofNullable(status), pageable);
+        return service.list(
+                Optional.ofNullable(patientId), Optional.ofNullable(status), Optional.ofNullable(q), pageable);
     }
 
     /** One claim (header + lines) by id, scoped to the caller's tenant (404 across tenants / if unreachable). */

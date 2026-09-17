@@ -68,8 +68,10 @@ describe('ClaimsPage', () => {
     expect(await screen.findByText('CLM-ABC12345')).toBeInTheDocument()
     expect(await screen.findByText('Sam Sample')).toBeInTheDocument()
     expect(screen.getByText('DRAFT')).toBeInTheDocument()
-    // The first fetch uses the defaults: page 0, size 20, no sort, no status filter.
-    expect(listClaimsPage).toHaveBeenCalledWith({ page: 0, size: 20, sort: undefined, status: undefined })
+    // The first fetch uses the defaults: page 0, size 20, no sort, no status filter, no search.
+    expect(listClaimsPage).toHaveBeenCalledWith({
+      page: 0, size: 20, sort: undefined, status: undefined, q: undefined,
+    })
   })
 
   it('shows an empty state when there are no claims', async () => {
@@ -120,6 +122,18 @@ describe('ClaimsPage', () => {
     await user.click(screen.getByRole('button', { name: /go to next page/i }))
     await waitFor(() =>
       expect(listClaimsPage).toHaveBeenCalledWith(expect.objectContaining({ page: 1, size: 20 })),
+    )
+  })
+
+  it('typing in the search box queries the server by claim number (debounced)', async () => {
+    const user = userEvent.setup()
+    renderPage(<ClaimsPage />)
+    await screen.findByText('CLM-ABC12345')
+
+    await user.type(screen.getByRole('textbox', { name: /search claim/i }), 'ABC12')
+    // After the debounce settles, the queue is re-queried with the search term, on page 0.
+    await waitFor(() =>
+      expect(listClaimsPage).toHaveBeenCalledWith(expect.objectContaining({ q: 'ABC12', page: 0 })),
     )
   })
 

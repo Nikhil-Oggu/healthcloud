@@ -8,6 +8,8 @@ export const CLAIMS_QUERY_KEY = ['claims'] as const
 export interface ClaimsPageParams {
   patientId?: string
   status?: ClaimStatus
+  /** Free-text search — a case-insensitive "contains" match on the claim number (§Phase 9 slice 6). */
+  q?: string
   page: number
   size: number
   sort?: string

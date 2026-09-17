@@ -125,7 +125,7 @@ class ClaimRepositoryTest {
 
         // First page of size 2, newest service date first — the total counts all 4, sort picks the top 2.
         Page<Claim> firstPage = claimRepository.searchAll(
-                org.getId(), null, PageRequest.of(0, 2, Sort.by(Sort.Direction.DESC, "serviceDate")));
+                org.getId(), null, null, PageRequest.of(0, 2, Sort.by(Sort.Direction.DESC, "serviceDate")));
         assertEquals(4, firstPage.getTotalElements(), "the count spans every matching row, not just the page");
         assertEquals(2, firstPage.getTotalPages());
         assertEquals(2, firstPage.getContent().size());
@@ -136,9 +136,38 @@ class ClaimRepositoryTest {
 
         // The status filter runs in SQL: only the SUBMITTED claim matches.
         Page<Claim> submitted = claimRepository.searchAll(
-                org.getId(), ClaimStatus.SUBMITTED, PageRequest.of(0, 10, Sort.by("createdAt")));
+                org.getId(), ClaimStatus.SUBMITTED, null, PageRequest.of(0, 10, Sort.by("createdAt")));
         assertEquals(1, submitted.getTotalElements());
         assertEquals("CLM-S4", submitted.getContent().get(0).getClaimNumber());
+    }
+
+    @Test
+    void searchAll_filters_by_a_free_text_claim_number_case_insensitively() {
+        Organization org = organizationRepository.save(new Organization("FreeText Org (clm-test)"));
+        AppUser author = appUserRepository.save(new AppUser("ft-" + UUID.randomUUID() + "@ex.org", "Author"));
+        Patient patient = patientRepository.save(
+                new Patient(org.getId(), "NC-7601", "Patient", LocalDate.of(1990, 1, 1)));
+
+        savedClaim(org, patient, author, "CLM-ALPHA1", LocalDate.of(2026, 1, 1), ClaimStatus.DRAFT);
+        savedClaim(org, patient, author, "CLM-ALPHA2", LocalDate.of(2026, 2, 1), ClaimStatus.DRAFT);
+        savedClaim(org, patient, author, "CLM-BETA1", LocalDate.of(2026, 3, 1), ClaimStatus.DRAFT);
+
+        // The term is the caller-safe pattern SearchTerms produces (%...%), matched case-insensitively in SQL.
+        Page<Claim> alphas = claimRepository.searchAll(
+                org.getId(), null, "%alpha%", PageRequest.of(0, 10, Sort.by("claimNumber")));
+        assertEquals(2, alphas.getTotalElements(), "both ALPHA claims match (lowercase term, uppercase numbers)");
+        assertEquals(List.of("CLM-ALPHA1", "CLM-ALPHA2"),
+                alphas.getContent().stream().map(Claim::getClaimNumber).toList());
+
+        // A more specific term narrows to one; a non-matching term returns nothing.
+        assertEquals(1, claimRepository.searchAll(
+                org.getId(), null, "%beta%", PageRequest.of(0, 10, Sort.by("claimNumber"))).getTotalElements());
+        assertEquals(0, claimRepository.searchAll(
+                org.getId(), null, "%zzz%", PageRequest.of(0, 10, Sort.by("claimNumber"))).getTotalElements());
+
+        // A null term disables the search clause → all three claims.
+        assertEquals(3, claimRepository.searchAll(
+                org.getId(), null, null, PageRequest.of(0, 10, Sort.by("claimNumber"))).getTotalElements());
     }
 
     @Test
@@ -153,14 +182,14 @@ class ClaimRepositoryTest {
         savedClaim(org, p2, author, "CLM-P2A", LocalDate.of(2026, 1, 1), ClaimStatus.DRAFT);
 
         Page<Claim> onlyP1 = claimRepository.searchForPatients(
-                org.getId(), Set.of(p1.getId()), null, PageRequest.of(0, 10, Sort.by("createdAt")));
+                org.getId(), Set.of(p1.getId()), null, null, PageRequest.of(0, 10, Sort.by("createdAt")));
         assertEquals(2, onlyP1.getTotalElements(), "only the requested patient's claims are visible");
         assertTrue(onlyP1.getContent().stream().allMatch(c -> c.getPatientId().equals(p1.getId())));
 
         // A different tenant's org id finds nothing even for the same patient ids (secure by construction).
         Organization other = organizationRepository.save(new Organization("Other Org (clm-test)"));
         Page<Claim> crossTenant = claimRepository.searchForPatients(
-                other.getId(), Set.of(p1.getId(), p2.getId()), null, PageRequest.of(0, 10, Sort.by("createdAt")));
+                other.getId(), Set.of(p1.getId(), p2.getId()), null, null, PageRequest.of(0, 10, Sort.by("createdAt")));
         assertEquals(0, crossTenant.getTotalElements());
     }
 

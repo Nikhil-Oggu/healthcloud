@@ -291,6 +291,35 @@ class ClaimApiIntegrationTest {
         assertTrue(asc.indexOf(earlier) < asc.indexOf(later), "ascending service-date order places earlier first");
     }
 
+    @Test
+    void results_can_be_filtered_by_a_free_text_claim_number_search() throws Exception {
+        Session coordinator = loginWithCsrf("coordinator@northcare.example.org");
+        String patientId = firstId(createPatient(coordinator).body());
+        String one = claimNumber(post(coordinator, "/api/v1/claims", claimJson(patientId)).body());
+        String two = claimNumber(post(coordinator, "/api/v1/claims", claimJson(patientId)).body());
+
+        // Searching by one claim's full number returns exactly that claim (the search runs in SQL).
+        HttpResponse<String> hit =
+                get(coordinator.session, "/api/v1/claims?patientId=" + patientId + "&q=" + one);
+        assertEquals(200, hit.statusCode(), hit.body());
+        assertTrue(hit.body().contains("\"totalElements\":1"), "the search narrows to the one matching claim");
+        assertTrue(hit.body().contains(one), hit.body());
+        assertFalse(hit.body().contains(two), "the non-matching claim is excluded");
+
+        // Search is case-insensitive (claim numbers are uppercase; a lowercase query still matches).
+        HttpResponse<String> lower =
+                get(coordinator.session, "/api/v1/claims?patientId=" + patientId + "&q=" + one.toLowerCase());
+        assertTrue(lower.body().contains("\"totalElements\":1"), "a lowercase query matches the uppercase number");
+
+        // A non-matching term returns an empty page; a blank q disables the search (both claims return).
+        HttpResponse<String> miss =
+                get(coordinator.session, "/api/v1/claims?patientId=" + patientId + "&q=ZZ-NO-MATCH");
+        assertTrue(miss.body().contains("\"totalElements\":0"), "a non-matching search returns nothing");
+        HttpResponse<String> blank =
+                get(coordinator.session, "/api/v1/claims?patientId=" + patientId + "&q=");
+        assertTrue(blank.body().contains("\"totalElements\":2"), "a blank search term lists everything");
+    }
+
     // --- helpers -------------------------------------------------------------
 
     private record Session(String session, String xsrf) {}
