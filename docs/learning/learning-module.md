@@ -1789,3 +1789,316 @@ annotate; (2) deciding *when* to (re)compute so signals don't go stale after a r
 arriving; (3) not letting a detector failure fail the primary command (it would need to be out-of-band, e.g. an
 event handler off the outbox in Phase 8); and (4) preserving the "no measured fraud claims" honesty — these are
 deterministic demo heuristics, not a validated model, and that framing must survive automation.
+
+---
+
+## Phase 8 — Event-Driven Architecture: Transactional Outbox + Kafka (slices 1–7) — 2026-09-17
+
+### What we built
+
+An **event-driven pipeline** that lets one domain action (a claim being adjudicated) trigger loosely-coupled
+downstream work **reliably**, without the classic "dual-write" bug. The full chain, end to end:
+
+```
+adjudicate a claim
+  → write an outbox_event row IN THE SAME DB transaction   (slice 1)
+  → a relay publishes committed rows to Kafka after commit  (slice 2)
+  → an idempotent consumer reacts, building a notification  (slice 3)
+  → failures retry, then go to a dead-letter topic (DLT)    (slice 4)
+  → a drainer copies DLT records into a queryable table     (slice 5)
+  → an admin replays a fixed record back onto the topic     (slice 6)
+  → a browser page to inspect + replay dead letters         (slice 7)
+```
+
+The single problem the whole phase exists to solve: **you cannot atomically write to your database AND publish to
+Kafka.** They are two different systems with two different transactions. If you write the DB row then publish, a
+crash in between loses the event; if you publish then write, a crash loses the DB change (or double-publishes). The
+**transactional outbox** pattern removes the dual write: you only ever write to your own database (the domain row +
+an `outbox_event` row, in one transaction), and a separate **relay** turns committed outbox rows into Kafka messages
+afterwards. Everything else in the phase (idempotency, retry, DLT, drain, replay) is the machinery that makes that
+"publish afterwards, at least once" guarantee safe to build on.
+
+This was our first messaging/asynchronous work — every prior phase was synchronous request/response.
+
+### How it works
+
+**Slice 1 — the transactional-outbox foundation (write side).**
+`backend/src/main/java/com/healthcloud/outbox/`:
+- `OutboxEvent` — an immutable entity: `organization_id`, `aggregate_type`, `aggregate_id`, `event_type`,
+  `payload` (JSON `TEXT`), `occurred_at`, `correlation_id`, and a nullable `published_at` (null = not yet
+  published). `markPublished()` stamps it.
+- `V40__outbox_event.sql` — the table plus a **partial index** `ix_outbox_unpublished ON (occurred_at) WHERE
+  published_at IS NULL`. The relay only ever queries unpublished rows, so a partial index keeps that scan cheap even
+  as the published rows pile up.
+- `OutboxService.record(aggregateType, aggregateId, eventType, payload)` — the writer. Crucially it is **NOT
+  `@Transactional`**: it is called from *inside* a domain service's own transaction so the outbox row joins that
+  transaction and commits atomically with the domain change. This is the exact same trick as `AuditService.record`.
+
+```java
+// OutboxService — joins the caller's transaction; must not open its own.
+public void record(String aggregateType, UUID aggregateId, String eventType, Object payload) {
+    UUID organizationId = userContext.requireOrganizationId();
+    String json = objectMapper.writeValueAsString(payload); // Jackson 3: unchecked JacksonException
+    events.save(new OutboxEvent(organizationId, aggregateType, aggregateId, eventType, json,
+            CorrelationId.current()));
+}
+```
+
+- First emitter: `AdjudicationService.adjudicate` now calls `outbox.record(AGGREGATE_CLAIM, claim.getId(),
+  "claim.adjudicated", ClaimAdjudicatedEvent.from(claim, savedHeader))` right next to the existing
+  `audit.record(...)`. `ClaimAdjudicatedEvent` is a **PHI-free, minimum-necessary** record: claim id/number,
+  adjudication version, outcome, and the money split — deliberately **no** patient identifier or clinical narrative
+  (rule 5). A consumer that needs more must re-read the claim through the authorized API.
+
+**Slice 2 — the outbox relay + Kafka (publish side).**
+- `docker-compose.yml` gained a `kafka` service (`apache/kafka:3.9.0`, **KRaft** mode — no ZooKeeper — on port 9092).
+- `OutboxRelay.publishPending()` (`@Transactional`) reads one bounded page of pending rows oldest-first
+  (`findByPublishedAtIsNullOrderByOccurredAtAsc(PageRequest.of(0, batchSize))`), sends each to Kafka synchronously,
+  and stamps `published_at`. The topic is the `event_type`, the key is the `aggregate_id` (so all events for one
+  claim keep partition order), the value is the JSON payload, and event metadata rides in headers
+  (`eventId`, `eventType`, `aggregateType`, `organizationId`, `correlationId`).
+- `OutboxRelayScheduler` — a `@Scheduled(fixedDelayString = "${healthcloud.outbox.relay.poll-interval-ms}")` poller,
+  `@ConditionalOnProperty("healthcloud.outbox.relay.enabled", matchIfMissing = true)`. `@EnableScheduling` was added
+  to `HealthcloudApplication`.
+- **Publish happens after commit**, and a send failure stops the batch (the row stays pending and is retried next
+  poll). Delivery is therefore **at-least-once**, and the relay assumes a **single instance** (multiple instances
+  would need `SELECT … FOR UPDATE SKIP LOCKED` to avoid double-publishing the same row).
+
+**Slice 3 — the idempotent consumer (read side).**
+- `ClaimAdjudicatedConsumer` — a `@KafkaListener(topics = "claim.adjudicated", groupId =
+  "claim-adjudication-notifier", autoStartup = "${healthcloud.kafka.consumers.enabled:true}")`. It builds a PHI-free
+  `claim_adjudication_notification` (V41) **purely from the event** (payload + headers) and never re-reads the claim
+  — real loose coupling.
+- **Idempotency** (because delivery is at-least-once): it skips an event it has already recorded
+  (`existsByEventId`), and `UNIQUE(event_id)` is the backstop — a `DataIntegrityViolationException` from a
+  redelivery race is caught and treated as "already processed".
+
+**Slice 4 — retry/backoff + a dead-letter topic.**
+- `KafkaConsumerErrorConfig` exposes a single `DefaultErrorHandler` bean (Boot auto-applies it to the listener
+  factory):
+
+```java
+DeadLetterPublishingRecoverer recoverer = new DeadLetterPublishingRecoverer(kafkaOperations,
+        (record, exception) -> new TopicPartition(record.topic() + ".DLT", -1)); // -1 = broker picks the partition
+FixedBackOff backOff = new FixedBackOff(backoffMs, Math.max(0, maxAttempts - 1)); // 2nd arg = RETRIES, not attempts
+DefaultErrorHandler handler = new DefaultErrorHandler(recoverer, backOff);
+handler.addNotRetryableExceptions(IllegalArgumentException.class, JacksonException.class); // structural → straight to DLT
+```
+
+- A transient failure retries a bounded number of times, then the record is republished to `<topic>.DLT`
+  (`claim.adjudicated.DLT`). **Structural failures** (a bad/missing header → `IllegalArgumentException`, a malformed
+  payload → `JacksonException`) can never succeed on retry, so they bypass retries and go straight to the DLT — a
+  poison record never blocks the partition.
+
+**Slice 5 — dead-letter drain + inspection.**
+- `DeadLetterDrainer` — a `@KafkaListener` on `claim.adjudicated.DLT` that copies each failed record into a
+  `dead_letter_event` table (V42): original topic/key/payload, the `eventId`/`organizationId` app headers, and
+  Spring's `kafka_dlt-*` metadata (`KafkaHeaders.DLT_*`: original topic, exception class, exception message). This
+  turns "what's stuck on a Kafka topic" into an **ordinary DB read**. Idempotent via
+  `UNIQUE(dlt_topic, dlt_partition, dlt_offset)`.
+- `DeadLetterService.listForTenant()` + `GET /api/v1/dead-letter-events` — **ORG_ADMIN**, tenant-scoped (a role-gated
+  list → a disallowed role is a flat 403). `organization_id` is nullable, so a fully-unattributable poison record is
+  not listable by a tenant admin.
+
+**Slice 6 — DLT replay.**
+- `DeadLetterReplayService.replay(id)` re-drives a stored record back onto its **source topic** once the bug is
+  fixed. It runs `@Transactional(propagation = NOT_SUPPORTED)` — **no ambient DB transaction around the Kafka send**
+  — then delegates the DB write to a *separate* bean so `@Transactional` is actually honoured:
+
+```java
+@Transactional(propagation = Propagation.NOT_SUPPORTED)
+public DeadLetterEventDto replay(UUID id) {
+    userContext.requireAnyRole(REPLAY_ROLES);                 // ORG_ADMIN
+    UUID org = userContext.requireOrganizationId();
+    DeadLetterEvent e = deadLetters.findByIdAndOrganizationId(id, org).orElseThrow(NotFoundException::new); // 404
+    if (e.isReplayed()) throw new ConflictException("...");   // 409
+    publishToSourceTopic(e);                                  // publish FIRST
+    return deadLetterService.finalizeReplay(id);              // THEN mark + audit, atomically
+}
+```
+
+- `DeadLetterService.finalizeReplay` (`@Transactional`) stamps `replayed_at`/`replayed_by` (V43, a one-way
+  lifecycle stamp — no `@Version`, like break-glass revoke) **and** writes a `DEAD_LETTER_REPLAYED` audit event in
+  one transaction.
+- **Publish-first, then mark**: if the process dies after the send but before the mark, a retry just re-publishes —
+  and the idempotent consumer dedupes the redelivery. That same idempotency makes a rare concurrent double-click
+  harmless.
+
+**Slice 7 — the dead-letter / replay UI (frontend).**
+- `frontend/src/deadletter/` — `DeadLetterEventsPage` (`/dead-letters`) lists the tenant's dead letters (When ·
+  Source topic · Event ID · Failure · Payload · Status) via `useDeadLetterEvents`, with a **Replay** button (inline
+  Confirm/Cancel, mirroring the Access-review Revoke) that calls `useReplayDeadLetter` and invalidates the list so
+  the row flips to a green **Replayed** chip. Nav gated to **ORG_ADMIN only** (matching the backend list gate —
+  narrower than the AUDITOR+ORG_ADMIN audit nav, so an auditor never lands on a 403 page).
+
+**Test wiring shared by the phase.** `KafkaTestcontainersConfiguration` provides a real broker
+(`@ServiceConnection ConfluentKafkaContainer("confluentinc/cp-kafka:7.8.0")`), imported **only** by the Kafka tests
+so the rest of the suite stays broker-free. `src/test/resources/application-local.yml` disables the relay scheduler
+and the `@KafkaListener` consumers across the suite; a Kafka test either drives the path directly
+(`relay.publishPending()`, publish via `KafkaTemplate`) or re-enables consumers with
+`@SpringBootTest(properties = "healthcloud.kafka.consumers.enabled=true")`. The full suite ends green at **430
+backend tests** and **151 frontend tests**.
+
+### Key points to remember
+
+- **The dual-write problem is the reason for everything.** DB and Kafka can't share a transaction. The outbox means
+  you only write to the DB; publishing is a separate, retryable step against committed rows.
+- **`OutboxService` and `AuditService` are deliberately NOT `@Transactional`.** They must join the caller's
+  transaction so the extra row commits atomically with the domain change. Annotating them would open a nested/new
+  transaction and break atomicity. This is the physical realization of the §31.6 "domain change + status history +
+  audit event + outbox event, all in one transaction" pattern.
+- **At-least-once delivery ⇒ consumers must be idempotent.** The dedupe key is the outbox `event_id`, enforced by a
+  `UNIQUE` constraint (pre-check + caught `DataIntegrityViolationException` backstop). Never assume exactly-once.
+- **topic = event_type, key = aggregate_id.** Keying by aggregate keeps per-aggregate ordering within a partition.
+- **Publish-then-mark (relay) and publish-then-mark (replay)** both choose "risk a duplicate, never lose an event".
+  Losing is worse than duplicating precisely *because* consumers are idempotent.
+- **Kafka send cannot be inside a DB transaction.** The relay's `@Transactional` only wraps the `published_at`
+  stamps; replay uses `NOT_SUPPORTED` and does the send with no ambient tx, then a *separate bean* does the
+  transactional DB write. (Self-invoking a `@Transactional` method on the same bean would NOT start a transaction —
+  Spring proxies are bypassed on self-calls — which is exactly why replay delegates to `DeadLetterService`.)
+- **Structural vs transient failures.** Bad header/payload = non-retryable ⇒ straight to DLT. Everything else gets a
+  bounded `FixedBackOff` then DLT. `FixedBackOff`'s second argument is the number of **retries**, so total attempts
+  = retries + 1.
+- **Boot 4 modularized auto-config.** The raw `spring-kafka` library brings **no** `KafkaTemplate` bean; you need the
+  starter `spring-boot-starter-kafka`. And Boot's auto-configured `KafkaTemplate<?,?>` does **not** satisfy a
+  `KafkaTemplate<String,String>` injection point (wildcard vs specific generics) — inject it **raw**
+  (`@SuppressWarnings("rawtypes")`), as `OutboxRelay` and `DeadLetterReplayService` do.
+- **Testcontainers Kafka.** Testcontainers 2.0.x's `org.testcontainers.kafka.KafkaContainer` (apache/kafka)
+  mis-computes `advertised.listeners` on this host; use `ConfluentKafkaContainer` (`confluentinc/cp-kafka`) instead.
+  Read the broker address from `container.getBootstrapServers()`, **not** the `spring.kafka.bootstrap-servers`
+  property — `@ServiceConnection` wires a `ConnectionDetails` bean and leaves that property at its default.
+- **PHI-free payloads (rule 5).** Event payloads carry coded/claims data only — no clinical narrative, no patient
+  identifiers beyond the aggregate id. Same discipline as audit details and dead-letter rows.
+- **No broker connection at startup.** There are no `@KafkaListener`/`KafkaAdmin` topic beans forcing a connection;
+  only the relay (when enabled) and the consumers (when enabled) connect. That is what lets the broker-free tests
+  run without Kafka.
+- **`replayed_at`/`replayed_by` is a one-way stamp with no `@Version`** (the break-glass-revoke precedent); a
+  double-replay is guarded by a 409 pre-check and made harmless by consumer idempotency.
+
+### Failures and how we fixed them
+
+1. **Testcontainers Kafka artifact — version missing.** `org.testcontainers:kafka` failed to resolve. TC 2.0.x uses
+   the `testcontainers-` prefix → the correct artifact is `org.testcontainers:testcontainers-kafka`.
+2. **No `KafkaTemplate` bean — context failed to load for all tests.** Symptom: "No qualifying bean of type
+   `KafkaTemplate<String,String>`". Root cause: Boot 4 modular auto-config — the raw `spring-kafka` library brings no
+   Kafka auto-configuration. Fix: use `spring-boot-starter-kafka`; and inject the template **raw**, because Boot's
+   `KafkaTemplate<?,?>` bean does not match a `KafkaTemplate<String,String>` injection point.
+3. **apache/kafka container exited (code 1).** `org.testcontainers.kafka.KafkaContainer` with `apache/kafka:3.9.0`
+   errored: "advertised.listeners cannot use the nonroutable meta-address 0.0.0.0" (the image runs fine
+   standalone). Fix: switch the test broker to `ConfluentKafkaContainer("confluentinc/cp-kafka:7.8.0")`.
+4. **Wrong bootstrap address in tests.** `@Value("${spring.kafka.bootstrap-servers}")` resolved to the *default*,
+   not the container, because `@ServiceConnection` wires a `ConnectionDetails` bean rather than setting that
+   property. Fix: autowire the container and use `container.getBootstrapServers()`.
+5. **DLT poison message never arrived (slice 4 test timed out).** Two fixes: an explicit
+   `DeadLetterPublishingRecoverer` destination resolver (`record.topic() + ".DLT"`, partition `-1`), and the DLT
+   test consumer set `ConsumerConfig.METADATA_MAX_AGE_CONFIG = 1000` so it re-discovers the newly-created DLT topic
+   quickly.
+6. **Slice-5 assertion mismatch.** We asserted the dead-letter body contained "jackson", but the recorded
+   `exceptionType` was Spring's wrapper `ListenerExecutionFailedException` (the Jackson parse detail is in the
+   `exceptionMessage`). Fix: assert `"ListenerExecutionFailedException"` and `"Unrecognized token"`.
+7. **Slices 6–7 built clean (no failing builds).** The two pitfalls we designed around up-front: (a) the
+   self-invocation transaction trap — replay delegates the `@Transactional` DB write to a separate bean rather than
+   calling a `@Transactional` method on itself; (b) the actor id accessor — `UserContext` exposes `userId()` (not
+   `id()`), confirmed before wiring `finalizeReplay`.
+
+### Interview Q&A
+
+#### 1. Beginner
+
+**Q: What is the dual-write problem?**
+A: When a single operation needs to update two systems that don't share a transaction — here a PostgreSQL row and a
+Kafka message. If you do them as two separate steps, any crash in between leaves them inconsistent: the DB commits
+but the event is never published, or the event is published but the DB rolls back. There's no atomic "write to both".
+
+**Q: What is the transactional outbox pattern?**
+A: Instead of publishing to Kafka directly, the domain transaction writes an extra `outbox_event` row in the *same*
+database transaction as the domain change. A separate process (the relay) later reads committed outbox rows and
+publishes them to Kafka. You only ever write to one system transactionally, so there's no dual write.
+
+**Q: Why is `OutboxService.record` not `@Transactional`?**
+A: Because it must run *inside* the caller's transaction. If it opened its own transaction, the outbox row could
+commit or roll back independently of the domain change, reintroducing the very inconsistency we're avoiding. It's the
+same design as `AuditService.record`.
+
+**Q: What does the relay do?**
+A: A scheduled poller (`OutboxRelay`) selects unpublished outbox rows oldest-first, publishes each to Kafka (topic =
+event type, key = aggregate id, value = JSON payload), and stamps `published_at`. It runs after the domain
+transaction has committed.
+
+**Q: What is a dead-letter topic (DLT)?**
+A: A separate Kafka topic where messages that repeatedly fail processing are parked, so a single bad ("poison")
+message doesn't block the partition forever. Here it's `claim.adjudicated.DLT`.
+
+#### 2. Intermediate
+
+**Q: The relay publishes then stamps `published_at`. What if it crashes in between?**
+A: The row stays unpublished, so the next poll re-publishes it — the event is delivered again. That's **at-least-once**
+delivery. We accept duplicates because the alternative (mark-then-publish) risks *losing* an event, which is worse,
+and because consumers are idempotent.
+
+**Q: How do you make the consumer idempotent?**
+A: Every event carries the outbox `event_id` in a header. The consumer skips an event it has already recorded
+(`existsByEventId`) and relies on a `UNIQUE(event_id)` constraint as the backstop — a redelivery race throws
+`DataIntegrityViolationException`, which we catch and treat as "already processed".
+
+**Q: Why key Kafka messages by `aggregate_id`?**
+A: Kafka only guarantees ordering within a partition, and the partition is chosen by the key. Keying by the
+aggregate (the claim id) keeps all events for one claim in order relative to each other, while still spreading
+different claims across partitions for throughput.
+
+**Q: How does retry/DLT distinguish transient from structural failures?**
+A: The `DefaultErrorHandler` retries with a `FixedBackOff`, then routes to the DLT. But
+`addNotRetryableExceptions(IllegalArgumentException, JacksonException)` marks structural failures (bad header,
+malformed payload) as non-retryable — they can never succeed on retry, so they go straight to the DLT instead of
+wasting the retry budget and blocking the partition.
+
+**Q: Why does replay publish first and then mark the record replayed?**
+A: If we marked first and the publish failed, the record would look replayed but nothing was re-driven — a silent
+loss. Publishing first means a failure leaves the record un-stamped so the admin can retry; a crash after the send
+just re-publishes, which the idempotent consumer dedupes. It's the same at-least-once philosophy as the relay.
+
+**Q: Why is the DLT drained into a database table?**
+A: Inspecting or replaying messages by consuming a Kafka topic over REST is awkward and stateful. Draining the DLT
+into `dead_letter_event` turns "what failed" into an ordinary tenant/role-gated DB read, and gives replay a stable
+record to act on and stamp.
+
+#### 3. Advanced
+
+**Q: Your relay assumes a single instance. What breaks if you run two, and how would you fix it?**
+A: Two relays would both select the same pending rows and double-publish them. The fix is `SELECT … FOR UPDATE SKIP
+LOCKED` on the batch so each instance claims a disjoint set of rows, or a leader-election/sharded approach. We
+documented this as a known limitation rather than building it for the MVP.
+
+**Q: Replay runs `@Transactional(NOT_SUPPORTED)` and delegates the DB write to another bean. Why not just annotate a
+private method?**
+A: Spring's transaction management is proxy-based; a self-invocation (calling another method on `this`) bypasses the
+proxy, so a `@Transactional` annotation on a same-bean method would be ignored and the "mark + audit" wouldn't be
+atomic. Delegating to a *separate* bean (`DeadLetterService.finalizeReplay`) goes through a proxy, so the transaction
+actually starts. `NOT_SUPPORTED` is used on the outer method because a Kafka send must not sit inside a DB
+transaction (the DB tx would be held open across a network call, and the send can't be rolled back anyway).
+
+**Q: The outbox guarantees at-least-once. Could you achieve exactly-once?**
+A: Not end-to-end without more machinery. You can get *effectively*-once by pairing at-least-once delivery with
+idempotent consumers keyed on the event id — which is what we did. True exactly-once would need Kafka transactions
+(the transactional producer + read-process-write) and consumer-side transactional state, which is far heavier and
+still degrades to effectively-once at the edges. Idempotency is the pragmatic answer.
+
+**Q: How do you keep the test suite fast when the app needs Kafka?**
+A: The broker is expensive to start, so `KafkaTestcontainersConfiguration` (a `ConfluentKafkaContainer` with
+`@ServiceConnection`) is imported *only* by the handful of Kafka tests. The rest of the suite disables the relay
+scheduler and the `@KafkaListener` consumers via `src/test/resources/application-local.yml`, and the app makes no
+broker connection at startup, so those tests never touch Kafka. Kafka tests re-enable consumers per-class via
+`@SpringBootTest(properties = ...)` or drive the relay/consumer code directly.
+
+**Q: A payload schema will evolve. How is that handled here, and what would you add for production?**
+A: Today the consumer deserializes `ClaimAdjudicatedEvent` with Jackson and a malformed/unknown payload is a
+non-retryable `JacksonException` → DLT (fail safe, no partition block). For production you'd add a schema registry
+(e.g. Avro/Protobuf with compatibility rules), version the event type, and make consumers tolerant of unknown
+fields. We also deliberately kept payloads minimum-necessary and PHI-free, which limits the blast radius of a schema
+or leak problem.
+
+**Q: What ordering guarantees does a downstream consumer actually get, and where could it be surprised?**
+A: Ordering holds only per partition, i.e. per aggregate id (per claim). Across claims there is no ordering. A
+consumer is also re-delivered on at-least-once, so it can see the same event twice and (after a DLT replay) out of
+its original time order. That's why the notification consumer is idempotent and builds state purely from the event
+rather than assuming "this is the first/only time I've seen this".
