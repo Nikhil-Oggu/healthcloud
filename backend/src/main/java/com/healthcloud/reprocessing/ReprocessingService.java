@@ -7,6 +7,7 @@ import com.healthcloud.adjudication.AdjudicationService;
 import com.healthcloud.claim.Claim;
 import com.healthcloud.claim.ClaimRepository;
 import com.healthcloud.claim.ClaimStatus;
+import com.healthcloud.common.PageResponse;
 import com.healthcloud.context.UserContext;
 import com.healthcloud.context.UserContextAccessor;
 import com.healthcloud.coverage.CoveragePlan;
@@ -17,7 +18,9 @@ import com.healthcloud.error.ErrorCode;
 import com.healthcloud.error.NotFoundException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -132,11 +135,12 @@ public class ReprocessingService {
     }
 
     /** All batches in the caller's tenant, newest first (the work queue), header-only. */
-    public List<ReprocessingBatchSummaryDto> list() {
+    public PageResponse<ReprocessingBatchSummaryDto> list(
+            Optional<ReprocessingBatchStatus> status, Pageable pageable) {
         UUID organizationId = userContext.requireOrganizationId();
-        return batches.findByOrganizationIdOrderByCreatedAtDesc(organizationId).stream()
-                .map(b -> ReprocessingBatchSummaryDto.from(b, planName(organizationId, b.getCoveragePlanId())))
-                .toList();
+        return PageResponse.of(
+                batches.searchAll(organizationId, status.orElse(null), pageable),
+                b -> ReprocessingBatchSummaryDto.from(b, planName(organizationId, b.getCoveragePlanId())));
     }
 
     /**

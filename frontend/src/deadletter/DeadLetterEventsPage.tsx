@@ -9,13 +9,21 @@ import {
   TableCell,
   TableContainer,
   TableHead,
+  TablePagination,
   TableRow,
+  TableSortLabel,
   Tooltip,
   Typography,
 } from '@mui/material'
 import { LoadingScreen } from '../components/LoadingScreen'
 import { ErrorScreen } from '../components/ErrorScreen'
 import { useDeadLetterEvents, useReplayDeadLetter } from './useDeadLetter'
+
+const ROWS_PER_PAGE_OPTIONS = [10, 20, 50]
+
+/** Columns the backend allows sorting by (mirrors the controller allowlist). */
+type SortField = 'createdAt' | 'sourceTopic'
+type SortDir = 'asc' | 'desc'
 
 /** A short, fixed-width prefix of an id/payload — the full value is shown in a tooltip. */
 function short(value: string | null, max = 12): string {
@@ -24,9 +32,28 @@ function short(value: string | null, max = 12): string {
 }
 
 export function DeadLetterEventsPage() {
-  const events = useDeadLetterEvents()
   const replay = useReplayDeadLetter()
   const [pendingId, setPendingId] = useState<string | null>(null)
+
+  const [page, setPage] = useState(0)
+  const [size, setSize] = useState(20)
+  // No active sort by default → the backend applies its default (createdAt DESC = newest first).
+  const [sortField, setSortField] = useState<SortField | null>(null)
+  const [sortDir, setSortDir] = useState<SortDir>('asc')
+
+  const sort = sortField ? `${sortField},${sortDir}` : undefined
+  const events = useDeadLetterEvents({ page, size, sort })
+
+  // A column header toggles asc → desc on repeat click; a new column starts ascending. Any change resets to page 0.
+  function toggleSort(field: SortField) {
+    if (sortField === field) {
+      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
+    } else {
+      setSortField(field)
+      setSortDir('asc')
+    }
+    setPage(0)
+  }
 
   if (events.isPending) return <LoadingScreen />
   if (events.isError) return <ErrorScreen error={events.error} />
@@ -34,6 +61,20 @@ export function DeadLetterEventsPage() {
   function onReplay(id: string) {
     replay.mutate(id, { onSettled: () => setPendingId(null) })
   }
+
+  const rows = events.data.content
+
+  const sortableHeader = (field: SortField, label: string) => (
+    <TableCell sortDirection={sortField === field ? sortDir : false}>
+      <TableSortLabel
+        active={sortField === field}
+        direction={sortField === field ? sortDir : 'asc'}
+        onClick={() => toggleSort(field)}
+      >
+        {label}
+      </TableSortLabel>
+    </TableCell>
+  )
 
   return (
     <Stack spacing={3}>
@@ -50,8 +91,8 @@ export function DeadLetterEventsPage() {
         <Table aria-label="Dead-letter events" size="small">
           <TableHead>
             <TableRow>
-              <TableCell>When</TableCell>
-              <TableCell>Source topic</TableCell>
+              {sortableHeader('createdAt', 'When')}
+              {sortableHeader('sourceTopic', 'Source topic')}
               <TableCell>Event ID</TableCell>
               <TableCell>Failure</TableCell>
               <TableCell>Payload</TableCell>
@@ -59,7 +100,7 @@ export function DeadLetterEventsPage() {
             </TableRow>
           </TableHead>
           <TableBody>
-            {events.data.length === 0 ? (
+            {rows.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={6}>
                   <Typography variant="body2" color="text.secondary">
@@ -68,7 +109,7 @@ export function DeadLetterEventsPage() {
                 </TableCell>
               </TableRow>
             ) : (
-              events.data.map((e) => (
+              rows.map((e) => (
                 <TableRow key={e.id} hover>
                   <TableCell>
                     <Typography variant="caption" color="text.secondary">
@@ -125,6 +166,18 @@ export function DeadLetterEventsPage() {
             )}
           </TableBody>
         </Table>
+        <TablePagination
+          component="div"
+          count={events.data.totalElements}
+          page={events.data.page}
+          onPageChange={(_, newPage) => setPage(newPage)}
+          rowsPerPage={size}
+          onRowsPerPageChange={(e) => {
+            setSize(parseInt(e.target.value, 10))
+            setPage(0)
+          }}
+          rowsPerPageOptions={ROWS_PER_PAGE_OPTIONS}
+        />
       </TableContainer>
     </Stack>
   )

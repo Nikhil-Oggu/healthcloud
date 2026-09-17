@@ -10,6 +10,7 @@ import type {
   AddPlanExclusionRequest,
   AddFeeScheduleRequest,
   AddPriorAuthRequirementRequest,
+  AuditAction,
   AuditChainVerification,
   AuditEvent,
   BreakGlassGrant,
@@ -68,6 +69,7 @@ import type {
   CreateClaimReviewRequest,
   ReprocessingBatch,
   ReprocessingBatchSummary,
+  ReprocessingBatchStatus,
   CreateReprocessingBatchRequest,
   RequestAssignment,
   RequestComment,
@@ -542,8 +544,20 @@ export const api = {
     }),
 
   // --- Reprocessing batches (§Phase 6) ---
-  listReprocessingBatches: () =>
-    request<ReprocessingBatchSummary[]>('/api/v1/reprocessing-batches'),
+  // A page of the reprocessing work queue (§Phase 9) — returns the full PageResponse envelope (no array shim).
+  listReprocessingBatches: (params: {
+    status?: ReprocessingBatchStatus
+    page?: number
+    size?: number
+    sort?: string
+  }) => {
+    const q = new URLSearchParams()
+    if (params.status) q.set('status', params.status)
+    if (params.page != null) q.set('page', String(params.page))
+    if (params.size != null) q.set('size', String(params.size))
+    if (params.sort) q.set('sort', params.sort)
+    return request<PageResponse<ReprocessingBatchSummary>>(`/api/v1/reprocessing-batches?${q.toString()}`)
+  },
 
   getReprocessingBatch: (id: string) =>
     request<ReprocessingBatch>(`/api/v1/reprocessing-batches/${id}`),
@@ -556,7 +570,15 @@ export const api = {
     }),
 
   // --- Security audit trail (§Phase 7) ---
-  listAuditEvents: () => request<AuditEvent[]>('/api/v1/audit-events'),
+  // A page of the audit trail (§Phase 9) — optional server-side action filter; returns the PageResponse envelope.
+  listAuditEvents: (params: { action?: AuditAction; page?: number; size?: number; sort?: string }) => {
+    const q = new URLSearchParams()
+    if (params.action) q.set('action', params.action)
+    if (params.page != null) q.set('page', String(params.page))
+    if (params.size != null) q.set('size', String(params.size))
+    if (params.sort) q.set('sort', params.sort)
+    return request<PageResponse<AuditEvent>>(`/api/v1/audit-events?${q.toString()}`)
+  },
 
   verifyAuditChain: () => request<AuditChainVerification>('/api/v1/audit-events/verify'),
 
@@ -576,7 +598,14 @@ export const api = {
     request<BreakGlassGrantAdmin>(`/api/v1/break-glass/${id}/revoke`, { method: 'POST' }),
 
   // --- Dead-letter inspection + replay (§Phase 8) ---
-  listDeadLetterEvents: () => request<DeadLetterEvent[]>('/api/v1/dead-letter-events'),
+  // A page of the dead-letter queue (§Phase 9) — returns the full PageResponse envelope (no array shim).
+  listDeadLetterEvents: (params: { page?: number; size?: number; sort?: string }) => {
+    const q = new URLSearchParams()
+    if (params.page != null) q.set('page', String(params.page))
+    if (params.size != null) q.set('size', String(params.size))
+    if (params.sort) q.set('sort', params.sort)
+    return request<PageResponse<DeadLetterEvent>>(`/api/v1/dead-letter-events?${q.toString()}`)
+  },
 
   replayDeadLetterEvent: (id: string) =>
     request<DeadLetterEvent>(`/api/v1/dead-letter-events/${id}/replay`, { method: 'POST' }),

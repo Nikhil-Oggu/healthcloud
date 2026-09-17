@@ -1,11 +1,26 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api/client'
 
 export const DEAD_LETTER_EVENTS_QUERY_KEY = ['dead-letter-events'] as const
 
-/** The tenant's dead-lettered messages, newest first — an ORG_ADMIN operational read. */
-export function useDeadLetterEvents() {
-  return useQuery({ queryKey: DEAD_LETTER_EVENTS_QUERY_KEY, queryFn: () => api.listDeadLetterEvents() })
+/** The parameters that drive a page of the dead-letter queue (§Phase 9). */
+export interface DeadLetterPageParams {
+  page: number
+  size: number
+  sort?: string
+}
+
+/**
+ * A page of the tenant's dead-lettered messages (§Phase 9) — an ORG_ADMIN operational read. The query key carries
+ * the params so a page/sort change refetches; still prefixed so a replay invalidates it. `keepPreviousData` keeps
+ * the current rows on screen while the next page loads.
+ */
+export function useDeadLetterEvents(params: DeadLetterPageParams) {
+  return useQuery({
+    queryKey: [...DEAD_LETTER_EVENTS_QUERY_KEY, 'page', params],
+    queryFn: () => api.listDeadLetterEvents(params),
+    placeholderData: keepPreviousData,
+  })
 }
 
 /**

@@ -150,6 +150,38 @@ class AuditApiIntegrationTest {
                 "another tenant's audit events must never appear: " + cross.body());
     }
 
+    @Test
+    void the_list_returns_a_page_envelope_and_filters_by_action_in_sql() throws Exception {
+        // Generate a CLAIM_ADJUDICATED event.
+        Session coordinator = loginWithCsrf("coordinator@northcare.example.org");
+        String patientId = firstId(createPatient(coordinator).body());
+        enroll(coordinator, patientId, firstPlanId(coordinator));
+        Session reviewer = loginWithCsrf("reviewer@northcare.example.org");
+        String claimId = acceptedClaim(coordinator, reviewer, patientId);
+        assertEquals(200, adjudicate(reviewer, claimId).statusCode());
+
+        Session auditor = loginWithCsrf("auditor@northcare.example.org");
+        HttpResponse<String> list = get(auditor.session, "/api/v1/audit-events?size=5");
+        assertEquals(200, list.statusCode(), list.body());
+        assertTrue(list.body().contains("\"content\":["), "the response is a page envelope");
+        assertTrue(list.body().contains("\"page\":0"));
+        assertTrue(list.body().contains("\"totalElements\":"));
+
+        // Filtering by CONSENT_REVOKED excludes the CLAIM_ADJUDICATED event (the filter runs in SQL).
+        HttpResponse<String> consentOnly =
+                get(auditor.session, "/api/v1/audit-events?action=CONSENT_REVOKED&size=100");
+        assertEquals(0, countOccurrences(consentOnly.body(), "\"action\":\"CLAIM_ADJUDICATED\""),
+                "the action filter runs in the database: " + consentOnly.body());
+    }
+
+    @Test
+    void an_unknown_sort_field_is_a_400() throws Exception {
+        String auditor = loginSession("auditor@northcare.example.org");
+        HttpResponse<String> bad = get(auditor, "/api/v1/audit-events?sort=ssn");
+        assertEquals(400, bad.statusCode(), bad.body());
+        assertTrue(bad.body().contains("VALIDATION_FAILED"), "sorting by a non-allowlisted field is a clean 400");
+    }
+
     // --- helpers -------------------------------------------------------------
 
     private record Session(String session, String xsrf) {}

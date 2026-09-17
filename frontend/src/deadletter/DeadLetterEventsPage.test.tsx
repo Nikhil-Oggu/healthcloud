@@ -5,7 +5,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { api } from '../api/client'
 import { DeadLetterEventsPage } from './DeadLetterEventsPage'
-import type { DeadLetterEvent } from '../api/types'
+import type { DeadLetterEvent, PageResponse } from '../api/types'
 
 vi.mock('../api/client', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../api/client')>()
@@ -44,6 +44,23 @@ const REPLAYED: DeadLetterEvent = {
   replayedBy: 'admin-1',
 }
 
+/** Build a PageResponse envelope around some rows (defaults describe a single full page). */
+function pageOf(
+  content: DeadLetterEvent[],
+  overrides: Partial<PageResponse<DeadLetterEvent>> = {},
+): PageResponse<DeadLetterEvent> {
+  return {
+    content,
+    page: 0,
+    size: 20,
+    totalElements: content.length,
+    totalPages: content.length === 0 ? 0 : 1,
+    first: true,
+    last: true,
+    ...overrides,
+  }
+}
+
 function renderPage(ui: ReactNode) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
   return render(<QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>)
@@ -52,7 +69,7 @@ function renderPage(ui: ReactNode) {
 describe('DeadLetterEventsPage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    listDeadLetterEvents.mockResolvedValue([PENDING, REPLAYED])
+    listDeadLetterEvents.mockResolvedValue(pageOf([PENDING, REPLAYED]))
   })
 
   it('lists dead letters and marks an already-replayed one', async () => {
@@ -73,5 +90,21 @@ describe('DeadLetterEventsPage', () => {
     await userEvent.click(await screen.findByRole('button', { name: 'Confirm' }))
 
     await waitFor(() => expect(replayDeadLetterEvent).toHaveBeenCalledWith('dl-1'))
+  })
+
+  it('sorting and paging re-query the server', async () => {
+    listDeadLetterEvents.mockResolvedValue(pageOf([PENDING], { totalElements: 45, totalPages: 3, last: false }))
+    renderPage(<DeadLetterEventsPage />)
+    await screen.findByText('claim.adjudicated')
+    // The default fetch uses page 0, size 20, no sort.
+    expect(listDeadLetterEvents).toHaveBeenCalledWith({ page: 0, size: 20, sort: undefined })
+
+    await userEvent.click(screen.getByRole('button', { name: /Source topic/i }))
+    await waitFor(() =>
+      expect(listDeadLetterEvents).toHaveBeenCalledWith(expect.objectContaining({ sort: 'sourceTopic,asc' })),
+    )
+
+    await userEvent.click(screen.getByRole('button', { name: /go to next page/i }))
+    await waitFor(() => expect(listDeadLetterEvents).toHaveBeenCalledWith(expect.objectContaining({ page: 1 })))
   })
 })

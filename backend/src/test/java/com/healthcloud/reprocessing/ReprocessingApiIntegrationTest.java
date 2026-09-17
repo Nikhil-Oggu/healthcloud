@@ -1,6 +1,7 @@
 package com.healthcloud.reprocessing;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -32,6 +33,7 @@ import org.springframework.test.context.ActiveProfiles;
 class ReprocessingApiIntegrationTest {
 
     private static final Pattern FIRST_ID = Pattern.compile("\"id\":\"([0-9a-fA-F-]{36})\"");
+    private static final Pattern BATCH_NUMBER = Pattern.compile("\"batchNumber\":\"([^\"]+)\"");
 
     @Value("${local.server.port}")
     int port;
@@ -170,6 +172,38 @@ class ReprocessingApiIntegrationTest {
         HttpResponse<String> cross = get(green, "/api/v1/reprocessing-batches/" + batchId);
         assertEquals(404, cross.statusCode(), "another tenant's batch must be a secure 404");
         assertTrue(cross.body().contains("NOT_FOUND"));
+    }
+
+    @Test
+    void the_list_is_paged_and_filters_by_status() throws Exception {
+        Session admin = loginWithCsrf("admin@northcare.example.org");
+        String patientId = firstId(createPatient(admin).body());
+        String planId = createPlan(admin);
+        adjudicatedClaimOnPlan(admin, patientId, planId);
+        HttpResponse<String> batch = post(admin, "/api/v1/reprocessing-batches", batchJson(planId));
+        assertEquals(201, batch.statusCode(), batch.body());
+        Matcher m = BATCH_NUMBER.matcher(batch.body());
+        assertTrue(m.find(), batch.body());
+        String batchNumber = m.group(1); // this batch is COMPLETED (no failures)
+
+        HttpResponse<String> list = get(admin.session, "/api/v1/reprocessing-batches?size=50");
+        assertEquals(200, list.statusCode(), list.body());
+        assertTrue(list.body().contains("\"content\":["), "the response is a page envelope");
+        assertTrue(list.body().contains(batchNumber), "the queue includes the batch");
+
+        // A COMPLETED batch is absent from a RUNNING-filtered list and present in a COMPLETED one (filter in SQL).
+        HttpResponse<String> running = get(admin.session, "/api/v1/reprocessing-batches?status=RUNNING&size=50");
+        assertFalse(running.body().contains(batchNumber), "a COMPLETED batch is not in the RUNNING filter");
+        HttpResponse<String> completed = get(admin.session, "/api/v1/reprocessing-batches?status=COMPLETED&size=50");
+        assertTrue(completed.body().contains(batchNumber), "it is in the COMPLETED filter");
+    }
+
+    @Test
+    void an_unknown_sort_field_is_a_400() throws Exception {
+        Session admin = loginWithCsrf("admin@northcare.example.org");
+        HttpResponse<String> bad = get(admin.session, "/api/v1/reprocessing-batches?sort=ssn");
+        assertEquals(400, bad.statusCode(), bad.body());
+        assertTrue(bad.body().contains("VALIDATION_FAILED"), "sorting by a non-allowlisted field is a clean 400");
     }
 
     // --- helpers -------------------------------------------------------------

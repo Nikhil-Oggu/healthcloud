@@ -1,15 +1,28 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api/client'
-import type { CreateReprocessingBatchRequest } from '../api/types'
+import type { CreateReprocessingBatchRequest, ReprocessingBatchStatus } from '../api/types'
 
 export const REPROCESSING_BATCHES_QUERY_KEY = ['reprocessing-batches'] as const
 export const reprocessingBatchKey = (id: string) => ['reprocessing-batches', id] as const
 
-/** The current tenant's reprocessing batches (newest first), a reviewer/admin work queue. */
-export function useReprocessingBatches() {
+/** The parameters that drive a page of the reprocessing work queue (§Phase 9). */
+export interface ReprocessingPageParams {
+  status?: ReprocessingBatchStatus
+  page: number
+  size: number
+  sort?: string
+}
+
+/**
+ * A page of the reprocessing work queue for the given params (§Phase 9). The query key carries the params so a
+ * page/sort/filter change refetches; it stays prefixed with {@link REPROCESSING_BATCHES_QUERY_KEY} so a run
+ * still invalidates it. `keepPreviousData` keeps the current rows on screen while the next page loads.
+ */
+export function useReprocessingBatches(params: ReprocessingPageParams) {
   return useQuery({
-    queryKey: REPROCESSING_BATCHES_QUERY_KEY,
-    queryFn: () => api.listReprocessingBatches(),
+    queryKey: [...REPROCESSING_BATCHES_QUERY_KEY, 'page', params],
+    queryFn: () => api.listReprocessingBatches(params),
+    placeholderData: keepPreviousData,
   })
 }
 

@@ -1,9 +1,11 @@
 package com.healthcloud.reprocessing;
 
-import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
 
 /**
  * Reprocessing batches, tenant-owned. Like every tenant-owned repository (§32.10) the finders are scoped by
@@ -19,6 +21,11 @@ public interface ReprocessingBatchRepository extends JpaRepository<ReprocessingB
     /** Whether a batch number is already taken within the tenant (for a clean number allocation). */
     boolean existsByOrganizationIdAndBatchNumber(UUID organizationId, String batchNumber);
 
-    /** All batches in the tenant, newest first (the work queue). */
-    List<ReprocessingBatch> findByOrganizationIdOrderByCreatedAtDesc(UUID organizationId);
+    /**
+     * A page of the tenant's reprocessing batches (§Phase 9), optionally filtered to one status. The status is
+     * filtered in SQL ({@code null} = any status); ordering/paging come from the {@link Pageable}.
+     */
+    @Query("select b from ReprocessingBatch b where b.organizationId = :org "
+            + "and (:status is null or b.status = :status)")
+    Page<ReprocessingBatch> searchAll(UUID org, ReprocessingBatchStatus status, Pageable pageable);
 }

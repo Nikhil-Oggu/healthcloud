@@ -82,6 +82,24 @@ class DeadLetterApiIntegrationTest {
                 "dead letters are tenant-scoped");
     }
 
+    @Test
+    void the_list_returns_a_page_envelope() throws Exception {
+        String admin = login("admin@northcare.example.org");
+        HttpResponse<String> list = get(admin, "/api/v1/dead-letter-events?size=5");
+        assertEquals(200, list.statusCode(), list.body());
+        assertTrue(list.body().contains("\"content\":["), "the response is a page envelope");
+        assertTrue(list.body().contains("\"page\":0"));
+        assertTrue(list.body().contains("\"totalElements\":"));
+    }
+
+    @Test
+    void an_unknown_sort_field_is_a_400() throws Exception {
+        String admin = login("admin@northcare.example.org");
+        HttpResponse<String> bad = get(admin, "/api/v1/dead-letter-events?sort=ssn");
+        assertEquals(400, bad.statusCode(), bad.body());
+        assertTrue(bad.body().contains("VALIDATION_FAILED"), "sorting by a non-allowlisted field is a clean 400");
+    }
+
     // --- helpers -------------------------------------------------------------
 
     @SuppressWarnings("unchecked") // raw KafkaTemplate.send(ProducerRecord)

@@ -1,5 +1,6 @@
 package com.healthcloud.audit;
 
+import com.healthcloud.common.PageResponse;
 import com.healthcloud.context.UserContext;
 import com.healthcloud.context.UserContextAccessor;
 import com.healthcloud.error.CorrelationId;
@@ -7,6 +8,8 @@ import java.time.OffsetDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.UUID;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -137,14 +140,15 @@ public class AuditService {
      * (capped). A role-gated list, so a disallowed role is a flat 403 (not a secure 404).
      */
     @Transactional(readOnly = true)
-    public List<AuditEventDto> list(String resourceType, UUID resourceId) {
+    public PageResponse<AuditEventDto> list(
+            String resourceType, UUID resourceId, AuditAction action, Pageable pageable) {
         userContext.requireAnyRole(READ_ROLES);
         UUID organizationId = userContext.requireOrganizationId();
 
-        List<AuditEvent> rows = (resourceType != null && resourceId != null)
-                ? events.findByOrganizationIdAndResourceTypeAndResourceIdOrderByOccurredAtDesc(
-                        organizationId, resourceType, resourceId)
-                : events.findTop200ByOrganizationIdOrderByOccurredAtDesc(organizationId);
-        return rows.stream().map(AuditEventDto::from).toList();
+        // A resource-history view is one resource's events; otherwise the tenant's events, optionally by action.
+        Page<AuditEvent> rows = (resourceType != null && resourceId != null)
+                ? events.searchForResource(organizationId, resourceType, resourceId, pageable)
+                : events.searchRecent(organizationId, action, pageable);
+        return PageResponse.of(rows, AuditEventDto::from);
     }
 }

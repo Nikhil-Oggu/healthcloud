@@ -1,8 +1,9 @@
 package com.healthcloud.deadletter;
 
-import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 /**
@@ -15,8 +16,8 @@ public interface DeadLetterEventRepository extends JpaRepository<DeadLetterEvent
     /** Whether a DLT record has already been drained — idempotency for a redelivered DLT record. */
     boolean existsByDltTopicAndDltPartitionAndDltOffset(String dltTopic, int dltPartition, long dltOffset);
 
-    /** The tenant's dead-letter events, newest first (the admin inspection list). */
-    List<DeadLetterEvent> findByOrganizationIdOrderByCreatedAtDesc(UUID organizationId);
+    /** A page of the tenant's dead-letter events (§Phase 9); ordering/paging come from the {@link Pageable}. */
+    Page<DeadLetterEvent> findByOrganizationId(UUID organizationId, Pageable pageable);
 
     /** Load one of the tenant's dead-letter events for replay — a cross-tenant/unknown id is simply absent (404). */
     Optional<DeadLetterEvent> findByIdAndOrganizationId(UUID id, UUID organizationId);

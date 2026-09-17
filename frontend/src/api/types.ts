@@ -818,7 +818,13 @@ export interface CreateReprocessingBatchRequest {
 // --- Security audit trail (§Phase 7) ---
 
 /** The coded audit actions (mirrors the backend AuditAction enum). */
-export type AuditAction = 'CLAIM_ADJUDICATED' | 'CONSENT_REVOKED'
+export type AuditAction =
+  | 'CLAIM_ADJUDICATED'
+  | 'CONSENT_REVOKED'
+  | 'BREAK_GLASS_INVOKED'
+  | 'BREAK_GLASS_REVOKED'
+  | 'RETENTION_PURGED'
+  | 'DEAD_LETTER_REPLAYED'
 
 /** The outcome of an audited action (mirrors AuditOutcome). */
 export type AuditOutcome = 'SUCCESS' | 'DENIED'

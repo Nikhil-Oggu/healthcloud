@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import {
   Alert,
   Button,
@@ -11,15 +11,34 @@ import {
   TableCell,
   TableContainer,
   TableHead,
+  TablePagination,
   TableRow,
+  TableSortLabel,
   TextField,
   Tooltip,
   Typography,
 } from '@mui/material'
+import type { AuditAction } from '../api/types'
 import { LoadingScreen } from '../components/LoadingScreen'
 import { ErrorScreen } from '../components/ErrorScreen'
 import { auditActionColor, auditOutcomeColor } from './statusColor'
 import { useAuditEvents, useVerifyAuditChain } from './useAudit'
+
+// The audit actions, for the server-side filter dropdown (mirrors the backend AuditAction enum).
+const ACTIONS: { value: AuditAction; label: string }[] = [
+  { value: 'CLAIM_ADJUDICATED', label: 'Claim adjudicated' },
+  { value: 'CONSENT_REVOKED', label: 'Consent revoked' },
+  { value: 'BREAK_GLASS_INVOKED', label: 'Break-glass invoked' },
+  { value: 'BREAK_GLASS_REVOKED', label: 'Break-glass revoked' },
+  { value: 'RETENTION_PURGED', label: 'Retention purged' },
+  { value: 'DEAD_LETTER_REPLAYED', label: 'Dead-letter replayed' },
+]
+
+const ROWS_PER_PAGE_OPTIONS = [10, 20, 50]
+
+/** Columns the backend allows sorting by; the rest are not sortable server-side. */
+type SortField = 'occurredAt' | 'sequenceNo'
+type SortDir = 'asc' | 'desc'
 
 /** A short, fixed-width prefix of an id/hash — the full value is shown in a tooltip. */
 function short(value: string | null): string {
@@ -28,29 +47,51 @@ function short(value: string | null): string {
 }
 
 export function AuditEventsPage() {
-  const events = useAuditEvents()
   const verify = useVerifyAuditChain()
-  const [actionFilter, setActionFilter] = useState('ALL')
+  const [page, setPage] = useState(0)
+  const [size, setSize] = useState(20)
+  const [action, setAction] = useState<AuditAction | ''>('')
+  // Default: newest first by occurredAt (the backend's default), no active column indicator.
+  const [sortField, setSortField] = useState<SortField | null>(null)
+  const [sortDir, setSortDir] = useState<SortDir>('asc')
 
-  const rows = useMemo(() => {
-    const all = events.data ?? []
-    return actionFilter === 'ALL' ? all : all.filter((e) => e.action === actionFilter)
-  }, [events.data, actionFilter])
+  const sort = sortField ? `${sortField},${sortDir}` : undefined
+  const events = useAuditEvents({ page, size, sort, action: action || undefined })
+
+  // A column header toggles asc → desc on repeat click; a new column starts ascending. Any change resets to page 0.
+  function toggleSort(field: SortField) {
+    if (sortField === field) {
+      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
+    } else {
+      setSortField(field)
+      setSortDir('asc')
+    }
+    setPage(0)
+  }
 
   if (events.isPending) return <LoadingScreen />
   if (events.isError) return <ErrorScreen error={events.error} />
 
+  const rows = events.data.content
   const result = verify.data
+
+  const sortableHeader = (field: SortField, label: string, align: 'left' | 'right' = 'left') => (
+    <TableCell align={align} sortDirection={sortField === field ? sortDir : false}>
+      <TableSortLabel
+        active={sortField === field}
+        direction={sortField === field ? sortDir : 'asc'}
+        onClick={() => toggleSort(field)}
+      >
+        {label}
+      </TableSortLabel>
+    </TableCell>
+  )
 
   return (
     <Stack spacing={3}>
       <Stack direction="row" spacing={2} sx={{ alignItems: 'center', justifyContent: 'space-between' }}>
         <Typography variant="h5">Audit trail</Typography>
-        <Button
-          variant="contained"
-          onClick={() => verify.mutate()}
-          disabled={verify.isPending}
-        >
+        <Button variant="contained" onClick={() => verify.mutate()} disabled={verify.isPending}>
           {verify.isPending ? 'Verifying…' : 'Verify integrity'}
         </Button>
       </Stack>
@@ -72,21 +113,27 @@ export function AuditEventsPage() {
         select
         size="small"
         label="Action"
-        value={actionFilter}
-        onChange={(e) => setActionFilter(e.target.value)}
+        value={action}
+        onChange={(e) => {
+          setAction(e.target.value as AuditAction | '')
+          setPage(0)
+        }}
         sx={{ maxWidth: 260 }}
       >
-        <MenuItem value="ALL">All actions</MenuItem>
-        <MenuItem value="CLAIM_ADJUDICATED">Claim adjudicated</MenuItem>
-        <MenuItem value="CONSENT_REVOKED">Consent revoked</MenuItem>
+        <MenuItem value="">All actions</MenuItem>
+        {ACTIONS.map((a) => (
+          <MenuItem key={a.value} value={a.value}>
+            {a.label}
+          </MenuItem>
+        ))}
       </TextField>
 
       <TableContainer component={Paper} variant="outlined">
         <Table aria-label="Audit events" size="small">
           <TableHead>
             <TableRow>
-              <TableCell>When</TableCell>
-              <TableCell align="right">Seq</TableCell>
+              {sortableHeader('occurredAt', 'When')}
+              {sortableHeader('sequenceNo', 'Seq', 'right')}
               <TableCell>Action</TableCell>
               <TableCell>Resource</TableCell>
               <TableCell>Outcome</TableCell>
@@ -100,7 +147,7 @@ export function AuditEventsPage() {
               <TableRow>
                 <TableCell colSpan={8}>
                   <Typography variant="body2" color="text.secondary">
-                    No audit events{actionFilter === 'ALL' ? ' yet' : ' for this action'}.
+                    No audit events{action === '' ? ' yet' : ' for this action'}.
                   </Typography>
                 </TableCell>
               </TableRow>
@@ -145,6 +192,18 @@ export function AuditEventsPage() {
             )}
           </TableBody>
         </Table>
+        <TablePagination
+          component="div"
+          count={events.data.totalElements}
+          page={events.data.page}
+          onPageChange={(_, newPage) => setPage(newPage)}
+          rowsPerPage={size}
+          onRowsPerPageChange={(e) => {
+            setSize(parseInt(e.target.value, 10))
+            setPage(0)
+          }}
+          rowsPerPageOptions={ROWS_PER_PAGE_OPTIONS}
+        />
       </TableContainer>
 
       <Typography variant="caption" color="text.secondary">

@@ -1,7 +1,11 @@
 package com.healthcloud.audit;
 
-import java.util.List;
+import com.healthcloud.common.PageRequests;
+import com.healthcloud.common.PageResponse;
+import java.util.Set;
 import java.util.UUID;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -17,6 +21,12 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/v1/audit-events")
 public class AuditController {
 
+    /** Fields a caller may sort the audit trail by (allowlisted — an unknown field is a clean 400). */
+    private static final Set<String> SORTABLE_FIELDS = Set.of("occurredAt", "sequenceNo");
+
+    /** Default ordering when the caller supplies no {@code sort}: newest first. */
+    private static final Sort DEFAULT_SORT = Sort.by(Sort.Direction.DESC, "occurredAt");
+
     private final AuditService service;
 
     public AuditController(AuditService service) {
@@ -24,13 +34,20 @@ public class AuditController {
     }
 
     /**
-     * The tenant's audit events, newest first. Supply both {@code resourceType} and {@code resourceId} to read a
-     * single resource's history; otherwise the tenant's most recent events (capped).
+     * A page of the tenant's audit events (§Phase 9). Supply both {@code resourceType} and {@code resourceId} to
+     * read a single resource's history; otherwise the tenant's events, optionally filtered by {@code action}.
+     * Paging/sorting come from {@code page}/{@code size}/{@code sort}; an unknown sort field is a 400.
      */
     @GetMapping
-    public List<AuditEventDto> list(@RequestParam(required = false) String resourceType,
-                                    @RequestParam(required = false) UUID resourceId) {
-        return service.list(resourceType, resourceId);
+    public PageResponse<AuditEventDto> list(
+            @RequestParam(required = false) String resourceType,
+            @RequestParam(required = false) UUID resourceId,
+            @RequestParam(required = false) AuditAction action,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(required = false) String sort) {
+        Pageable pageable = PageRequests.toPageable(page, size, sort, SORTABLE_FIELDS, DEFAULT_SORT);
+        return service.list(resourceType, resourceId, action, pageable);
     }
 
     /**

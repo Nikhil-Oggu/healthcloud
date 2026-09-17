@@ -6,7 +6,7 @@ import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { api } from '../api/client'
 import { AuditEventsPage } from './AuditEventsPage'
-import type { AuditChainVerification, AuditEvent } from '../api/types'
+import type { AuditChainVerification, AuditEvent, PageResponse } from '../api/types'
 
 vi.mock('../api/client', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../api/client')>()
@@ -38,6 +38,23 @@ const EVENTS: AuditEvent[] = [
   },
 ]
 
+/** Build a PageResponse envelope around some rows (defaults describe a single full page). */
+function pageOf(
+  content: AuditEvent[],
+  overrides: Partial<PageResponse<AuditEvent>> = {},
+): PageResponse<AuditEvent> {
+  return {
+    content,
+    page: 0,
+    size: 20,
+    totalElements: content.length,
+    totalPages: content.length === 0 ? 0 : 1,
+    first: true,
+    last: true,
+    ...overrides,
+  }
+}
+
 function renderPage(ui: ReactNode) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
   return render(
@@ -50,7 +67,7 @@ function renderPage(ui: ReactNode) {
 describe('AuditEventsPage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    listAuditEvents.mockResolvedValue(EVENTS)
+    listAuditEvents.mockResolvedValue(pageOf(EVENTS))
   })
 
   it('lists audit events with their action, detail and fingerprint', async () => {
@@ -89,15 +106,33 @@ describe('AuditEventsPage', () => {
     ).toBeInTheDocument()
   })
 
-  it('filters the rows by action', async () => {
+  it('filters by action server-side (re-queries with the action param)', async () => {
+    renderPage(<AuditEventsPage />)
+    await screen.findByText('CLAIM_ADJUDICATED')
+    // The default fetch carries no action filter.
+    expect(listAuditEvents).toHaveBeenCalledWith({ page: 0, size: 20, sort: undefined, action: undefined })
+
+    // Picking "Consent revoked" re-queries the server with that action (filtering is now server-side, not client).
+    await userEvent.click(screen.getByLabelText('Action'))
+    await userEvent.click(await screen.findByRole('option', { name: 'Consent revoked' }))
+    await waitFor(() =>
+      expect(listAuditEvents).toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'CONSENT_REVOKED', page: 0 }),
+      ),
+    )
+  })
+
+  it('sorting and paging re-query the server', async () => {
+    listAuditEvents.mockResolvedValue(pageOf(EVENTS, { totalElements: 45, totalPages: 3, last: false }))
     renderPage(<AuditEventsPage />)
     await screen.findByText('CLAIM_ADJUDICATED')
 
-    // Pick "Consent revoked" from the Action select → the claim row disappears.
-    await userEvent.click(screen.getByLabelText('Action'))
-    await userEvent.click(await screen.findByRole('option', { name: 'Consent revoked' }))
+    await userEvent.click(screen.getByRole('button', { name: /Seq/i }))
+    await waitFor(() =>
+      expect(listAuditEvents).toHaveBeenCalledWith(expect.objectContaining({ sort: 'sequenceNo,asc' })),
+    )
 
-    await waitFor(() => expect(screen.queryByText('CLAIM_ADJUDICATED')).not.toBeInTheDocument())
-    expect(screen.getByText('CONSENT_REVOKED')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: /go to next page/i }))
+    await waitFor(() => expect(listAuditEvents).toHaveBeenCalledWith(expect.objectContaining({ page: 1 })))
   })
 })

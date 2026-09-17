@@ -1,11 +1,27 @@
-import { useMutation, useQuery } from '@tanstack/react-query'
+import { keepPreviousData, useMutation, useQuery } from '@tanstack/react-query'
 import { api } from '../api/client'
+import type { AuditAction } from '../api/types'
 
 export const AUDIT_EVENTS_QUERY_KEY = ['audit-events'] as const
 
-/** The tenant's recent security audit events (newest first) — an AUDITOR/ORG_ADMIN read. */
-export function useAuditEvents() {
-  return useQuery({ queryKey: AUDIT_EVENTS_QUERY_KEY, queryFn: () => api.listAuditEvents() })
+/** The parameters that drive a page of the audit trail (§Phase 9). */
+export interface AuditEventsPageParams {
+  action?: AuditAction
+  page: number
+  size: number
+  sort?: string
+}
+
+/**
+ * A page of the tenant's security audit events (§Phase 9) — an AUDITOR/ORG_ADMIN read. The query key carries the
+ * params so a page/sort/action-filter change refetches. `keepPreviousData` keeps rows on screen while paging.
+ */
+export function useAuditEvents(params: AuditEventsPageParams) {
+  return useQuery({
+    queryKey: [...AUDIT_EVENTS_QUERY_KEY, 'page', params],
+    queryFn: () => api.listAuditEvents(params),
+    placeholderData: keepPreviousData,
+  })
 }
 
 /**

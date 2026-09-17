@@ -3,10 +3,11 @@ package com.healthcloud.deadletter;
 import com.healthcloud.audit.AuditAction;
 import com.healthcloud.audit.AuditOutcome;
 import com.healthcloud.audit.AuditService;
+import com.healthcloud.common.PageResponse;
 import com.healthcloud.context.UserContextAccessor;
 import com.healthcloud.error.NotFoundException;
-import java.util.List;
 import java.util.UUID;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -33,13 +34,11 @@ public class DeadLetterService {
         this.auditService = auditService;
     }
 
-    /** The caller's tenant's dead-letter events, newest first (ORG_ADMIN). */
-    public List<DeadLetterEventDto> listForTenant() {
+    /** A page of the caller's tenant's dead-letter events (§Phase 9, ORG_ADMIN). */
+    public PageResponse<DeadLetterEventDto> listForTenant(Pageable pageable) {
         userContext.requireAnyRole(INSPECT_ROLES);
         UUID organizationId = userContext.requireOrganizationId();
-        return deadLetters.findByOrganizationIdOrderByCreatedAtDesc(organizationId).stream()
-                .map(DeadLetterEventDto::from)
-                .toList();
+        return PageResponse.of(deadLetters.findByOrganizationId(organizationId, pageable), DeadLetterEventDto::from);
     }
 
     /**
