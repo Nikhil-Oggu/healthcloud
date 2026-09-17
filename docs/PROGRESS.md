@@ -107,8 +107,16 @@
   and go straight to the DLT. So a poison record never blocks the partition, and the idempotent consumer (slice 3)
   makes the retries safe. Verified against a real Testcontainers broker (`ClaimAdjudicatedDlqKafkaIntegrationTest`:
   a headerless poison message lands on the DLT with no notification; a valid message published after it is still
-  consumed). **Honest limitation:** inspecting/re-driving the DLT (and the broader outbox replay) is a later slice.
-  **Next:** DLT inspection / replay.
+  consumed). slice 5 ✅ — **dead-letter drain + inspection**: a `DeadLetterDrainer` (`@KafkaListener` on
+  `claim.adjudicated.DLT`) drains failed records into a `dead_letter_event` table (V42) — original topic/key/payload,
+  the `eventId`/`organizationId` app headers, and Spring's `kafka_dlt-*` failure metadata (exception class +
+  message) — turning "what's dead-lettered" into an ordinary tenant/role-gated read. Idempotent via a
+  `UNIQUE(dlt_topic, dlt_partition, dlt_offset)`. `GET /api/v1/dead-letter-events` (ORG_ADMIN, tenant-scoped;
+  role-gated list → flat 403). Verified against a real Testcontainers broker
+  (`DeadLetterApiIntegrationTest`: a malformed message → DLT → drained → the tenant's admin inspects it; a
+  coordinator gets 403; another tenant's admin doesn't see it). **Honest limitation:** replay (re-driving a record
+  back onto the source topic) is the next slice; records with no `organizationId` header aren't listable by a tenant
+  admin (a platform-operator view is a later refinement). **Next:** DLT replay (re-drive).
 - **Phase 6 COMPLETE ✅ (advanced claims, slices 1–21):** all seven roadmap areas done — prior auth, referrals,
   appeals, anomaly signals, manual review, reprocessing, provider network. slice 1 ✅ — **prior authorization**: a top-level,
   patient-gated `prior_authorization` aggregate (request a planned procedure be pre-approved under a coverage
