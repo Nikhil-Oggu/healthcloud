@@ -16,7 +16,9 @@ public record DeadLetterEventDto(
         UUID eventId,
         String exceptionType,
         String exceptionMessage,
-        OffsetDateTime createdAt) {
+        OffsetDateTime createdAt,
+        OffsetDateTime replayedAt,
+        UUID replayedBy) {
 
     static DeadLetterEventDto from(DeadLetterEvent event) {
         return new DeadLetterEventDto(
@@ -28,6 +30,8 @@ public record DeadLetterEventDto(
                 event.getEventId(),
                 event.getExceptionType(),
                 event.getExceptionMessage(),
-                event.getCreatedAt());
+                event.getCreatedAt(),
+                event.getReplayedAt(),
+                event.getReplayedBy());
     }
 }

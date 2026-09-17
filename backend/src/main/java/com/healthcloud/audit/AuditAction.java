@@ -20,5 +20,8 @@ public enum AuditAction {
     BREAK_GLASS_REVOKED,
 
     /** A retention purge removed expired operational data (e.g. old break-glass grants) — a governance action (§Phase 7). */
-    RETENTION_PURGED
+    RETENTION_PURGED,
+
+    /** An admin re-drove a dead-lettered message back onto its source topic — an operational recovery action (§Phase 8). */
+    DEAD_LETTER_REPLAYED
 }

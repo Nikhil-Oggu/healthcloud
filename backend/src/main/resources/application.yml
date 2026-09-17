@@ -80,6 +80,11 @@ healthcloud:
       poll-interval-ms: ${HEALTHCLOUD_OUTBOX_RELAY_POLL_INTERVAL_MS:2000}
       batch-size: ${HEALTHCLOUD_OUTBOX_RELAY_BATCH_SIZE:100}
       send-timeout-ms: ${HEALTHCLOUD_OUTBOX_RELAY_SEND_TIMEOUT_MS:5000}
+  deadletter:
+    replay:
+      # How long an ORG_ADMIN's dead-letter replay (§Phase 8 slice 6) waits for the synchronous re-publish to the
+      # source topic before failing (leaving the record un-stamped so it can be retried).
+      send-timeout-ms: ${HEALTHCLOUD_DEADLETTER_REPLAY_SEND_TIMEOUT_MS:5000}
   kafka:
     consumers:
       # Whether the @KafkaListener read-side consumers auto-start (§Phase 8 slice 3). Enabled for local dev + prod;

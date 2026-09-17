@@ -39,6 +39,7 @@ public class AuditService {
     public static final String RESOURCE_CONSENT_DIRECTIVE = "CONSENT_DIRECTIVE";
     public static final String RESOURCE_PATIENT = "PATIENT";
     public static final String RESOURCE_BREAK_GLASS_GRANT = "BREAK_GLASS_GRANT";
+    public static final String RESOURCE_DEAD_LETTER_EVENT = "DEAD_LETTER_EVENT";
 
     private final AuditEventRepository events;
     private final AuditChainHeadRepository chainHeads;

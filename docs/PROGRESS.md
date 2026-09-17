@@ -114,9 +114,23 @@
   `UNIQUE(dlt_topic, dlt_partition, dlt_offset)`. `GET /api/v1/dead-letter-events` (ORG_ADMIN, tenant-scoped;
   role-gated list → flat 403). Verified against a real Testcontainers broker
   (`DeadLetterApiIntegrationTest`: a malformed message → DLT → drained → the tenant's admin inspects it; a
-  coordinator gets 403; another tenant's admin doesn't see it). **Honest limitation:** replay (re-driving a record
-  back onto the source topic) is the next slice; records with no `organizationId` header aren't listable by a tenant
-  admin (a platform-operator view is a later refinement). **Next:** DLT replay (re-drive).
+  coordinator gets 403; another tenant's admin doesn't see it). **Honest limitation:** records with no
+  `organizationId` header aren't listable by a tenant admin (a platform-operator view is a later refinement).
+  slice 6 ✅ — **dead-letter replay**: an ORG_ADMIN re-drives a stored `dead_letter_event` back onto its source
+  topic (`POST /api/v1/dead-letter-events/{id}/replay`) once the underlying cause is fixed; a `DeadLetterReplayService`
+  (runs `NOT_SUPPORTED` — no ambient tx around the Kafka send, like the reprocessing orchestrator) publishes the
+  original key/payload + the consumer's required `eventId`/`organizationId` headers, then delegates to
+  `DeadLetterService.finalizeReplay` (a separate bean's `@Transactional`) to stamp the record replayed
+  (`replayed_at`/`replayed_by`, V43) **and** write a `DEAD_LETTER_REPLAYED` audit event atomically. **Publish-first,
+  then mark**: a crash after the send just re-publishes on retry, and the consumer's `event_id` dedupe makes the
+  redelivery (and a rare concurrent double-click) harmless. A cross-tenant/unknown id is a secure 404; an
+  already-replayed record is a 409; the action is ORG_ADMIN-gated (403 otherwise). Verified against a real broker
+  (`DeadLetterReplayApiIntegrationTest`: a seeded valid-payload record → replay → the consumer records a
+  notification + the record is stamped + a second replay is 409 + a `DEAD_LETTER_REPLAYED` audit event exists; a
+  coordinator gets 403; another tenant's admin gets 404). **Honest limitations:** backend-only (no dead-letter UI
+  yet); records with a null `organizationId` aren't replayable by a tenant admin; `eventType`/`aggregateType`/
+  `correlationId` weren't captured at drain time so they aren't restored (not needed by the current consumer).
+  **Next:** the Phase 8 dead-letter/replay UI, or move on to Phase 9.
 - **Phase 6 COMPLETE ✅ (advanced claims, slices 1–21):** all seven roadmap areas done — prior auth, referrals,
   appeals, anomaly signals, manual review, reprocessing, provider network. slice 1 ✅ — **prior authorization**: a top-level,
   patient-gated `prior_authorization` aggregate (request a planned procedure be pre-approved under a coverage

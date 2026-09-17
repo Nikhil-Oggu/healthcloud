@@ -1,6 +1,7 @@
 package com.healthcloud.deadletter;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
 
@@ -16,4 +17,7 @@ public interface DeadLetterEventRepository extends JpaRepository<DeadLetterEvent
 
     /** The tenant's dead-letter events, newest first (the admin inspection list). */
     List<DeadLetterEvent> findByOrganizationIdOrderByCreatedAtDesc(UUID organizationId);
+
+    /** Load one of the tenant's dead-letter events for replay — a cross-tenant/unknown id is simply absent (404). */
+    Optional<DeadLetterEvent> findByIdAndOrganizationId(UUID id, UUID organizationId);
 }

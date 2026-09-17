@@ -16,7 +16,8 @@ import java.util.UUID;
  * instead of by consuming Kafka directly.
  *
  * <p>Tenant-owned via {@code organizationId} (from the original event's header) — nullable, since a fully
- * unattributable poison record may carry no tenant. Immutable. The DLT coordinates
+ * unattributable poison record may carry no tenant. Otherwise immutable, save for the one-way replay stamp
+ * ({@code replayedAt}/{@code replayedBy}, slice 6). The DLT coordinates
  * ({@code dltTopic}/{@code dltPartition}/{@code dltOffset}) are unique so the drainer is idempotent. Payload and
  * exception text are claims-domain, PHI-free (rule 5).
  */
@@ -62,6 +63,13 @@ public class DeadLetterEvent {
     @Column(name = "created_at", nullable = false, updatable = false)
     private OffsetDateTime createdAt;
 
+    // Replay lifecycle (slice 6): a one-way stamp on an otherwise-immutable row. Null replayedAt = not yet replayed.
+    @Column(name = "replayed_at")
+    private OffsetDateTime replayedAt;
+
+    @Column(name = "replayed_by", columnDefinition = "uuid")
+    private UUID replayedBy;
+
     protected DeadLetterEvent() {
         // for JPA
     }
@@ -84,6 +92,20 @@ public class DeadLetterEvent {
     @PrePersist
     void onCreate() {
         this.createdAt = OffsetDateTime.now();
+    }
+
+    /**
+     * Mark this record as replayed (slice 6). A one-way stamp: it records who re-drove the message onto its source
+     * topic and when. Called after a successful re-publish, inside the replay transaction.
+     */
+    public void markReplayed(UUID actorUserId) {
+        this.replayedAt = OffsetDateTime.now();
+        this.replayedBy = actorUserId;
+    }
+
+    /** Whether this record has already been replayed. */
+    public boolean isReplayed() {
+        return replayedAt != null;
     }
 
     public UUID getId() {
@@ -132,5 +154,13 @@ public class DeadLetterEvent {
 
     public OffsetDateTime getCreatedAt() {
         return createdAt;
+    }
+
+    public OffsetDateTime getReplayedAt() {
+        return replayedAt;
+    }
+
+    public UUID getReplayedBy() {
+        return replayedBy;
     }
 }
