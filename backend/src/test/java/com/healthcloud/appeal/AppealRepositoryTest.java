@@ -17,12 +17,16 @@ import com.healthcloud.patient.PatientRepository;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
@@ -128,5 +132,69 @@ class AppealRepositoryTest {
         assertThrows(DataIntegrityViolationException.class,
                 () -> appealRepository.saveAndFlush(new Appeal(
                         org.getId(), UUID.randomUUID(), patient.getId(), "APL-FK", "Bad claim", author.getId())));
+    }
+
+    @Test
+    void searchAll_pages_counts_and_filters_by_status_in_the_database() {
+        Organization org = organizationRepository.save(new Organization("Apl Search Org"));
+        AppUser author = appUserRepository.save(new AppUser("apls-" + UUID.randomUUID() + "@ex.org", "Author"));
+        Patient patient = patientRepository.save(
+                new Patient(org.getId(), "NC-8401", "Patient", LocalDate.of(1990, 1, 1)));
+        Claim c1 = claim(org, patient, author, "CLM-AS1");
+        Claim c2 = claim(org, patient, author, "CLM-AS2");
+        Claim c3 = claim(org, patient, author, "CLM-AS3");
+
+        savedAppeal(org, c1, patient, author, "APL-S1", AppealStatus.SUBMITTED);
+        savedAppeal(org, c2, patient, author, "APL-S2", AppealStatus.SUBMITTED);
+        savedAppeal(org, c3, patient, author, "APL-S3", AppealStatus.UPHELD);
+
+        Page<Appeal> firstPage = appealRepository.searchAll(
+                org.getId(), null, PageRequest.of(0, 2, Sort.by(Sort.Direction.ASC, "appealNumber")));
+        assertEquals(3, firstPage.getTotalElements(), "the count spans every matching row, not just the page");
+        assertEquals(2, firstPage.getTotalPages());
+        assertEquals(List.of("APL-S1", "APL-S2"),
+                firstPage.getContent().stream().map(Appeal::getAppealNumber).toList());
+
+        Page<Appeal> upheld = appealRepository.searchAll(
+                org.getId(), AppealStatus.UPHELD, PageRequest.of(0, 10, Sort.by("createdAt")));
+        assertEquals(1, upheld.getTotalElements());
+        assertEquals("APL-S3", upheld.getContent().get(0).getAppealNumber());
+    }
+
+    @Test
+    void searchForPatients_and_searchForClaim_scope_correctly() {
+        Organization org = organizationRepository.save(new Organization("Apl Scope Org"));
+        AppUser author = appUserRepository.save(new AppUser("aplsc-" + UUID.randomUUID() + "@ex.org", "Author"));
+        Patient p1 = patientRepository.save(new Patient(org.getId(), "NC-8501", "P1", LocalDate.of(1990, 1, 1)));
+        Patient p2 = patientRepository.save(new Patient(org.getId(), "NC-8502", "P2", LocalDate.of(1990, 1, 1)));
+        Claim c1 = claim(org, p1, author, "CLM-ASP1");
+        Claim c2 = claim(org, p1, author, "CLM-ASP2");
+        Claim c3 = claim(org, p2, author, "CLM-ASP3");
+        savedAppeal(org, c1, p1, author, "APL-SP1", AppealStatus.SUBMITTED);
+        savedAppeal(org, c2, p1, author, "APL-SP2", AppealStatus.SUBMITTED);
+        savedAppeal(org, c3, p2, author, "APL-SP3", AppealStatus.SUBMITTED);
+
+        Page<Appeal> onlyP1 = appealRepository.searchForPatients(
+                org.getId(), Set.of(p1.getId()), null, PageRequest.of(0, 10, Sort.by("createdAt")));
+        assertEquals(2, onlyP1.getTotalElements(), "only the requested patients' appeals are visible");
+
+        Page<Appeal> onlyC1 = appealRepository.searchForClaim(
+                org.getId(), c1.getId(), null, PageRequest.of(0, 10, Sort.by("createdAt")));
+        assertEquals(1, onlyC1.getTotalElements(), "the claim filter narrows to that claim's appeals");
+        assertEquals("APL-SP1", onlyC1.getContent().get(0).getAppealNumber());
+
+        Organization other = organizationRepository.save(new Organization("Apl Other Org"));
+        Page<Appeal> crossTenant = appealRepository.searchForClaim(
+                other.getId(), c1.getId(), null, PageRequest.of(0, 10, Sort.by("createdAt")));
+        assertEquals(0, crossTenant.getTotalElements());
+    }
+
+    /** Save an appeal with an explicit status (default on creation is SUBMITTED). */
+    private Appeal savedAppeal(Organization org, Claim claim, Patient patient, AppUser author,
+                               String number, AppealStatus status) {
+        Appeal appeal = new Appeal(
+                org.getId(), claim.getId(), patient.getId(), number, "Disputed", author.getId());
+        appeal.setStatus(status);
+        return appealRepository.saveAndFlush(appeal);
     }
 }

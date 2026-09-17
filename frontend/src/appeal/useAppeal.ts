@@ -1,14 +1,31 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api/client'
-import type { AppealStatusChange, CreateAppealRequest } from '../api/types'
+import type { AppealStatus, AppealStatusChange, CreateAppealRequest } from '../api/types'
 
 export const APPEALS_QUERY_KEY = ['appeals'] as const
 export const appealKey = (id: string) => ['appeals', id] as const
 export const appealHistoryKey = (id: string) => ['appeals', id, 'history'] as const
 
-/** The current tenant's appeals (backend scopes: provider → assigned; reviewer/coordinator/admin → all). */
-export function useAppeals() {
-  return useQuery({ queryKey: APPEALS_QUERY_KEY, queryFn: () => api.listAppeals() })
+/** The parameters that drive a page of the appeal work queue (§Phase 9). */
+export interface AppealsPageParams {
+  claimId?: string
+  status?: AppealStatus
+  page: number
+  size: number
+  sort?: string
+}
+
+/**
+ * A page of the appeal work queue for the given params (§Phase 9). The query key carries the params so a
+ * page/sort/filter change refetches; it stays prefixed with {@link APPEALS_QUERY_KEY} so a create/decision
+ * still invalidates it. `keepPreviousData` keeps the current rows on screen while the next page loads.
+ */
+export function useAppeals(params: AppealsPageParams) {
+  return useQuery({
+    queryKey: [...APPEALS_QUERY_KEY, 'page', params],
+    queryFn: () => api.listAppeals(params),
+    placeholderData: keepPreviousData,
+  })
 }
 
 export function useAppeal(id: string) {

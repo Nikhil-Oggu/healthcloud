@@ -3,6 +3,7 @@ package com.healthcloud.referral;
 import com.healthcloud.coding.CodeSystem;
 import com.healthcloud.coding.MedicalCode;
 import com.healthcloud.coding.MedicalCodeRepository;
+import com.healthcloud.common.PageResponse;
 import com.healthcloud.context.UserContext;
 import com.healthcloud.context.UserContextAccessor;
 import com.healthcloud.error.ApiException;
@@ -17,6 +18,8 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -156,34 +159,37 @@ public class ReferralService {
     }
 
     /**
-     * Referrals in the caller's tenant (header-only), optionally filtered to one patient and/or a status. Gated
-     * by patient (§21 layer 6): a provider sees only referrals for patients they are actively assigned to; broad
-     * roles (coordinator/admin/reviewer) see the tenant's referrals — the coordinator's work queue.
+     * A page of referrals in the caller's tenant (header-only), optionally filtered to one patient and/or a status
+     * (§Phase 9 — server-side pagination + filtering). Gated by patient (§21 layer 6): a provider sees only
+     * referrals for patients they are actively assigned to; broad roles (coordinator/admin/reviewer) see the
+     * tenant's referrals — the coordinator's work queue. Filtering, sorting, counting and paging happen in the
+     * database (the {@link Pageable}), not in memory.
      */
-    public List<ReferralSummaryDto> list(Optional<UUID> patientId, Optional<ReferralStatus> status) {
+    public PageResponse<ReferralSummaryDto> list(
+            Optional<UUID> patientId, Optional<ReferralStatus> status, Pageable pageable) {
         UserContext caller = userContext.requireUser();
         UUID organizationId = userContext.requireOrganizationId();
+        ReferralStatus statusFilter = status.orElse(null);
 
-        List<Referral> found;
+        Page<Referral> found;
         if (patientId.isPresent()) {
             // Reuse the patient gate: an inaccessible patient (another tenant, or unassigned provider) → 404.
             accessGuard.requireAccessibleInTenant(patientId.get());
-            found = referrals.findByOrganizationIdAndPatientIdOrderByCreatedAtDesc(organizationId, patientId.get());
+            found = referrals.searchForPatients(organizationId, Set.of(patientId.get()), statusFilter, pageable);
         } else {
             Optional<Set<UUID>> accessibleIds = accessGuard.accessiblePatientIdsIfGated(caller, organizationId);
             if (accessibleIds.isPresent()) {
                 Set<UUID> visible = accessibleIds.get();
-                found = visible.isEmpty()
-                        ? List.of()
-                        : referrals.findByOrganizationIdAndPatientIdInOrderByCreatedAtDesc(organizationId, visible);
+                if (visible.isEmpty()) {
+                    // A gated caller who can reach no patients sees an empty page (no DB round trip needed).
+                    return PageResponse.empty(pageable);
+                }
+                found = referrals.searchForPatients(organizationId, visible, statusFilter, pageable);
             } else {
-                found = referrals.findByOrganizationIdOrderByCreatedAtDesc(organizationId);
+                found = referrals.searchAll(organizationId, statusFilter, pageable);
             }
         }
-        return found.stream()
-                .filter(r -> status.isEmpty() || r.getStatus() == status.get())
-                .map(ReferralSummaryDto::from)
-                .toList();
+        return PageResponse.of(found, ReferralSummaryDto::from);
     }
 
     /**

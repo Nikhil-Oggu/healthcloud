@@ -1,10 +1,15 @@
 package com.healthcloud.appeal;
 
+import com.healthcloud.common.PageRequests;
+import com.healthcloud.common.PageResponse;
 import jakarta.validation.Valid;
 import java.net.URI;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -26,18 +31,32 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/v1/appeals")
 public class AppealController {
 
+    /** Fields a caller may sort the appeal queue by (allowlisted — an unknown field is a clean 400). */
+    private static final Set<String> SORTABLE_FIELDS = Set.of("createdAt", "appealNumber", "status");
+
+    /** Default ordering when the caller supplies no {@code sort}: newest first (the queue's prior behavior). */
+    private static final Sort DEFAULT_SORT = Sort.by(Sort.Direction.DESC, "createdAt");
+
     private final AppealService service;
 
     public AppealController(AppealService service) {
         this.service = service;
     }
 
-    /** Appeals in the caller's tenant (header-only), optionally filtered to a claim and/or status. */
+    /**
+     * A page of appeals in the caller's tenant (header-only), optionally filtered to a claim and/or status
+     * (§Phase 9). Paging/sorting come from {@code page}/{@code size}/{@code sort}; an out-of-range {@code size} is
+     * clamped and an unknown sort field is a 400. Returns a {@link PageResponse}.
+     */
     @GetMapping
-    public List<AppealSummaryDto> list(
+    public PageResponse<AppealSummaryDto> list(
             @RequestParam(required = false) UUID claimId,
-            @RequestParam(required = false) AppealStatus status) {
-        return service.list(Optional.ofNullable(claimId), Optional.ofNullable(status));
+            @RequestParam(required = false) AppealStatus status,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(required = false) String sort) {
+        Pageable pageable = PageRequests.toPageable(page, size, sort, SORTABLE_FIELDS, DEFAULT_SORT);
+        return service.list(Optional.ofNullable(claimId), Optional.ofNullable(status), pageable);
     }
 
     /** One appeal by id, scoped to the caller's tenant (404 across tenants / if unreachable). */

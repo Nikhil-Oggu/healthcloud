@@ -197,6 +197,24 @@ class ClaimReviewApiIntegrationTest {
         assertTrue(cross.body().contains("NOT_FOUND"));
     }
 
+    @Test
+    void the_list_returns_a_page_envelope() throws Exception {
+        String reviewer = loginWithCsrf("reviewer@northcare.example.org").session;
+        HttpResponse<String> list = get(reviewer, "/api/v1/claim-reviews?size=5");
+        assertEquals(200, list.statusCode(), list.body());
+        assertTrue(list.body().contains("\"content\":["), "the response is a page envelope");
+        assertTrue(list.body().contains("\"page\":0"));
+        assertTrue(list.body().contains("\"totalElements\":"));
+    }
+
+    @Test
+    void an_unknown_sort_field_is_a_400() throws Exception {
+        String reviewer = loginWithCsrf("reviewer@northcare.example.org").session;
+        HttpResponse<String> bad = get(reviewer, "/api/v1/claim-reviews?sort=ssn");
+        assertEquals(400, bad.statusCode(), bad.body());
+        assertTrue(bad.body().contains("VALIDATION_FAILED"), "sorting by a non-allowlisted field is a clean 400");
+    }
+
     // --- helpers -------------------------------------------------------------
 
     private record Session(String session, String xsrf) {}

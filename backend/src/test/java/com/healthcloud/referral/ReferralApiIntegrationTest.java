@@ -192,9 +192,65 @@ class ReferralApiIntegrationTest {
         assertTrue(cross.body().contains("NOT_FOUND"));
     }
 
+    @Test
+    void the_list_returns_a_page_envelope_and_respects_size_and_page() throws Exception {
+        Session coordinator = loginWithCsrf("coordinator@northcare.example.org");
+        String patientId = firstId(createPatient(coordinator).body());
+        post(coordinator, "/api/v1/referrals", referralJson(patientId));
+        post(coordinator, "/api/v1/referrals", referralJson(patientId));
+        post(coordinator, "/api/v1/referrals", referralJson(patientId));
+
+        // Scope to the fresh patient so the counts are deterministic regardless of seeded data.
+        HttpResponse<String> page0 = get(coordinator.session, "/api/v1/referrals?patientId=" + patientId + "&size=2");
+        assertEquals(200, page0.statusCode(), page0.body());
+        assertTrue(page0.body().contains("\"content\":["), "the response is a page envelope");
+        assertTrue(page0.body().contains("\"totalElements\":3"));
+        assertTrue(page0.body().contains("\"totalPages\":2"));
+        assertTrue(page0.body().contains("\"last\":false"));
+        assertEquals(2, countReferralNumbers(page0.body()), "page 0 holds exactly the page size");
+
+        HttpResponse<String> page1 =
+                get(coordinator.session, "/api/v1/referrals?patientId=" + patientId + "&size=2&page=1");
+        assertEquals(1, countReferralNumbers(page1.body()), "page 1 holds the remainder");
+        assertTrue(page1.body().contains("\"last\":true"));
+    }
+
+    @Test
+    void an_unknown_sort_field_is_a_400() throws Exception {
+        String coordinator = loginWithCsrf("coordinator@northcare.example.org").session;
+        HttpResponse<String> bad = get(coordinator, "/api/v1/referrals?sort=ssn");
+        assertEquals(400, bad.statusCode(), bad.body());
+        assertTrue(bad.body().contains("VALIDATION_FAILED"), "sorting by a non-allowlisted field is a clean 400");
+    }
+
+    @Test
+    void the_status_filter_runs_in_the_database() throws Exception {
+        Session coordinator = loginWithCsrf("coordinator@northcare.example.org");
+        String patientId = firstId(createPatient(coordinator).body());
+        post(coordinator, "/api/v1/referrals", referralJson(patientId));
+        post(coordinator, "/api/v1/referrals", referralJson(patientId));
+
+        HttpResponse<String> requested =
+                get(coordinator.session, "/api/v1/referrals?patientId=" + patientId + "&status=REQUESTED");
+        assertTrue(requested.body().contains("\"totalElements\":2"), "both new referrals are REQUESTED");
+        HttpResponse<String> approved =
+                get(coordinator.session, "/api/v1/referrals?patientId=" + patientId + "&status=APPROVED");
+        assertTrue(approved.body().contains("\"totalElements\":0"), "none is APPROVED yet");
+    }
+
     // --- helpers -------------------------------------------------------------
 
     private record Session(String session, String xsrf) {}
+
+    /** Count the referral summaries in a page body (each carries exactly one referralNumber). */
+    private static int countReferralNumbers(String json) {
+        int count = 0;
+        Matcher m = REFERRAL_NUMBER.matcher(json);
+        while (m.find()) {
+            count++;
+        }
+        return count;
+    }
 
     private HttpResponse<String> createPatient(Session s) throws Exception {
         return post(s, "/api/v1/patients", """

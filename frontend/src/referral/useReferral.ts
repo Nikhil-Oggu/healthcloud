@@ -1,14 +1,31 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api/client'
-import type { CreateReferralRequest, ReferralStatusChange } from '../api/types'
+import type { CreateReferralRequest, ReferralStatus, ReferralStatusChange } from '../api/types'
 
 export const REFERRALS_QUERY_KEY = ['referrals'] as const
 export const referralKey = (id: string) => ['referrals', id] as const
 export const referralHistoryKey = (id: string) => ['referrals', id, 'history'] as const
 
-/** The current tenant's referrals (backend scopes: provider → assigned; coordinator/admin/reviewer → all). */
-export function useReferrals() {
-  return useQuery({ queryKey: REFERRALS_QUERY_KEY, queryFn: () => api.listReferrals() })
+/** The parameters that drive a page of the referral work queue (§Phase 9). */
+export interface ReferralsPageParams {
+  patientId?: string
+  status?: ReferralStatus
+  page: number
+  size: number
+  sort?: string
+}
+
+/**
+ * A page of the referral work queue for the given params (§Phase 9). The query key carries the params so a
+ * page/sort/filter change refetches; it stays prefixed with {@link REFERRALS_QUERY_KEY} so a create/decision
+ * still invalidates it. `keepPreviousData` keeps the current rows on screen while the next page loads.
+ */
+export function useReferrals(params: ReferralsPageParams) {
+  return useQuery({
+    queryKey: [...REFERRALS_QUERY_KEY, 'page', params],
+    queryFn: () => api.listReferrals(params),
+    placeholderData: keepPreviousData,
+  })
 }
 
 export function useReferral(id: string) {

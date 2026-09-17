@@ -430,12 +430,22 @@ export const api = {
     }),
 
   // --- Referrals (§Phase 6) ---
-  listReferrals: (params?: { patientId?: string; status?: ReferralStatus }) => {
+  // A page of the referral work queue (§Phase 9) — returns the full PageResponse envelope. Nothing else consumes
+  // this list, so there is no array shim (like prior-auth, unlike claims).
+  listReferrals: (params: {
+    patientId?: string
+    status?: ReferralStatus
+    page?: number
+    size?: number
+    sort?: string
+  }) => {
     const q = new URLSearchParams()
-    if (params?.patientId) q.set('patientId', params.patientId)
-    if (params?.status) q.set('status', params.status)
-    const suffix = q.toString() ? `?${q.toString()}` : ''
-    return request<ReferralSummary[]>(`/api/v1/referrals${suffix}`)
+    if (params.patientId) q.set('patientId', params.patientId)
+    if (params.status) q.set('status', params.status)
+    if (params.page != null) q.set('page', String(params.page))
+    if (params.size != null) q.set('size', String(params.size))
+    if (params.sort) q.set('sort', params.sort)
+    return request<PageResponse<ReferralSummary>>(`/api/v1/referrals?${q.toString()}`)
   },
 
   createReferral: (body: CreateReferralRequest) =>
@@ -458,12 +468,21 @@ export const api = {
     }),
 
   // --- Appeals (§Phase 6) ---
-  listAppeals: (params?: { claimId?: string; status?: AppealStatus }) => {
+  // A page of the appeal work queue (§Phase 9) — returns the full PageResponse envelope (no array shim needed).
+  listAppeals: (params: {
+    claimId?: string
+    status?: AppealStatus
+    page?: number
+    size?: number
+    sort?: string
+  }) => {
     const q = new URLSearchParams()
-    if (params?.claimId) q.set('claimId', params.claimId)
-    if (params?.status) q.set('status', params.status)
-    const suffix = q.toString() ? `?${q.toString()}` : ''
-    return request<AppealSummary[]>(`/api/v1/appeals${suffix}`)
+    if (params.claimId) q.set('claimId', params.claimId)
+    if (params.status) q.set('status', params.status)
+    if (params.page != null) q.set('page', String(params.page))
+    if (params.size != null) q.set('size', String(params.size))
+    if (params.sort) q.set('sort', params.sort)
+    return request<PageResponse<AppealSummary>>(`/api/v1/appeals?${q.toString()}`)
   },
 
   createAppeal: (body: CreateAppealRequest) =>
@@ -486,12 +505,21 @@ export const api = {
     }),
 
   // --- Claim manual review (§Phase 6) ---
-  listClaimReviews: (params?: { claimId?: string; status?: ClaimReviewStatus }) => {
+  // A page of the manual-review work queue (§Phase 9) — returns the full PageResponse envelope (no array shim).
+  listClaimReviews: (params: {
+    claimId?: string
+    status?: ClaimReviewStatus
+    page?: number
+    size?: number
+    sort?: string
+  }) => {
     const q = new URLSearchParams()
-    if (params?.claimId) q.set('claimId', params.claimId)
-    if (params?.status) q.set('status', params.status)
-    const suffix = q.toString() ? `?${q.toString()}` : ''
-    return request<ClaimReviewSummary[]>(`/api/v1/claim-reviews${suffix}`)
+    if (params.claimId) q.set('claimId', params.claimId)
+    if (params.status) q.set('status', params.status)
+    if (params.page != null) q.set('page', String(params.page))
+    if (params.size != null) q.set('size', String(params.size))
+    if (params.sort) q.set('sort', params.sort)
+    return request<PageResponse<ClaimReviewSummary>>(`/api/v1/claim-reviews?${q.toString()}`)
   },
 
   createClaimReview: (body: CreateClaimReviewRequest) =>

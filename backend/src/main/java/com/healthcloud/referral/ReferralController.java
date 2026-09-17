@@ -1,10 +1,15 @@
 package com.healthcloud.referral;
 
+import com.healthcloud.common.PageRequests;
+import com.healthcloud.common.PageResponse;
 import jakarta.validation.Valid;
 import java.net.URI;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -26,18 +31,33 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/v1/referrals")
 public class ReferralController {
 
+    /** Fields a caller may sort the referral queue by (allowlisted — an unknown field is a clean 400). */
+    private static final Set<String> SORTABLE_FIELDS =
+            Set.of("createdAt", "referralNumber", "specialty", "reasonCode", "status");
+
+    /** Default ordering when the caller supplies no {@code sort}: newest first (the queue's prior behavior). */
+    private static final Sort DEFAULT_SORT = Sort.by(Sort.Direction.DESC, "createdAt");
+
     private final ReferralService service;
 
     public ReferralController(ReferralService service) {
         this.service = service;
     }
 
-    /** Referrals in the caller's tenant (header-only), optionally filtered to a patient and/or status. */
+    /**
+     * A page of referrals in the caller's tenant (header-only), optionally filtered to a patient and/or status
+     * (§Phase 9). Paging/sorting come from {@code page}/{@code size}/{@code sort}; an out-of-range {@code size} is
+     * clamped and an unknown sort field is a 400. Returns a {@link PageResponse}.
+     */
     @GetMapping
-    public List<ReferralSummaryDto> list(
+    public PageResponse<ReferralSummaryDto> list(
             @RequestParam(required = false) UUID patientId,
-            @RequestParam(required = false) ReferralStatus status) {
-        return service.list(Optional.ofNullable(patientId), Optional.ofNullable(status));
+            @RequestParam(required = false) ReferralStatus status,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(required = false) String sort) {
+        Pageable pageable = PageRequests.toPageable(page, size, sort, SORTABLE_FIELDS, DEFAULT_SORT);
+        return service.list(Optional.ofNullable(patientId), Optional.ofNullable(status), pageable);
     }
 
     /** One referral by id, scoped to the caller's tenant (404 across tenants / if unreachable). */

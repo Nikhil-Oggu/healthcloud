@@ -16,12 +16,16 @@ import com.healthcloud.patient.Patient;
 import com.healthcloud.patient.PatientRepository;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
@@ -118,5 +122,64 @@ class ReferralRepositoryTest {
         assertThrows(DataIntegrityViolationException.class,
                 () -> referralRepository.saveAndFlush(new Referral(
                         org.getId(), patient.getId(), "REF-FK", "Cardiology", "ICD10CM", "Z99.9", author.getId())));
+    }
+
+    @Test
+    void searchAll_pages_counts_sorts_and_filters_by_status_in_the_database() {
+        Organization org = organizationRepository.save(new Organization("Ref Search Org"));
+        AppUser author = appUserRepository.save(new AppUser("rfs-" + UUID.randomUUID() + "@ex.org", "Author"));
+        Patient patient = patientRepository.save(
+                new Patient(org.getId(), "NC-9401", "Patient", LocalDate.of(1990, 1, 1)));
+        medicalCodeRepository.save(new MedicalCode(CodeSystem.ICD10CM, "I10", "Hypertension"));
+
+        savedReferral(org, patient, author, "REF-S1", ReferralStatus.REQUESTED);
+        savedReferral(org, patient, author, "REF-S2", ReferralStatus.REQUESTED);
+        savedReferral(org, patient, author, "REF-S3", ReferralStatus.REQUESTED);
+        savedReferral(org, patient, author, "REF-S4", ReferralStatus.APPROVED);
+
+        Page<Referral> firstPage = referralRepository.searchAll(
+                org.getId(), null, PageRequest.of(0, 2, Sort.by(Sort.Direction.ASC, "referralNumber")));
+        assertEquals(4, firstPage.getTotalElements(), "the count spans every matching row, not just the page");
+        assertEquals(2, firstPage.getTotalPages());
+        assertEquals(List.of("REF-S1", "REF-S2"),
+                firstPage.getContent().stream().map(Referral::getReferralNumber).toList(),
+                "sorted by referral number ascending, in the database");
+
+        Page<Referral> approved = referralRepository.searchAll(
+                org.getId(), ReferralStatus.APPROVED, PageRequest.of(0, 10, Sort.by("createdAt")));
+        assertEquals(1, approved.getTotalElements());
+        assertEquals("REF-S4", approved.getContent().get(0).getReferralNumber());
+    }
+
+    @Test
+    void searchForPatients_scopes_to_the_given_patients_and_is_tenant_scoped() {
+        Organization org = organizationRepository.save(new Organization("Ref Scope Org"));
+        AppUser author = appUserRepository.save(new AppUser("rfsc-" + UUID.randomUUID() + "@ex.org", "Author"));
+        Patient p1 = patientRepository.save(new Patient(org.getId(), "NC-9501", "P1", LocalDate.of(1990, 1, 1)));
+        Patient p2 = patientRepository.save(new Patient(org.getId(), "NC-9502", "P2", LocalDate.of(1990, 1, 1)));
+        medicalCodeRepository.save(new MedicalCode(CodeSystem.ICD10CM, "I10", "Hypertension"));
+
+        savedReferral(org, p1, author, "REF-P1A", ReferralStatus.REQUESTED);
+        savedReferral(org, p1, author, "REF-P1B", ReferralStatus.REQUESTED);
+        savedReferral(org, p2, author, "REF-P2A", ReferralStatus.REQUESTED);
+
+        Page<Referral> onlyP1 = referralRepository.searchForPatients(
+                org.getId(), Set.of(p1.getId()), null, PageRequest.of(0, 10, Sort.by("createdAt")));
+        assertEquals(2, onlyP1.getTotalElements(), "only the requested patient's referrals are visible");
+        assertTrue(onlyP1.getContent().stream().allMatch(r -> r.getPatientId().equals(p1.getId())));
+
+        Organization other = organizationRepository.save(new Organization("Ref Other Org"));
+        Page<Referral> crossTenant = referralRepository.searchForPatients(
+                other.getId(), Set.of(p1.getId(), p2.getId()), null, PageRequest.of(0, 10, Sort.by("createdAt")));
+        assertEquals(0, crossTenant.getTotalElements());
+    }
+
+    /** Save a referral with an explicit status (default on creation is REQUESTED). */
+    private Referral savedReferral(Organization org, Patient patient, AppUser author,
+                                   String number, ReferralStatus status) {
+        Referral referral = new Referral(
+                org.getId(), patient.getId(), number, "Cardiology", "ICD10CM", "I10", author.getId());
+        referral.setStatus(status);
+        return referralRepository.saveAndFlush(referral);
     }
 }

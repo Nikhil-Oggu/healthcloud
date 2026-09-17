@@ -1,14 +1,31 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api/client'
-import type { ClaimReviewStatusChange, CreateClaimReviewRequest } from '../api/types'
+import type { ClaimReviewStatus, ClaimReviewStatusChange, CreateClaimReviewRequest } from '../api/types'
 
 export const CLAIM_REVIEWS_QUERY_KEY = ['claim-reviews'] as const
 export const claimReviewKey = (id: string) => ['claim-reviews', id] as const
 export const claimReviewHistoryKey = (id: string) => ['claim-reviews', id, 'history'] as const
 
-/** The current tenant's reviews (backend scopes: provider → assigned; reviewer/coordinator/admin → all). */
-export function useClaimReviews() {
-  return useQuery({ queryKey: CLAIM_REVIEWS_QUERY_KEY, queryFn: () => api.listClaimReviews() })
+/** The parameters that drive a page of the manual-review work queue (§Phase 9). */
+export interface ClaimReviewsPageParams {
+  claimId?: string
+  status?: ClaimReviewStatus
+  page: number
+  size: number
+  sort?: string
+}
+
+/**
+ * A page of the manual-review work queue for the given params (§Phase 9). The query key carries the params so a
+ * page/sort/filter change refetches; it stays prefixed with {@link CLAIM_REVIEWS_QUERY_KEY} so a create/decision
+ * still invalidates it. `keepPreviousData` keeps the current rows on screen while the next page loads.
+ */
+export function useClaimReviews(params: ClaimReviewsPageParams) {
+  return useQuery({
+    queryKey: [...CLAIM_REVIEWS_QUERY_KEY, 'page', params],
+    queryFn: () => api.listClaimReviews(params),
+    placeholderData: keepPreviousData,
+  })
 }
 
 export function useClaimReview(id: string) {

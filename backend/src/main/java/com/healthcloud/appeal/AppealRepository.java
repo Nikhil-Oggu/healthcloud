@@ -1,10 +1,12 @@
 package com.healthcloud.appeal;
 
-import java.util.List;
+import java.util.Collection;
 import java.util.Optional;
-import java.util.Set;
 import java.util.UUID;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
 
 /**
  * Appeals, tenant-owned. Like every tenant-owned repository (§32.10) the finders are scoped by
@@ -23,15 +25,31 @@ public interface AppealRepository extends JpaRepository<Appeal, UUID> {
     /** Whether a claim already has an appeal in the given status (guards against a second open appeal). */
     boolean existsByOrganizationIdAndClaimIdAndStatus(UUID organizationId, UUID claimId, AppealStatus status);
 
-    /** All appeals in the tenant, newest first (broad-role work queue). */
-    List<Appeal> findByOrganizationIdOrderByCreatedAtDesc(UUID organizationId);
+    /**
+     * A page of the tenant's appeals for a broad-role caller (§Phase 9), optionally filtered to one status. The
+     * status is filtered in SQL ({@code null} = any status); ordering/paging come from the {@link Pageable}.
+     */
+    @Query("select a from Appeal a where a.organizationId = :org "
+            + "and (:status is null or a.status = :status)")
+    Page<Appeal> searchAll(UUID org, AppealStatus status, Pageable pageable);
 
-    /** Appeals for one patient in the tenant, newest first. */
-    List<Appeal> findByOrganizationIdAndPatientIdOrderByCreatedAtDesc(UUID organizationId, UUID patientId);
+    /**
+     * A page of the tenant's appeals restricted to a set of patients (the gated-caller scoping — a provider's
+     * assigned patients), optionally filtered to one status. Callers must pass a non-empty {@code patientIds} (an
+     * empty accessible set is short-circuited in the service).
+     */
+    @Query("select a from Appeal a where a.organizationId = :org "
+            + "and a.patientId in :patientIds "
+            + "and (:status is null or a.status = :status)")
+    Page<Appeal> searchForPatients(
+            UUID org, Collection<UUID> patientIds, AppealStatus status, Pageable pageable);
 
-    /** Appeals for a set of patients in the tenant (the gated-caller list scoping), newest first. */
-    List<Appeal> findByOrganizationIdAndPatientIdInOrderByCreatedAtDesc(UUID organizationId, Set<UUID> patientIds);
-
-    /** Appeals for one claim in the tenant, newest first (the ?claimId= filter). */
-    List<Appeal> findByOrganizationIdAndClaimIdOrderByCreatedAtDesc(UUID organizationId, UUID claimId);
+    /**
+     * A page of the tenant's appeals for one claim (the {@code ?claimId=} filter), optionally filtered to one
+     * status. The caller has already gated the claim by its patient in the service.
+     */
+    @Query("select a from Appeal a where a.organizationId = :org "
+            + "and a.claimId = :claimId "
+            + "and (:status is null or a.status = :status)")
+    Page<Appeal> searchForClaim(UUID org, UUID claimId, AppealStatus status, Pageable pageable);
 }

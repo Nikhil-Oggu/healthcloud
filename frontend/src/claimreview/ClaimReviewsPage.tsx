@@ -1,7 +1,9 @@
+import { useState } from 'react'
 import { Link as RouterLink } from 'react-router-dom'
 import {
   Chip,
   Link,
+  MenuItem,
   Paper,
   Stack,
   Table,
@@ -9,9 +11,13 @@ import {
   TableCell,
   TableContainer,
   TableHead,
+  TablePagination,
   TableRow,
+  TableSortLabel,
+  TextField,
   Typography,
 } from '@mui/material'
+import type { ClaimReviewStatus } from '../api/types'
 import { usePatients } from '../patients/usePatients'
 import { useClaims } from '../claims/useClaims'
 import { useCurrentUser } from '../auth/useAuth'
@@ -24,12 +30,41 @@ import { useClaimReviews } from './useClaimReview'
 // Roles allowed to open a review (mirrors the backend gate; the server still enforces it).
 const OPEN_ROLES = ['CARE_COORDINATOR', 'CLAIMS_REVIEWER', 'ORG_ADMIN']
 
+// The statuses a review can hold, for the filter dropdown (mirrors the ClaimReviewStatus union).
+const STATUSES: ClaimReviewStatus[] = ['OPEN', 'RESOLVED', 'CANCELLED']
+
+const ROWS_PER_PAGE_OPTIONS = [10, 20, 50]
+
+/** Columns the backend allows sorting by; Patient and Claim are resolved client-side (not sortable). */
+type SortField = 'reviewNumber' | 'status'
+type SortDir = 'asc' | 'desc'
+
 export function ClaimReviewsPage() {
   const { data: user } = useCurrentUser()
-  const reviews = useClaimReviews()
+  const canOpen = (user?.roles ?? []).some((r) => OPEN_ROLES.includes(r))
+
+  const [page, setPage] = useState(0)
+  const [size, setSize] = useState(20)
+  const [status, setStatus] = useState<ClaimReviewStatus | ''>('')
+  // No active sort by default → the backend applies its default (createdAt DESC = newest first).
+  const [sortField, setSortField] = useState<SortField | null>(null)
+  const [sortDir, setSortDir] = useState<SortDir>('asc')
+
+  const sort = sortField ? `${sortField},${sortDir}` : undefined
+  const reviews = useClaimReviews({ page, size, sort, status: status || undefined })
   const patients = usePatients()
   const claims = useClaims()
-  const canOpen = (user?.roles ?? []).some((r) => OPEN_ROLES.includes(r))
+
+  // A column header toggles asc → desc on repeat click; a new column starts ascending. Any change resets to page 0.
+  function toggleSort(field: SortField) {
+    if (sortField === field) {
+      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
+    } else {
+      setSortField(field)
+      setSortDir('asc')
+    }
+    setPage(0)
+  }
 
   if (reviews.isPending) return <LoadingScreen />
   if (reviews.isError) return <ErrorScreen error={reviews.error} />
@@ -39,24 +74,57 @@ export function ClaimReviewsPage() {
   const claimNumber = (claimId: string) =>
     (claims.data ?? []).find((c) => c.id === claimId)?.claimNumber ?? '—'
 
+  const rows = reviews.data.content
+
+  const sortableHeader = (field: SortField, label: string) => (
+    <TableCell sortDirection={sortField === field ? sortDir : false}>
+      <TableSortLabel
+        active={sortField === field}
+        direction={sortField === field ? sortDir : 'asc'}
+        onClick={() => toggleSort(field)}
+      >
+        {label}
+      </TableSortLabel>
+    </TableCell>
+  )
+
   return (
     <Stack spacing={3}>
       <Typography variant="h5">Manual review</Typography>
 
       {canOpen && <CreateClaimReviewForm />}
 
+      <TextField
+        select
+        label="Status"
+        size="small"
+        value={status}
+        onChange={(e) => {
+          setStatus(e.target.value as ClaimReviewStatus | '')
+          setPage(0)
+        }}
+        sx={{ maxWidth: 220 }}
+      >
+        <MenuItem value="">All statuses</MenuItem>
+        {STATUSES.map((s) => (
+          <MenuItem key={s} value={s}>
+            {s}
+          </MenuItem>
+        ))}
+      </TextField>
+
       <TableContainer component={Paper} variant="outlined">
         <Table aria-label="Claim reviews">
           <TableHead>
             <TableRow>
-              <TableCell>Review #</TableCell>
+              {sortableHeader('reviewNumber', 'Review #')}
               <TableCell>Patient</TableCell>
               <TableCell>Claim</TableCell>
-              <TableCell>Status</TableCell>
+              {sortableHeader('status', 'Status')}
             </TableRow>
           </TableHead>
           <TableBody>
-            {reviews.data.length === 0 ? (
+            {rows.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={4}>
                   <Typography variant="body2" color="text.secondary">
@@ -65,7 +133,7 @@ export function ClaimReviewsPage() {
                 </TableCell>
               </TableRow>
             ) : (
-              reviews.data.map((r) => (
+              rows.map((r) => (
                 <TableRow key={r.id} hover>
                   <TableCell>
                     <Link component={RouterLink} to={`/claim-reviews/${r.id}`}>
@@ -82,6 +150,18 @@ export function ClaimReviewsPage() {
             )}
           </TableBody>
         </Table>
+        <TablePagination
+          component="div"
+          count={reviews.data.totalElements}
+          page={reviews.data.page}
+          onPageChange={(_, newPage) => setPage(newPage)}
+          rowsPerPage={size}
+          onRowsPerPageChange={(e) => {
+            setSize(parseInt(e.target.value, 10))
+            setPage(0)
+          }}
+          rowsPerPageOptions={ROWS_PER_PAGE_OPTIONS}
+        />
       </TableContainer>
     </Stack>
   )
