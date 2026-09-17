@@ -86,6 +86,12 @@ healthcloud:
       # the broker-free test suite disables it (src/test/resources/application-local.yml) and the consumer test
       # re-enables it against a Testcontainers broker.
       enabled: ${HEALTHCLOUD_KAFKA_CONSUMERS_ENABLED:true}
+      retry:
+        # Consumer retry + dead-letter handling (§Phase 8 slice 4). A failing record is retried up to max-attempts
+        # deliveries, backoff-ms apart; then it is parked on <topic>.DLT. Structural failures (bad header/payload)
+        # skip retries and go straight to the DLT.
+        max-attempts: ${HEALTHCLOUD_KAFKA_CONSUMERS_RETRY_MAX_ATTEMPTS:3}
+        backoff-ms: ${HEALTHCLOUD_KAFKA_CONSUMERS_RETRY_BACKOFF_MS:500}
 
 logging:
   pattern:

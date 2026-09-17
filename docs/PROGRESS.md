@@ -99,8 +99,16 @@
   (`DataIntegrityViolationException` caught → treated as processed). Listeners auto-start only when
   `healthcloud.kafka.consumers.enabled` is true (the broker-free suite leaves it off). Verified against a real
   Testcontainers broker (`ClaimAdjudicatedConsumerKafkaIntegrationTest`: an event → one notification; the same
-  event twice → still one). **Honest limitation:** a processing error uses Spring Kafka's default handling — a
-  retry/backoff + dead-letter topic is the next slice. **Next:** retry/backoff + DLQ, then replay.
+  event twice → still one). slice 4 ✅ — **consumer retry/backoff + dead-letter topic**: a `DefaultErrorHandler`
+  (`KafkaConsumerErrorConfig`, auto-applied by Boot) retries a failing record a bounded number of times
+  (`healthcloud.kafka.consumers.retry.max-attempts`/`backoff-ms`, default 3 × 500 ms) then a
+  `DeadLetterPublishingRecoverer` parks it on `<topic>.DLT` (e.g. `claim.adjudicated.DLT`); structural failures
+  (missing/invalid header → `IllegalArgumentException`, malformed payload → `JacksonException`) are **non-retryable**
+  and go straight to the DLT. So a poison record never blocks the partition, and the idempotent consumer (slice 3)
+  makes the retries safe. Verified against a real Testcontainers broker (`ClaimAdjudicatedDlqKafkaIntegrationTest`:
+  a headerless poison message lands on the DLT with no notification; a valid message published after it is still
+  consumed). **Honest limitation:** inspecting/re-driving the DLT (and the broader outbox replay) is a later slice.
+  **Next:** DLT inspection / replay.
 - **Phase 6 COMPLETE ✅ (advanced claims, slices 1–21):** all seven roadmap areas done — prior auth, referrals,
   appeals, anomaly signals, manual review, reprocessing, provider network. slice 1 ✅ — **prior authorization**: a top-level,
   patient-gated `prior_authorization` aggregate (request a planned procedure be pre-approved under a coverage
