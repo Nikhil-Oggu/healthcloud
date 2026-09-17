@@ -17,12 +17,16 @@ import com.healthcloud.patient.PatientRepository;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
@@ -104,6 +108,69 @@ class ClaimRepositoryTest {
         // A duplicate line number within the claim is rejected.
         assertThrows(DataIntegrityViolationException.class, () -> claimLineRepository.saveAndFlush(new ClaimLine(
                 org.getId(), claim.getId(), 1, CodeSystem.CPT, "99213", 1, new BigDecimal("5.00"))));
+    }
+
+    @Test
+    void searchAll_pages_counts_sorts_and_filters_by_status_in_the_database() {
+        Organization org = organizationRepository.save(new Organization("Search Org (clm-test)"));
+        AppUser author = appUserRepository.save(new AppUser("srch-" + UUID.randomUUID() + "@ex.org", "Author"));
+        Patient patient = patientRepository.save(
+                new Patient(org.getId(), "NC-7401", "Patient", LocalDate.of(1990, 1, 1)));
+
+        // Three DRAFT claims with ascending service dates, plus one SUBMITTED claim.
+        savedClaim(org, patient, author, "CLM-S1", LocalDate.of(2026, 1, 1), ClaimStatus.DRAFT);
+        savedClaim(org, patient, author, "CLM-S2", LocalDate.of(2026, 2, 1), ClaimStatus.DRAFT);
+        savedClaim(org, patient, author, "CLM-S3", LocalDate.of(2026, 3, 1), ClaimStatus.DRAFT);
+        savedClaim(org, patient, author, "CLM-S4", LocalDate.of(2026, 4, 1), ClaimStatus.SUBMITTED);
+
+        // First page of size 2, newest service date first — the total counts all 4, sort picks the top 2.
+        Page<Claim> firstPage = claimRepository.searchAll(
+                org.getId(), null, PageRequest.of(0, 2, Sort.by(Sort.Direction.DESC, "serviceDate")));
+        assertEquals(4, firstPage.getTotalElements(), "the count spans every matching row, not just the page");
+        assertEquals(2, firstPage.getTotalPages());
+        assertEquals(2, firstPage.getContent().size());
+        assertEquals(List.of("CLM-S4", "CLM-S3"),
+                firstPage.getContent().stream().map(Claim::getClaimNumber).toList(),
+                "sorted by service date descending, in the database");
+        assertTrue(firstPage.isFirst());
+
+        // The status filter runs in SQL: only the SUBMITTED claim matches.
+        Page<Claim> submitted = claimRepository.searchAll(
+                org.getId(), ClaimStatus.SUBMITTED, PageRequest.of(0, 10, Sort.by("createdAt")));
+        assertEquals(1, submitted.getTotalElements());
+        assertEquals("CLM-S4", submitted.getContent().get(0).getClaimNumber());
+    }
+
+    @Test
+    void searchForPatients_scopes_to_the_given_patients_and_is_tenant_scoped() {
+        Organization org = organizationRepository.save(new Organization("Scope Org (clm-test)"));
+        AppUser author = appUserRepository.save(new AppUser("scp-" + UUID.randomUUID() + "@ex.org", "Author"));
+        Patient p1 = patientRepository.save(new Patient(org.getId(), "NC-7501", "P1", LocalDate.of(1990, 1, 1)));
+        Patient p2 = patientRepository.save(new Patient(org.getId(), "NC-7502", "P2", LocalDate.of(1990, 1, 1)));
+
+        savedClaim(org, p1, author, "CLM-P1A", LocalDate.of(2026, 1, 1), ClaimStatus.DRAFT);
+        savedClaim(org, p1, author, "CLM-P1B", LocalDate.of(2026, 2, 1), ClaimStatus.DRAFT);
+        savedClaim(org, p2, author, "CLM-P2A", LocalDate.of(2026, 1, 1), ClaimStatus.DRAFT);
+
+        Page<Claim> onlyP1 = claimRepository.searchForPatients(
+                org.getId(), Set.of(p1.getId()), null, PageRequest.of(0, 10, Sort.by("createdAt")));
+        assertEquals(2, onlyP1.getTotalElements(), "only the requested patient's claims are visible");
+        assertTrue(onlyP1.getContent().stream().allMatch(c -> c.getPatientId().equals(p1.getId())));
+
+        // A different tenant's org id finds nothing even for the same patient ids (secure by construction).
+        Organization other = organizationRepository.save(new Organization("Other Org (clm-test)"));
+        Page<Claim> crossTenant = claimRepository.searchForPatients(
+                other.getId(), Set.of(p1.getId(), p2.getId()), null, PageRequest.of(0, 10, Sort.by("createdAt")));
+        assertEquals(0, crossTenant.getTotalElements());
+    }
+
+    /** Save a claim with an explicit status (default on creation is DRAFT). */
+    private Claim savedClaim(Organization org, Patient patient, AppUser author,
+                             String number, LocalDate serviceDate, ClaimStatus status) {
+        Claim claim = new Claim(
+                org.getId(), patient.getId(), number, serviceDate, new BigDecimal("10.00"), author.getId());
+        claim.setStatus(status);
+        return claimRepository.saveAndFlush(claim);
     }
 
     @Test

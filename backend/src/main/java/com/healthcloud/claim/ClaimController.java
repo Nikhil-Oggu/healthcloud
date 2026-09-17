@@ -1,10 +1,15 @@
 package com.healthcloud.claim;
 
+import com.healthcloud.common.PageRequests;
+import com.healthcloud.common.PageResponse;
 import jakarta.validation.Valid;
 import java.net.URI;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -25,18 +30,33 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/v1/claims")
 public class ClaimController {
 
+    /** Fields a caller may sort the claims queue by (allowlisted — an unknown field is a clean 400). */
+    private static final Set<String> SORTABLE_FIELDS =
+            Set.of("createdAt", "serviceDate", "totalChargeAmount", "status", "claimNumber");
+
+    /** Default ordering when the caller supplies no {@code sort}: newest first (the queue's prior behavior). */
+    private static final Sort DEFAULT_SORT = Sort.by(Sort.Direction.DESC, "createdAt");
+
     private final ClaimService service;
 
     public ClaimController(ClaimService service) {
         this.service = service;
     }
 
-    /** Claims in the caller's tenant (header-only), optionally filtered to one patient and/or a status. */
+    /**
+     * A page of claims in the caller's tenant (header-only), optionally filtered to one patient and/or a status
+     * (§Phase 9). Paging/sorting come from {@code page}/{@code size}/{@code sort} (e.g. {@code sort=serviceDate,desc});
+     * an out-of-range {@code size} is clamped and an unknown sort field is a 400. Returns a {@link PageResponse}.
+     */
     @GetMapping
-    public List<ClaimSummaryDto> list(
+    public PageResponse<ClaimSummaryDto> list(
             @RequestParam(required = false) UUID patientId,
-            @RequestParam(required = false) ClaimStatus status) {
-        return service.list(Optional.ofNullable(patientId), Optional.ofNullable(status));
+            @RequestParam(required = false) ClaimStatus status,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(required = false) String sort) {
+        Pageable pageable = PageRequests.toPageable(page, size, sort, SORTABLE_FIELDS, DEFAULT_SORT);
+        return service.list(Optional.ofNullable(patientId), Optional.ofNullable(status), pageable);
     }
 
     /** One claim (header + lines) by id, scoped to the caller's tenant (404 across tenants / if unreachable). */

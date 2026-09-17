@@ -8,6 +8,21 @@ export interface CurrentUser {
   roles: string[]
 }
 
+/**
+ * A page of list results (mirrors the backend com.healthcloud.common.PageResponse). Server-side pagination
+ * lands per work queue in Phase 9; queues not yet migrated to page controls fetch a single large page and
+ * unwrap `.content` (see api.listClaims).
+ */
+export interface PageResponse<T> {
+  content: T[]
+  page: number
+  size: number
+  totalElements: number
+  totalPages: number
+  first: boolean
+  last: boolean
+}
+
 /** The backend's single error shape: { code, message, correlationId, details }. */
 export interface ApiError {
   code: string

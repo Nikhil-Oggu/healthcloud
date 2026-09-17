@@ -1,10 +1,13 @@
 package com.healthcloud.claim;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
-import java.util.Set;
 import java.util.UUID;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
 
 /**
  * Claim headers, tenant-owned. Like every tenant-owned repository (§32.10) the finders are scoped by
@@ -20,12 +23,26 @@ public interface ClaimRepository extends JpaRepository<Claim, UUID> {
     /** Whether a claim number is already taken within the tenant (for a clean number allocation). */
     boolean existsByOrganizationIdAndClaimNumber(UUID organizationId, String claimNumber);
 
-    /** All claims in the tenant, newest first (broad-role list). */
-    List<Claim> findByOrganizationIdOrderByCreatedAtDesc(UUID organizationId);
-
-    /** Claims for one patient in the tenant, newest first. */
+    /** Claims for one patient in the tenant, newest first (the anomaly detector's sibling-claim context). */
     List<Claim> findByOrganizationIdAndPatientIdOrderByCreatedAtDesc(UUID organizationId, UUID patientId);
 
-    /** Claims for a set of patients in the tenant (the gated-caller list scoping), newest first. */
-    List<Claim> findByOrganizationIdAndPatientIdInOrderByCreatedAtDesc(UUID organizationId, Set<UUID> patientIds);
+    /**
+     * A page of the tenant's claims for a broad-role caller (§Phase 9), optionally filtered to one status. The
+     * status is filtered in SQL (not in memory) and {@code null} means "any status". Ordering and paging come
+     * from the {@link Pageable}.
+     */
+    @Query("select c from Claim c where c.organizationId = :org "
+            + "and (:status is null or c.status = :status)")
+    Page<Claim> searchAll(UUID org, ClaimStatus status, Pageable pageable);
+
+    /**
+     * A page of the tenant's claims restricted to a set of patients (the gated-caller scoping — a provider's
+     * assigned patients, or a single {@code ?patientId=}), optionally filtered to one status. Callers must pass a
+     * non-empty {@code patientIds} (an empty accessible set is short-circuited to an empty page in the service).
+     */
+    @Query("select c from Claim c where c.organizationId = :org "
+            + "and c.patientId in :patientIds "
+            + "and (:status is null or c.status = :status)")
+    Page<Claim> searchForPatients(
+            UUID org, Collection<UUID> patientIds, ClaimStatus status, Pageable pageable);
 }

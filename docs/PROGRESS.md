@@ -4,8 +4,9 @@
 > exists, or manually). Read this + `CLAUDE.md` + `docs/PLAN.md` at the start of every session.
 
 ## Current position
-- **Status:** Phases 0–8 COMPLETE ✅ · **Phase 9 NEXT** — search / reporting / accessibility (filters, pagination, CSV export with masking, WCAG 2.2 AA). The MVP (Phases 0–5) is feature-complete — engine AND UI.
+- **Status:** Phases 0–8 COMPLETE ✅ · **Phase 9 IN PROGRESS 🚧** — search / reporting / accessibility (filters, pagination, CSV export with masking, WCAG 2.2 AA). Slice 1 ✅ (server-side pagination + filtering for the claims work queue, backend + reusable `common` foundation). The MVP (Phases 0–5) is feature-complete — engine AND UI.
 - **At a glance** (newest first; the detailed per-phase bullets and the dated log below carry the full record):
+  - **Phase 9 🚧** Search / reporting / accessibility — slice 1 ✅ server-side pagination + filtering (`PageResponse<T>` + `PageRequests` sort-allowlist; claims queue paged in SQL).
   - **Phase 8 ✅** Event-driven — transactional outbox → relay → Kafka → idempotent consumer → retry/DLT → drain → inspect → replay (+ ops UI).
   - **Phase 7 ✅** Advanced security/governance — audit log, per-org HMAC tamper-evident chain, break-glass emergency access, access review, data retention.
   - **Phase 6 ✅** Advanced claims — prior auth, referrals, appeals, anomaly signals, manual review, reprocessing, provider network (all backend + UIs).
@@ -45,6 +46,21 @@
   `BREAK_GLASS_INVOKED`/`REVOKED` events are permanent — never purged, that would break the hash chain), and the
   purge itself is audited as a `RETENTION_PURGED` event in the same transaction (§31.6). Tenant-scoped; a live or
   recently-expired grant is never touched. Manual trigger (a scheduled purge is Phase 8). **Phase 7 COMPLETE ✅.**
+- **Phase 9 IN PROGRESS 🚧 (search / reporting / accessibility):** slice 1 ✅ — **server-side pagination +
+  filtering for the claims work queue** (backend). Introduces the **reusable pagination foundation** every work
+  queue will adopt: a new `com.healthcloud.common` package with **`PageResponse<T>`** (a stable, framework-agnostic
+  page envelope — `content` + `page`/`size`/`totalElements`/`totalPages`/`first`/`last` — that we own, rather than
+  Spring Data's unstable `PageImpl` JSON) and **`PageRequests.toPageable(...)`** (a pure helper that **clamps** size
+  to 1..100 + page ≥ 0 and **allowlists the sort field** — an unknown field or bad direction is a clean 400, not a
+  500, and a caller can't order by an arbitrary column). `GET /api/v1/claims` now takes `page`/`size`/`sort`
+  (e.g. `sort=serviceDate,desc`) and returns a `PageResponse<ClaimSummaryDto>`; filtering (status), sorting,
+  counting and paging all happen **in the database** now (the old in-memory status `.filter` is gone) via two
+  `@Query` finders (`searchAll` for broad roles, `searchForPatients` for the gated/patient-scoped cases). **All the
+  existing authorization is unchanged** — a claim is still gated by its patient (§21 layer 6: provider → assigned
+  patients; broad roles → the tenant's queue; cross-tenant → secure 404), proven still to hold through the paged
+  path. The frontend is untouched behaviourally: a one-line `api.listClaims()` shim requests one large page and
+  returns `.content`, so every consumer keeps receiving `ClaimSummary[]` — the real page-control UI is the next
+  slice. Backend 443 tests (new `PageRequestsTest` + paged repo/API coverage); frontend 151 tests still green.
 - **Phase 8 COMPLETE ✅ (event-driven architecture):** slice 1 ✅ — **transactional outbox foundation**
   (backend, no Kafka yet): the answer to the dual-write problem (a Kafka publish can't join a DB transaction). A
   new `outbox_event` table (V40) + `com.healthcloud.outbox` package — `OutboxService.record(aggregateType,
@@ -324,6 +340,39 @@
   then `curl -b j.txt localhost:8080/api/v1/me`. Reset DB with `./scripts/db-reset.sh`.
 
 ## Log (newest first)
+
+### 2026-09-17 — Phase 9, slice 1 ✅ (server-side pagination + filtering for the claims work queue, backend)
+- **Why:** every work queue currently returns its whole list in one unbounded response, and the claims list even
+  filters status **in memory**. Phase 9 is search/reporting/accessibility — so this slice builds the **reusable
+  pagination foundation** on the busiest queue (claims), which the other queues will adopt mechanically later.
+- **New `com.healthcloud.common` package (the foundation):**
+  - **`PageResponse<T>`** — a stable page envelope (`content`, `page`, `size`, `totalElements`, `totalPages`,
+    `first`, `last`) + `of(Page<E>, mapper)` and `empty(pageable)`. We return this, not Spring Data's `PageImpl`,
+    because Spring's serialized page JSON is explicitly unstable across versions — the API shape is ours to own.
+  - **`PageRequests.toPageable(page, size, sort, allowedSortFields, defaultSort)`** — a pure, DB-free helper that
+    **clamps** `size` to `[1,100]` and `page` to `≥0`, parses `"field,dir"` (dir defaults to asc, case-insensitive),
+    and **allowlists** the sort field: an unknown field or a bad direction is a clean `400 VALIDATION_FAILED` (not a
+    `PropertyReferenceException` 500), which also blocks ordering by — and probing — an arbitrary column.
+- **Claims queue, now DB-paged:** `ClaimRepository` gains two `@Query` finders returning `Page<Claim>` — `searchAll`
+  (broad-role, optional status) and `searchForPatients` (the gated/single-patient cases, optional status). Status
+  now filters in SQL; the in-memory `.filter` is deleted. `ClaimService.list(...)` takes a `Pageable` and returns
+  `PageResponse<ClaimSummaryDto>` with **identical authorization** (patient gate §21 layer 6; an empty gated set
+  short-circuits to an empty page). `ClaimController.list(...)` adds `page`/`size`/`sort` (allowlist
+  `{createdAt, serviceDate, totalChargeAmount, status, claimNumber}`, default `createdAt DESC`). Removed the two
+  now-dead unpaged finders (kept the one the anomaly detector still uses).
+- **Frontend compat (zero consumer churn):** `api.listClaims()` requests one large page (`size=200`) and returns
+  `.content`, so `useClaims()` and every consumer keep receiving `ClaimSummary[]` unchanged. Added a `PageResponse<T>`
+  type. The real page-control UI (page buttons, sort headers) is the next slice — noted as an honest transitional shim.
+- **Verify:** backend `./mvnw -B clean verify` green — **443 tests** (was 430): new `PageRequestsTest` (7 cases —
+  clamping, default sort, `field,dir` parse, 400 on unknown field/bad direction), extended `ClaimRepositoryTest`
+  (+2 — `searchAll`/`searchForPatients` page/count/sort/status + tenant scoping), extended `ClaimApiIntegrationTest`
+  (+4 — page envelope + counts, size/page navigation, 400 on unknown sort, status filter + service-date sort order;
+  the existing provider-scoping + cross-tenant secure-404 tests still pass through the paged path). Frontend
+  `typecheck` + `npm test` (**151** green) + `build` all clean — proving the shim kept the UI intact. Live browser
+  check skipped (no backend running; standing up the full Docker stack would only re-confirm what the real-server
+  integration tests already prove end-to-end).
+- **Next:** Phase 9 slice 2 — the paged **UI** (page controls + sortable columns) on the claims queue, then roll the
+  `common` foundation out to the other work queues.
 
 ### 2026-09-16 — Phase 7, slice 7 ✅ (access-review UI — live grants + Revoke, frontend)
 - **Why:** slice 6 built the break-glass oversight backend. This puts it in front of an admin/auditor. Frontend-only.

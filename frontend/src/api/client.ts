@@ -27,6 +27,7 @@ import type {
   ConsentDirective,
   EnrollEligibilityRequest,
   MedicalCode,
+  PageResponse,
   PatientEligibility,
   PlanExclusion,
   PlanFeeScheduleEntry,
@@ -319,12 +320,15 @@ export const api = {
     downloadBlob(`/api/v1/patients/${patientId}/documents/${documentId}/content`),
 
   // --- Claims (§Phase 4) + adjudication (§Phase 5) ---
-  listClaims: (params?: { patientId?: string; status?: ClaimStatus }) => {
+  // The claims queue is server-paginated (§Phase 9). Until the paged UI lands (next slice), this transitional
+  // shim requests one large page and returns just the rows, so existing callers keep receiving ClaimSummary[].
+  listClaims: async (params?: { patientId?: string; status?: ClaimStatus }) => {
     const q = new URLSearchParams()
     if (params?.patientId) q.set('patientId', params.patientId)
     if (params?.status) q.set('status', params.status)
-    const suffix = q.toString() ? `?${q.toString()}` : ''
-    return request<ClaimSummary[]>(`/api/v1/claims${suffix}`)
+    q.set('size', '200')
+    const page = await request<PageResponse<ClaimSummary>>(`/api/v1/claims?${q.toString()}`)
+    return page.content
   },
 
   createClaim: (body: CreateClaimRequest) =>

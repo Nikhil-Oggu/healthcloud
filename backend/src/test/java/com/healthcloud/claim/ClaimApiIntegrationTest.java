@@ -46,10 +46,25 @@ class ClaimApiIntegrationTest {
     }
 
     private String claimJson(String patientId) {
+        return claimJsonOn(patientId, "2026-01-10");
+    }
+
+    private String claimJsonOn(String patientId, String serviceDate) {
         return """
-                {"patientId":"%s","serviceDate":"2026-01-10","lines":[
+                {"patientId":"%s","serviceDate":"%s","lines":[
                   {"procedureCode":"99213","units":1,"chargeAmount":150.00},
-                  {"procedureCode":"80053","units":1,"chargeAmount":45.50}]}""".formatted(patientId);
+                  {"procedureCode":"80053","units":1,"chargeAmount":45.50}]}"""
+                .formatted(patientId, serviceDate);
+    }
+
+    /** Count the claim summaries in a page body (each carries exactly one claimNumber). */
+    private static int countClaimNumbers(String json) {
+        int count = 0;
+        Matcher m = CLAIM_NUMBER.matcher(json);
+        while (m.find()) {
+            count++;
+        }
+        return count;
     }
 
     @Test
@@ -203,6 +218,77 @@ class ClaimApiIntegrationTest {
         HttpResponse<String> created = post(coordinator, "/api/v1/claims", badProvider);
         assertEquals(400, created.statusCode(), created.body());
         assertTrue(created.body().contains("VALIDATION_FAILED"));
+    }
+
+    @Test
+    void the_list_returns_a_page_envelope_with_total_counts() throws Exception {
+        Session coordinator = loginWithCsrf("coordinator@northcare.example.org");
+        String patientId = firstId(createPatient(coordinator).body());
+        post(coordinator, "/api/v1/claims", claimJson(patientId));
+        post(coordinator, "/api/v1/claims", claimJson(patientId));
+
+        // Scope to the fresh patient so the counts are deterministic regardless of seeded data.
+        HttpResponse<String> list = get(coordinator.session, "/api/v1/claims?patientId=" + patientId);
+        assertEquals(200, list.statusCode(), list.body());
+        assertTrue(list.body().contains("\"content\":["), "the response is a page envelope");
+        assertTrue(list.body().contains("\"totalElements\":2"), "both of the patient's claims are counted");
+        assertTrue(list.body().contains("\"page\":0"));
+        assertTrue(list.body().contains("\"first\":true"));
+    }
+
+    @Test
+    void paging_respects_size_and_page() throws Exception {
+        Session coordinator = loginWithCsrf("coordinator@northcare.example.org");
+        String patientId = firstId(createPatient(coordinator).body());
+        post(coordinator, "/api/v1/claims", claimJson(patientId));
+        post(coordinator, "/api/v1/claims", claimJson(patientId));
+        post(coordinator, "/api/v1/claims", claimJson(patientId));
+
+        // Page 0 of size 2: two of the three claims, not the last page.
+        HttpResponse<String> page0 = get(coordinator.session, "/api/v1/claims?patientId=" + patientId + "&size=2");
+        assertEquals(200, page0.statusCode(), page0.body());
+        assertEquals(2, countClaimNumbers(page0.body()), "page 0 holds exactly the page size");
+        assertTrue(page0.body().contains("\"totalElements\":3"));
+        assertTrue(page0.body().contains("\"totalPages\":2"));
+        assertTrue(page0.body().contains("\"last\":false"));
+
+        // Page 1 of size 2: the remaining single claim, the last page.
+        HttpResponse<String> page1 =
+                get(coordinator.session, "/api/v1/claims?patientId=" + patientId + "&size=2&page=1");
+        assertEquals(1, countClaimNumbers(page1.body()), "page 1 holds the remainder");
+        assertTrue(page1.body().contains("\"last\":true"));
+    }
+
+    @Test
+    void an_unknown_sort_field_is_a_400() throws Exception {
+        String coordinator = loginWithCsrf("coordinator@northcare.example.org").session;
+        HttpResponse<String> bad = get(coordinator, "/api/v1/claims?sort=ssn");
+        assertEquals(400, bad.statusCode(), bad.body());
+        assertTrue(bad.body().contains("VALIDATION_FAILED"), "sorting by a non-allowlisted field is a clean 400");
+    }
+
+    @Test
+    void results_can_be_filtered_by_status_and_sorted_by_service_date() throws Exception {
+        Session coordinator = loginWithCsrf("coordinator@northcare.example.org");
+        String patientId = firstId(createPatient(coordinator).body());
+        // An earlier-dated claim and a later-dated one — both DRAFT on creation.
+        String earlier = claimNumber(post(coordinator, "/api/v1/claims",
+                claimJsonOn(patientId, "2026-01-05")).body());
+        String later = claimNumber(post(coordinator, "/api/v1/claims",
+                claimJsonOn(patientId, "2026-03-20")).body());
+
+        // Status filter runs in SQL: DRAFT returns both, SUBMITTED returns neither (nothing was submitted).
+        HttpResponse<String> drafts =
+                get(coordinator.session, "/api/v1/claims?patientId=" + patientId + "&status=DRAFT");
+        assertTrue(drafts.body().contains("\"totalElements\":2"), "both DRAFT claims match the status filter");
+        HttpResponse<String> submitted =
+                get(coordinator.session, "/api/v1/claims?patientId=" + patientId + "&status=SUBMITTED");
+        assertTrue(submitted.body().contains("\"totalElements\":0"), "no claim is SUBMITTED yet");
+
+        // Sort by service date ascending → the earlier claim appears before the later one in the content.
+        String asc = get(coordinator.session,
+                "/api/v1/claims?patientId=" + patientId + "&sort=serviceDate,asc").body();
+        assertTrue(asc.indexOf(earlier) < asc.indexOf(later), "ascending service-date order places earlier first");
     }
 
     // --- helpers -------------------------------------------------------------
