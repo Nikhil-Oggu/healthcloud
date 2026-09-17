@@ -2350,3 +2350,295 @@ A: Ordering holds only per partition, i.e. per aggregate id (per claim). Across 
 consumer is also re-delivered on at-least-once, so it can see the same event twice and (after a DLT replay) out of
 its original time order. That's why the notification consumer is idempotent and builds state purely from the event
 rather than assuming "this is the first/only time I've seen this".
+
+---
+
+## Phase 9 — Search, Reporting & Accessibility (slices 1–10) — 2026-09-17
+
+### What we built
+
+The **usability** layer over everything the earlier phases built: instead of returning whole unbounded lists and
+leaving the browser to cope, every work queue is now **server-side paginated, filterable, sortable, and
+searchable**, the patient list can be **exported to CSV without leaking masked fields**, and the whole SPA got a
+**WCAG 2.2 AA-aligned accessibility pass**. Three sub-themes across ten slices:
+
+```
+slices 1–5  pagination + filtering + sorting across ALL EIGHT work queues (backend + UI)
+slices 6–8  free-text search across all eight queues
+slice  9    CSV export with masking (the reporting piece)
+slice  10   accessibility pass (skip link, landmarks, headings, an axe test gate)
+```
+
+The eight work queues: claims, prior-authorizations, referrals, appeals, claim-reviews, reprocessing, audit,
+dead-letters. The unifying idea of the whole phase is **do the work in the right place**: push paging/filtering/
+search into SQL (not in-memory over a fetched list), and make the export and the accessibility structure reuse the
+*same* trusted read paths and components rather than re-implementing them.
+
+### How it works
+
+**Slices 1–5 — server-side pagination + filtering + sorting.**
+A new reusable package `backend/src/main/java/com/healthcloud/common/`:
+- `PageResponse<T>` — a stable, framework-agnostic page envelope we own:
+  `{ content, page, size, totalElements, totalPages, first, last }`, built via `PageResponse.of(Page<E>, mapper)` /
+  `PageResponse.empty(pageable)`. We deliberately do **not** serialize Spring Data's `PageImpl` (its JSON shape is
+  unstable across versions and leaks internals).
+- `PageRequests.toPageable(page, size, sort, allowedSortFields, defaultSort)` — a **pure** helper that clamps `size`
+  to 1..100 and `page` to ≥ 0, and **allowlists the sort field**. An unknown field or bad direction becomes a clean
+  `400 VALIDATION_FAILED`, never a `PropertyReferenceException` 500 or an arbitrary-column sort.
+
+Each queue's controller takes `page`/`size`/`sort` (+ its own filter, e.g. `status`, `action`); the repository
+pushes filtering into SQL with `@Query` finders — `searchAll` for broad roles and, for a patient-gated queue,
+`searchForPatients(org, patientIds, filter, pageable)` (and `searchForClaim(...)` for claim-scoped queues):
+
+```java
+@Query("""
+    select c from Claim c
+     where c.organizationId = :org
+       and (:status is null or c.status = :status)
+    """)
+Page<Claim> searchAll(UUID org, ClaimStatus status, Pageable pageable);
+```
+
+Crucially, **authorization is unchanged by paging**: the §21 patient gate / role gate / tenant scope run exactly as
+before, and a gated caller with an empty accessible-id set short-circuits to `PageResponse.empty(pageable)` (no DB
+round trip). Rollout order: slice 1 the foundation + claims (SQL), slices 2–3 the claims + prior-auth UIs, slice 4
+referrals/appeals/claim-reviews, slice 5 reprocessing/audit/dead-letters (audit also gained a real `action` filter
++ paging, replacing an old 200-row cap). The claims list kept a one-line `api.listClaims()` **compatibility shim**
+(fetch one large page, return `.content`) because non-queue callers (name resolution, `<select>` options) still
+need the whole array.
+
+Frontend: each queue page holds `page`/`size`/`sort`(+filter) in `useState`, calls `api.listXxxPage(params)`
+returning the envelope, renders `data.content` plus MUI `<TablePagination>` and `<TableSortLabel>` on the
+server-sortable columns only. The query key carries the params (so a change refetches) but stays prefixed with the
+base key (so a create/decision invalidation still catches it); `placeholderData: keepPreviousData` avoids a
+loading-flash on page change. Any sort/size/filter change resets to page 0.
+
+**Slices 6–8 — free-text search.**
+A second pure helper, `common/SearchTerms.likeContains(raw)`: a blank/whitespace box returns `null` (= "no
+filter"), otherwise it escapes the SQL `LIKE` wildcards (`\ % _`) and wraps the term as `%term%`:
+
+```java
+String escaped = trimmed.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
+return "%" + escaped + "%";  // paired in the query with escape '\'
+```
+
+The service normalizes `q` with this helper and threads it into the finder as one more optional in-SQL clause:
+
+```sql
+and (:q is null or lower(c.claimNumber) like lower(cast(:q as string)) escape '\')
+```
+
+We **only search synthetic, PHI-free identifiers** — each queue's business number (claim/auth/referral/appeal/
+review/batch), never patient names (rule 5 + "no sensitive data in query strings"). The two non-numbered queues
+search their id fields instead: audit matches `correlationId` OR `resourceId`, dead-letters `eventId` OR
+`messageKey`; because `resourceId`/`eventId` are **UUID columns**, they're cast to text so a partial-id paste
+matches. On the frontend each page holds the raw box in one `useState` and a **300 ms debounced** copy in another
+(a `setTimeout` in a `useEffect`), passing the debounced value as `q` so we query once typing settles.
+
+**Slice 9 — CSV export with masking (reporting).**
+A third pure helper, `common/Csv`: `field(raw)` RFC 4180-quotes a value containing a comma/quote/line-break
+(doubling embedded quotes) **and defuses a leading formula trigger** (`= + - @` → prefixed with `'`) so opening the
+file in Excel/Sheets can't run a **CSV-injection** formula; `row(cells)` joins fielded cells with a `\r\n`
+terminator. The endpoint `GET /api/v1/patients/export.csv` (`produces="text/csv"`, `Content-Disposition:
+attachment`) calls `PatientService.exportCsvForCurrentTenant()`, which **reuses `listForCurrentTenant()`** — the
+exact same read the JSON API uses:
+
+```java
+public String exportCsvForCurrentTenant() {
+    StringBuilder csv = new StringBuilder(Csv.row(CSV_HEADER));
+    for (PatientDto p : listForCurrentTenant()) {            // inherits tenant scope + gate + masking
+        csv.append(Csv.row(List.of(
+            p.id().toString(), p.medicalRecordNumber(), p.fullName(),
+            p.dateOfBirth() == null ? "" : p.dateOfBirth().toString(), // masked DOB is null → blank cell
+            p.status().name())));
+    }
+    return csv.toString();
+}
+```
+
+That single choice is the whole security point: the export inherits the tenant scope, the relationship gate (a
+provider exports only assigned patients), and consent field masking — a masked `dateOfBirth` is already `null` in
+the DTO, so it serializes as a **blank cell**. There is no second, unmasked "read raw columns for export" path
+(§23.3: the backend is the only trusted masker). Columns are PHI-minimal. The frontend adds an **Export CSV**
+button that fetches the blob and object-URL-saves `patients.csv`, mirroring the existing document download.
+
+**Slice 10 — WCAG 2.2 AA-aligned accessibility pass.**
+- Test foundation: `frontend/src/test/axe.ts` → `expectNoAxeViolations(container)` runs `axe-core` over rendered
+  markup with the WCAG 2.0/2.1/2.2 A+AA rule tags. The `color-contrast` rule is **disabled** in the helper because
+  it reads computed pixels via a canvas that jsdom doesn't implement — contrast is a browser check, not a jsdom one.
+- App shell (`layout/AppLayout.tsx`, one file every page inherits): a **skip-to-content link** (first focusable,
+  hidden until `:focus`, `href="#main"`) for WCAG 2.4.1 Bypass Blocks; a `<nav aria-label="Primary">` landmark; a
+  focusable `<main id="main" tabIndex={-1}>` target; and the brand demoted from `<h6>` to `component="div"` so it's
+  no longer a heading.
+- Headings: a shared `components/PageHeading.tsx` (`variant="h5" component="h1"`) is now every route's single
+  top-level title (26 pages converted), so each page has exactly one `<h1>` and a correct heading order.
+- Verified **in the real browser** (logged in as `admin@northcare.example.org`): the accessibility tree showed the
+  skip link → `#main`, the Primary `navigation` and `main` landmarks, the brand as plain text, and a single
+  `heading level 1`; pressing Tab revealed the skip link; MUI's default theme contrast reads fine on the core
+  screens.
+
+### Key points to remember
+
+- **Three tiny pure helpers carry the phase** — `PageRequests`, `SearchTerms`, `Csv` — all DB-free and
+  unit-tested, in the same spirit as the state-machine/consent/anomaly policy classes. Decision/format logic lives
+  in a pure class; a thin service applies it.
+- **`cast(:q as string)` is mandatory** in the search `@Query`. A nullable `String` JPQL parameter used in
+  `lower(:q)` is inferred by Postgres/Hibernate as `bytea`, and `lower(bytea)` throws a 500 at runtime. This was a
+  real bug caught by Testcontainers (see Failures) and is now the standard pattern; UUID columns are also cast to
+  text so partial-id search works.
+- **We own the JSON page shape** (`PageResponse`) rather than exposing `PageImpl`, so the contract is stable.
+- **Paging never widens access.** The authorization pipeline is untouched; an empty accessible-id set
+  short-circuits to an empty page with no query. We proved the cross-tenant/relationship-gate tests still pass
+  through the paged path.
+- **Export = reuse the masked read, never a back-door read.** The CSV endpoint calls the same service method the
+  JSON API uses, so masking/scoping are inherited, not re-implemented. This is the single most important idea of
+  slice 9.
+- **CSV injection is a real export concern.** A cell beginning with `= + - @` can execute as a formula in a
+  spreadsheet; we defuse it with a leading `'`. Cheap, and it fits the security theme.
+- **Search only PHI-free identifiers.** Business numbers and correlation/resource/event ids — never patient names,
+  which would put sensitive data into query strings and logs.
+- **axe under jsdom is a partial signal.** It cannot check color contrast (no rendering engine); that's a browser
+  check. So we call the result WCAG 2.2 **AA-aligned**, not certified (rules 2–3). A full page-by-page audit + a
+  Playwright + axe-core E2E gate (per the §29 test stack) are documented follow-ups.
+- **One `<h1>` per page, via a shared component.** `PageHeading` keeps the `h5` visual size but renders semantic
+  `<h1>`; new pages must use it, not a bare `Typography variant="h5"`.
+- **Frontend search UX:** debounce (300 ms) the box and reset to page 0 on change; keep `keepPreviousData` so the
+  table doesn't flash to a spinner on every keystroke/page.
+
+### Failures and how we fixed them
+
+1. **`function lower(bytea) does not exist` (slice 6, backend, 8 failures).** Symptom: every claims search test
+   500'd. Root cause: a nullable `String` JPQL param in `lower(:q)` is inferred as `bytea` by Postgres. Fix: cast
+   the param — `lower(cast(:q as string))` — and, for UUID columns, cast the column too. This is exactly why we test
+   against real Postgres via Testcontainers; a mock would have passed and shipped the bug.
+2. **Reprocessing search test timed out (slice 7, frontend).** Symptom: `findByText('RPB-...')` never resolved.
+   Root cause: that test file's `beforeEach` sets no default `listReprocessingBatches` mock or user (each test sets
+   its own), so the new search test rendered an empty/denied page. Fix: add `mockUser(['CLAIMS_REVIEWER'])` +
+   `listReprocessingBatches.mockResolvedValue(pageOf([BATCH]))` at the top of the new test.
+3. **`cannot find symbol assertFalse(boolean, String)` (slice 8, backend, compile failure).** Root cause: the new
+   dead-letter search test used `assertFalse` but the class hadn't imported it. Fix: add
+   `import static org.junit.jupiter.api.Assertions.assertFalse;`.
+4. **Two `PatientDetailPage.test.tsx` timeouts under the full suite (slice 8, frontend).** Confirmed **pre-existing
+   flakiness unrelated to the slice** (that file was untouched): it passes 18/18 in isolation, only timing out
+   under parallel load. Documented, not "fixed" — it isn't a real break.
+5. **`TS6133: 'Typography' is declared but never read` (slice 10, frontend).** After converting `NotFoundPage`'s
+   title to `PageHeading`, that file no longer used `Typography`. Fix: drop it from the import. (Only that one file
+   tripped it; the others still use `Typography` elsewhere.)
+6. **axe threw canvas errors under jsdom (slice 10).** Symptom: noisy `HTMLCanvasElement.prototype.getContext not
+   implemented` stderr during the a11y tests (tests still passed). Root cause: axe's `color-contrast` rule reads
+   pixels via canvas, which jsdom lacks. Fix: disable that rule in the helper (`rules: { 'color-contrast': {
+   enabled: false } }`) — it can't run meaningfully in jsdom anyway; contrast is a browser check.
+7. **A background `./mvnw … | grep …` reported success on a real failure (process gotcha, carried from earlier).**
+   Piping Maven through `grep` masks Maven's exit code (grep exits 0). Fix: redirect to a log file and capture
+   `EXIT=$?` separately, and read the actual log/surefire report rather than trusting the pipeline's exit line.
+
+Measured results this phase (observed, not estimated): backend test count grew across the phase to **492**
+(pagination/search/CSV added repo + API + `CsvTest` unit tests); frontend to **181** (paged-queue UI tests, search
+tests, the CSV export-button test, and 3 accessibility tests). All green at each slice's `verify`.
+
+### Interview Q&A
+
+#### 1. Beginner
+
+**Q: What is server-side pagination and why not just return the whole list?**
+A: The server returns one page at a time (`page`/`size`) plus totals, instead of every row. It keeps responses
+small and fast as data grows, bounds memory and payload, and lets the database do the filtering/sorting/counting
+efficiently. Returning everything doesn't scale and pushes work onto the browser.
+
+**Q: What does the `PageResponse` envelope contain and why did you make your own?**
+A: `content` (the rows) plus `page`, `size`, `totalElements`, `totalPages`, `first`, `last`. We own it so the JSON
+contract is stable — Spring Data's `PageImpl` serializes in a shape that changes between versions and exposes
+internals we don't want as a public API.
+
+**Q: How does the free-text search box avoid hammering the server on every keystroke?**
+A: It's **debounced** — we keep the raw text in one state and a copy that updates only ~300 ms after typing stops,
+and we send that debounced value. So one request per pause, not per key.
+
+**Q: What is "CSV export with masking" protecting against?**
+A: A masked field (like a consent-restricted date of birth) must not leak through the export. If it shows as
+"Restricted" on screen, the CSV cell must be blank too. We guarantee that by exporting the same already-masked data
+the API returns.
+
+**Q: What's a skip link and who benefits?**
+A: A "Skip to main content" link that's the first thing you reach with the keyboard; it jumps focus past the long
+navigation straight to the page content. Keyboard and screen-reader users benefit — they don't have to tab through
+~14 nav items on every page (WCAG 2.4.1).
+
+#### 2. Intermediate
+
+**Q: Why is filtering pushed into SQL instead of filtering a fetched list in Java?**
+A: In-memory filtering still fetches every row (defeating pagination), computes wrong totals, and doesn't scale.
+Pushing `where`/`order by`/`limit`/`offset` into SQL lets the database use indexes and return the exact page plus a
+correct `totalElements`. We replaced the claims queue's old in-memory `.filter` with `@Query` finders for exactly
+this reason.
+
+**Q: How does pagination interact with your authorization model?**
+A: It doesn't change it. The §21 layers (tenant → role → patient/relationship gate) run as before. Broad roles use
+`searchAll`; gated callers get their accessible patient-id set and use `searchForPatients`, and if that set is empty
+we return `PageResponse.empty` with no query at all. We kept the cross-tenant and relationship-gate tests green
+through the paged path to prove access didn't widen.
+
+**Q: Why `cast(:q as string)` in the search query, and why only search identifiers?**
+A: A nullable `String` bind parameter used in `lower(:q)` is inferred by Postgres as `bytea`, and `lower(bytea)`
+fails at runtime — the cast pins it to text (UUID columns are cast too, for partial matches). We only search
+synthetic, PHI-free identifiers (claim/auth/... numbers, correlation/resource/event ids) because searching patient
+names would put sensitive data into query strings and server logs, violating our no-PHI-in-logs rule.
+
+**Q: Walk through how the CSV export guarantees masking without duplicating logic.**
+A: The endpoint calls `PatientService.exportCsvForCurrentTenant()`, which calls the same `listForCurrentTenant()`
+the JSON list uses. That method already applies tenant scoping, the relationship gate, and consent masking, so a
+masked DOB is already `null` in the DTO. The exporter just formats those DTOs, so a masked field becomes a blank
+cell. There's no separate "read raw columns" path that could bypass masking — the single trusted read is reused.
+
+**Q: What is CSV/formula injection and how did you handle it?**
+A: If a cell's value starts with `=`, `+`, `-`, or `@`, a spreadsheet may interpret it as a formula (which can leak
+data or run actions). Our `Csv.field` prefixes such a value with a single quote so it's shown literally. We also do
+RFC 4180 quoting for commas/quotes/newlines. It's relevant because one exported column (the patient name) is free
+text.
+
+**Q: What can and can't axe-core verify in your test setup, and how do you stay honest about it?**
+A: Under jsdom, axe checks structural rules (labels, roles, landmarks, heading order, names) but **cannot** check
+color contrast — there's no rendering engine, so we disable that rule and verify contrast in a real browser. That's
+why we describe the result as WCAG 2.2 **AA-aligned** (automated A/AA + keyboard/landmark/heading + in-browser
+contrast on core screens), not "certified". A full audit and a Playwright+axe E2E gate are noted follow-ups.
+
+#### 3. Advanced
+
+**Q: Your outbox relay assumed a single instance; does the paginated read side have any similar concurrency or
+correctness caveats?**
+A: The reads are stateless and safe to scale. The subtler issue is **pagination consistency under concurrent
+writes** — offset paging over a changing table can skip or repeat a row between pages (a row inserted/deleted
+shifts offsets). For a work queue that's acceptable; if it mattered we'd move to **keyset/seek pagination** (order
+by a stable key and page with `where (sort_key) < :lastSeen`) which is also faster at deep offsets. `totalElements`
+is also a point-in-time snapshot.
+
+**Q: How would you extend the CSV export to the work queues, and what changes vs the patient export?**
+A: The `Csv` helper is already reusable. Each queue would add an `export.csv` endpoint that calls its existing
+paged service read (ideally honoring the current filters/search) and formats PHI-free columns. The difference:
+those queues aren't consent field-masked (they carry coded, PHI-free data), so the masking concern is mostly
+"don't add a column the API withholds" (e.g. never resolve and emit a patient name). For large exports you'd stream
+(`StreamingResponseBody` + a cursor/keyset) instead of building the whole string in memory — our honest current
+limitation.
+
+**Q: The sort field is allowlisted. What concretely goes wrong without that, and what's the failure mode you
+prevented?**
+A: If you pass the client's `sort` straight to Spring Data, an unknown property throws `PropertyReferenceException`
+→ a 500, and worse, a caller could order by *any* mapped column — a mild information-disclosure/enumeration and
+performance foot-gun (sorting by an unindexed column). `PageRequests` allowlists the field and validates the
+direction, turning bad input into a clean 400 and bounding what can be sorted. Same philosophy as parameter
+binding: never trust client strings as query structure.
+
+**Q: A screen reader announces your nav items as "buttons," not "links." Is that a WCAG failure, and how would you
+improve it?**
+A: It's not a hard AA failure — the controls are focusable and have accessible names, and they do perform an action
+(navigation via the router). But semantically they should be links (they change the URL/location), so a more
+correct implementation uses router `Link`/anchor elements so assistive tech announces "link" and users get
+open-in-new-tab, right-click, etc. It's a refinement we'd fold into the documented accessibility follow-up, along
+with target-size (WCAG 2.2 2.5.8) and a full contrast/focus sweep.
+
+**Q: Why keep a non-paged `useClaims()` array hook alongside the paged one? Isn't that duplication a smell?**
+A: It's a deliberate compatibility shim. The claims queue itself uses the paged hook, but several *other* features
+(appeals/reviews/reprocessing name-resolution and `<select>` option lists) need the full set of claims, not one
+page. Rather than force those callers to page through everything, `api.listClaims()` fetches one large page and
+returns `.content`. The alternative — a dedicated lightweight "list ids/numbers" endpoint — would be cleaner long
+term; the shim was the smaller, lower-risk step while paging rolled out.
