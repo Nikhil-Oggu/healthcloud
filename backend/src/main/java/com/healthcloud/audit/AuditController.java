@@ -43,11 +43,12 @@ public class AuditController {
             @RequestParam(required = false) String resourceType,
             @RequestParam(required = false) UUID resourceId,
             @RequestParam(required = false) AuditAction action,
+            @RequestParam(required = false) String q,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size,
             @RequestParam(required = false) String sort) {
         Pageable pageable = PageRequests.toPageable(page, size, sort, SORTABLE_FIELDS, DEFAULT_SORT);
-        return service.list(resourceType, resourceId, action, pageable);
+        return service.list(resourceType, resourceId, action, q, pageable);
     }
 
     /**

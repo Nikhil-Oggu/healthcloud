@@ -1,6 +1,7 @@
 package com.healthcloud.audit;
 
 import com.healthcloud.common.PageResponse;
+import com.healthcloud.common.SearchTerms;
 import com.healthcloud.context.UserContext;
 import com.healthcloud.context.UserContextAccessor;
 import com.healthcloud.error.CorrelationId;
@@ -141,14 +142,16 @@ public class AuditService {
      */
     @Transactional(readOnly = true)
     public PageResponse<AuditEventDto> list(
-            String resourceType, UUID resourceId, AuditAction action, Pageable pageable) {
+            String resourceType, UUID resourceId, AuditAction action, String q, Pageable pageable) {
         userContext.requireAnyRole(READ_ROLES);
         UUID organizationId = userContext.requireOrganizationId();
+        String search = SearchTerms.likeContains(q); // free-text on correlation/resource id (§Phase 9 slice 8)
 
-        // A resource-history view is one resource's events; otherwise the tenant's events, optionally by action.
+        // A resource-history view is one resource's events; otherwise the tenant's events, optionally by action
+        // and/or a free-text id search. Search applies only to the recent list (the resource view is already exact).
         Page<AuditEvent> rows = (resourceType != null && resourceId != null)
                 ? events.searchForResource(organizationId, resourceType, resourceId, pageable)
-                : events.searchRecent(organizationId, action, pageable);
+                : events.searchRecent(organizationId, action, search, pageable);
         return PageResponse.of(rows, AuditEventDto::from);
     }
 }

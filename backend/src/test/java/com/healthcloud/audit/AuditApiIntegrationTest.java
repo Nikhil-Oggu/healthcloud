@@ -182,6 +182,32 @@ class AuditApiIntegrationTest {
         assertTrue(bad.body().contains("VALIDATION_FAILED"), "sorting by a non-allowlisted field is a clean 400");
     }
 
+    @Test
+    void the_list_can_be_searched_by_resource_id() throws Exception {
+        // Adjudicating writes a CLAIM_ADJUDICATED event whose resourceId is the claim id.
+        Session coordinator = loginWithCsrf("coordinator@northcare.example.org");
+        String patientId = firstId(createPatient(coordinator).body());
+        enroll(coordinator, patientId, firstPlanId(coordinator));
+        Session reviewer = loginWithCsrf("reviewer@northcare.example.org");
+        String claimId = acceptedClaim(coordinator, reviewer, patientId);
+        assertEquals(200, adjudicate(reviewer, claimId).statusCode());
+
+        // Free-text search on the recent list by the claim id → the CLAIM_ADJUDICATED event for it (runs in SQL,
+        // case-insensitively, matching the resourceId cast to text).
+        Session auditor = loginWithCsrf("auditor@northcare.example.org");
+        HttpResponse<String> hit = get(auditor.session, "/api/v1/audit-events?q=" + claimId + "&size=100");
+        assertEquals(200, hit.statusCode(), hit.body());
+        assertTrue(hit.body().contains(claimId), "search by resource id finds the event: " + hit.body());
+        assertTrue(hit.body().contains("\"action\":\"CLAIM_ADJUDICATED\""), hit.body());
+        assertTrue(get(auditor.session, "/api/v1/audit-events?q=" + claimId.toUpperCase() + "&size=100")
+                .body().contains(claimId), "an uppercase query matches the lowercase id");
+
+        // A non-matching term excludes it.
+        HttpResponse<String> miss = get(auditor.session,
+                "/api/v1/audit-events?q=00000000-0000-0000-0000-000000000000&size=100");
+        assertFalse(miss.body().contains(claimId), "a non-matching search excludes the event");
+    }
+
     // --- helpers -------------------------------------------------------------
 
     private record Session(String session, String xsrf) {}

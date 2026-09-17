@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   Alert,
   Button,
@@ -51,12 +51,27 @@ export function AuditEventsPage() {
   const [page, setPage] = useState(0)
   const [size, setSize] = useState(20)
   const [action, setAction] = useState<AuditAction | ''>('')
+  // The raw search box, and the debounced value we actually query with (so we don't fire per keystroke).
+  const [search, setSearch] = useState('')
+  const [debouncedSearch, setDebouncedSearch] = useState('')
   // Default: newest first by occurredAt (the backend's default), no active column indicator.
   const [sortField, setSortField] = useState<SortField | null>(null)
   const [sortDir, setSortDir] = useState<SortDir>('asc')
 
+  // Debounce the search box: settle for 300ms after the last keystroke before querying the server.
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(search), 300)
+    return () => clearTimeout(timer)
+  }, [search])
+
   const sort = sortField ? `${sortField},${sortDir}` : undefined
-  const events = useAuditEvents({ page, size, sort, action: action || undefined })
+  const events = useAuditEvents({
+    page,
+    size,
+    sort,
+    action: action || undefined,
+    q: debouncedSearch.trim() || undefined,
+  })
 
   // A column header toggles asc → desc on repeat click; a new column starts ascending. Any change resets to page 0.
   function toggleSort(field: SortField) {
@@ -109,24 +124,38 @@ export function AuditEventsPage() {
         </Alert>
       )}
 
-      <TextField
-        select
-        size="small"
-        label="Action"
-        value={action}
-        onChange={(e) => {
-          setAction(e.target.value as AuditAction | '')
-          setPage(0)
-        }}
-        sx={{ maxWidth: 260 }}
-      >
-        <MenuItem value="">All actions</MenuItem>
-        {ACTIONS.map((a) => (
-          <MenuItem key={a.value} value={a.value}>
-            {a.label}
-          </MenuItem>
-        ))}
-      </TextField>
+      <Stack direction="row" spacing={2} sx={{ flexWrap: 'wrap', rowGap: 2 }}>
+        <TextField
+          label="Search correlation / resource id"
+          size="small"
+          value={search}
+          onChange={(e) => {
+            setSearch(e.target.value)
+            setPage(0)
+          }}
+          placeholder="paste an id"
+          sx={{ maxWidth: 320 }}
+        />
+
+        <TextField
+          select
+          size="small"
+          label="Action"
+          value={action}
+          onChange={(e) => {
+            setAction(e.target.value as AuditAction | '')
+            setPage(0)
+          }}
+          sx={{ maxWidth: 260 }}
+        >
+          <MenuItem value="">All actions</MenuItem>
+          {ACTIONS.map((a) => (
+            <MenuItem key={a.value} value={a.value}>
+              {a.label}
+            </MenuItem>
+          ))}
+        </TextField>
+      </Stack>
 
       <TableContainer component={Paper} variant="outlined">
         <Table aria-label="Audit events" size="small">

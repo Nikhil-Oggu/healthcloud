@@ -1,6 +1,7 @@
 package com.healthcloud.deadletter;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -98,6 +99,26 @@ class DeadLetterApiIntegrationTest {
         HttpResponse<String> bad = get(admin, "/api/v1/dead-letter-events?sort=ssn");
         assertEquals(400, bad.statusCode(), bad.body());
         assertTrue(bad.body().contains("VALIDATION_FAILED"), "sorting by a non-allowlisted field is a clean 400");
+    }
+
+    @Test
+    void the_list_can_be_searched_by_event_id() throws Exception {
+        String admin = login("admin@northcare.example.org");
+        UUID organizationId = orgId(admin);
+        UUID eventId = UUID.randomUUID();
+        publish(organizationId, eventId, "NOTJSON-" + UUID.randomUUID());
+        awaitContains(admin, eventId.toString()); // the malformed record is drained + visible
+
+        // Searching by the (unique) event id finds the record; the search runs in SQL, case-insensitively.
+        HttpResponse<String> hit = get(admin, "/api/v1/dead-letter-events?q=" + eventId);
+        assertEquals(200, hit.statusCode(), hit.body());
+        assertTrue(hit.body().contains(eventId.toString()), "search by event id finds the record: " + hit.body());
+        assertTrue(get(admin, "/api/v1/dead-letter-events?q=" + eventId.toString().toUpperCase())
+                .body().contains(eventId.toString()), "an uppercase query matches the lowercase id");
+
+        // A non-matching term excludes it.
+        HttpResponse<String> miss = get(admin, "/api/v1/dead-letter-events?q=zzzz-no-such-record");
+        assertFalse(miss.body().contains(eventId.toString()), "a non-matching search excludes the record");
     }
 
     // --- helpers -------------------------------------------------------------

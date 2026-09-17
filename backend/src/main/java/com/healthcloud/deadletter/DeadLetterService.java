@@ -4,6 +4,7 @@ import com.healthcloud.audit.AuditAction;
 import com.healthcloud.audit.AuditOutcome;
 import com.healthcloud.audit.AuditService;
 import com.healthcloud.common.PageResponse;
+import com.healthcloud.common.SearchTerms;
 import com.healthcloud.context.UserContextAccessor;
 import com.healthcloud.error.NotFoundException;
 import java.util.UUID;
@@ -34,11 +35,12 @@ public class DeadLetterService {
         this.auditService = auditService;
     }
 
-    /** A page of the caller's tenant's dead-letter events (§Phase 9, ORG_ADMIN). */
-    public PageResponse<DeadLetterEventDto> listForTenant(Pageable pageable) {
+    /** A page of the caller's tenant's dead-letter events (§Phase 9, ORG_ADMIN), optionally free-text searched. */
+    public PageResponse<DeadLetterEventDto> listForTenant(String q, Pageable pageable) {
         userContext.requireAnyRole(INSPECT_ROLES);
         UUID organizationId = userContext.requireOrganizationId();
-        return PageResponse.of(deadLetters.findByOrganizationId(organizationId, pageable), DeadLetterEventDto::from);
+        String search = SearchTerms.likeContains(q); // free-text on event id / message key (§Phase 9 slice 8)
+        return PageResponse.of(deadLetters.searchAll(organizationId, search, pageable), DeadLetterEventDto::from);
     }
 
     /**

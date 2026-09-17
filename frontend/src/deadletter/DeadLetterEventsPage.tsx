@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   Button,
   Chip,
@@ -12,6 +12,7 @@ import {
   TablePagination,
   TableRow,
   TableSortLabel,
+  TextField,
   Tooltip,
   Typography,
 } from '@mui/material'
@@ -37,12 +38,21 @@ export function DeadLetterEventsPage() {
 
   const [page, setPage] = useState(0)
   const [size, setSize] = useState(20)
+  // The raw search box, and the debounced value we actually query with (so we don't fire per keystroke).
+  const [search, setSearch] = useState('')
+  const [debouncedSearch, setDebouncedSearch] = useState('')
   // No active sort by default → the backend applies its default (createdAt DESC = newest first).
   const [sortField, setSortField] = useState<SortField | null>(null)
   const [sortDir, setSortDir] = useState<SortDir>('asc')
 
+  // Debounce the search box: settle for 300ms after the last keystroke before querying the server.
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(search), 300)
+    return () => clearTimeout(timer)
+  }, [search])
+
   const sort = sortField ? `${sortField},${sortDir}` : undefined
-  const events = useDeadLetterEvents({ page, size, sort })
+  const events = useDeadLetterEvents({ page, size, sort, q: debouncedSearch.trim() || undefined })
 
   // A column header toggles asc → desc on repeat click; a new column starts ascending. Any change resets to page 0.
   function toggleSort(field: SortField) {
@@ -86,6 +96,18 @@ export function DeadLetterEventsPage() {
       </Typography>
 
       {replay.isError && <ErrorScreen error={replay.error} />}
+
+      <TextField
+        label="Search event id / message key"
+        size="small"
+        value={search}
+        onChange={(e) => {
+          setSearch(e.target.value)
+          setPage(0)
+        }}
+        placeholder="paste an id"
+        sx={{ maxWidth: 320 }}
+      />
 
       <TableContainer component={Paper} variant="outlined">
         <Table aria-label="Dead-letter events" size="small">

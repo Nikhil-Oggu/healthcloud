@@ -4,9 +4,9 @@
 > exists, or manually). Read this + `CLAUDE.md` + `docs/PLAN.md` at the start of every session.
 
 ## Current position
-- **Status:** Phases 0–8 COMPLETE ✅ · **Phase 9 IN PROGRESS 🚧** — search / reporting / accessibility (filters, pagination, CSV export with masking, WCAG 2.2 AA). Slice 1 ✅ (server-side pagination + filtering, backend + reusable `common` foundation) · slice 2 ✅ (paged claims work-queue UI) · slice 3 ✅ (paged prior-authorizations queue) · slice 4 ✅ (paged referrals + appeals + claim-reviews queues) · slice 5 ✅ (paged reprocessing + audit + dead-letter queues — **every work queue is now paginated**) · slice 6 ✅ (free-text search on the claims queue — backend `SearchTerms` foundation + `q` param + debounced search box) · slice 7 ✅ (free-text search rolled out to the five other numbered queues — prior-auth, referrals, appeals, claim-reviews, reprocessing). The MVP (Phases 0–5) is feature-complete — engine AND UI.
+- **Status:** Phases 0–8 COMPLETE ✅ · **Phase 9 IN PROGRESS 🚧** — search / reporting / accessibility (filters, pagination, CSV export with masking, WCAG 2.2 AA). Slice 1 ✅ (server-side pagination + filtering, backend + reusable `common` foundation) · slice 2 ✅ (paged claims work-queue UI) · slice 3 ✅ (paged prior-authorizations queue) · slice 4 ✅ (paged referrals + appeals + claim-reviews queues) · slice 5 ✅ (paged reprocessing + audit + dead-letter queues — **every work queue is now paginated**) · slice 6 ✅ (free-text search on the claims queue — backend `SearchTerms` foundation + `q` param + debounced search box) · slice 7 ✅ (free-text search rolled out to the five other numbered queues — prior-auth, referrals, appeals, claim-reviews, reprocessing) · slice 8 ✅ (free-text search on the last two queues — audit + dead-letters — so **all eight work queues are searchable**). The MVP (Phases 0–5) is feature-complete — engine AND UI.
 - **At a glance** (newest first; the detailed per-phase bullets and the dated log below carry the full record):
-  - **Phase 9 🚧** Search / reporting / accessibility — slice 1 ✅ server-side pagination + filtering (`PageResponse<T>` + `PageRequests` sort-allowlist; claims queue paged in SQL) · slice 2 ✅ paged claims-queue UI (MUI pagination + sortable columns + status filter) · slice 3 ✅ prior-authorizations queue paged · slice 4 ✅ referrals + appeals + claim-reviews queues paged (patient-gated family complete) · slice 5 ✅ reprocessing + audit + dead-letter queues paged — **every work queue is now paginated** (audit also gained a server-side action filter + real paging in place of its 200-row cap) · slice 6 ✅ **free-text search** on the claims queue (reusable `SearchTerms` LIKE-escape helper + a `q` param matching the PHI-free claim number in SQL + a debounced search box) · slice 7 ✅ **free-text search across the five other numbered queues** (prior-auth/referrals/appeals/claim-reviews/reprocessing, each by its own business number — **six of eight queues searchable**).
+  - **Phase 9 🚧** Search / reporting / accessibility — slice 1 ✅ server-side pagination + filtering (`PageResponse<T>` + `PageRequests` sort-allowlist; claims queue paged in SQL) · slice 2 ✅ paged claims-queue UI (MUI pagination + sortable columns + status filter) · slice 3 ✅ prior-authorizations queue paged · slice 4 ✅ referrals + appeals + claim-reviews queues paged (patient-gated family complete) · slice 5 ✅ reprocessing + audit + dead-letter queues paged — **every work queue is now paginated** (audit also gained a server-side action filter + real paging in place of its 200-row cap) · slice 6 ✅ **free-text search** on the claims queue (reusable `SearchTerms` LIKE-escape helper + a `q` param matching the PHI-free claim number in SQL + a debounced search box) · slice 7 ✅ **free-text search across the five other numbered queues** (prior-auth/referrals/appeals/claim-reviews/reprocessing, each by its own business number) · slice 8 ✅ **free-text search on audit + dead-letters** (by their id fields — **all eight work queues now searchable**; Phase 9 search COMPLETE).
   - **Phase 8 ✅** Event-driven — transactional outbox → relay → Kafka → idempotent consumer → retry/DLT → drain → inspect → replay (+ ops UI).
   - **Phase 7 ✅** Advanced security/governance — audit log, per-org HMAC tamper-evident chain, break-glass emergency access, access review, data retention.
   - **Phase 6 ✅** Advanced claims — prior auth, referrals, appeals, anomaly signals, manual review, reprocessing, provider network (all backend + UIs).
@@ -133,6 +133,16 @@
   dead-letters) have no business number, so their search targets differ (audit → correlationId/resourceId;
   dead-letters → eventId) and are a later slice. Backend 479 tests (+5: a repo search test on prior-auth/referral/
   appeal/claim-review + an API search test on reprocessing); frontend 175 tests (+5: a search-box test per queue).
+  slice 8 ✅ — **free-text search on the last two queues (audit + dead-letters)** — **all eight work queues are now
+  searchable**. Neither has a business number, so each searches its **identifier fields**: audit matches
+  `correlationId` OR `resourceId` ("all events for this request / about this resource"), dead-letters `eventId` OR
+  `messageKey` ("this failed event / this aggregate"). All PHI-free. The new wrinkle vs. slices 6–7: `resourceId`
+  and `eventId` are **UUID columns**, so the `@Query` casts them to text before matching —
+  `lower(cast(e.resourceId as string)) like lower(cast(:q as string)) escape '\'`. `AuditService.list` /
+  `DeadLetterService.listForTenant` take `q` (dead-letters' derived `findByOrganizationId(pageable)` was replaced
+  by a `searchAll` `@Query`); both controllers add a `q` param; role gates (AUDITOR/ORG_ADMIN; ORG_ADMIN)
+  unchanged. Frontend: a debounced search box on both pages. Backend 481 tests (+2 API: audit search by resourceId,
+  dead-letter search by eventId — one needed the `assertFalse` import); frontend 177 tests (+2 search-box tests).
 - **Phase 8 COMPLETE ✅ (event-driven architecture):** slice 1 ✅ — **transactional outbox foundation**
   (backend, no Kafka yet): the answer to the dual-write problem (a Kafka publish can't join a DB transaction). A
   new `outbox_event` table (V40) + `com.healthcloud.outbox` package — `OutboxService.record(aggregateType,
@@ -412,6 +422,29 @@
   then `curl -b j.txt localhost:8080/api/v1/me`. Reset DB with `./scripts/db-reset.sh`.
 
 ## Log (newest first)
+
+### 2026-09-17 — Phase 9, slice 8 ✅ (free-text search on audit + dead-letters — search now covers all eight queues)
+- **Why:** slices 6–7 gave the six *numbered* queues a search box. This finishes search by covering the two that
+  have no business number — the audit trail and the dead-letter queue — so **every work queue is now searchable**.
+- **What each searches (all PHI-free identifiers):** audit matches **`correlationId` or `resourceId`** — trace a
+  request across events, or find every event about one resource; dead-letters match **`eventId` or `messageKey`**
+  — find a specific failed event, or all dead letters for one aggregate (e.g. a claim id).
+- **The new wrinkle — UUID columns.** `resourceId` and `eventId` are `UUID`, not `String`, so the `@Query` casts
+  them to text before the `like`: `lower(cast(e.resourceId as string)) like lower(cast(:q as string)) escape '\'`.
+  (The param `cast(:q as string)` is the same `bytea`-avoidance from slice 6.) So a partial-id paste matches.
+- **Backend:** audit's `searchRecent` gains the OR clause (the exact `?resourceType=&resourceId=` history path is
+  unchanged — `q` applies only to the recent list); dead-letters' derived `findByOrganizationId(org, pageable)` was
+  replaced by a `searchAll(org, q, pageable)` `@Query` (keeping `findByIdAndOrganizationId` for replay + the
+  drainer's idempotency finder). Both services take `q` (via `SearchTerms.likeContains`), both controllers add a
+  `q` param; the role gates (AUDITOR/ORG_ADMIN; ORG_ADMIN) are untouched.
+- **Frontend:** a debounced (300ms) search box on `AuditEventsPage` (beside the action filter) and
+  `DeadLetterEventsPage`; `api.listAuditEvents`/`listDeadLetterEvents` + their hooks gained `q`.
+- **Verification:** backend **481** tests green (`clean verify`; +2 API — audit search by resourceId, dead-letter
+  search by eventId; the first build failed on a missing `assertFalse` import in the dead-letter test — fixed).
+  Frontend **177** tests + typecheck + build green (+2 search-box tests). Note: `PatientDetailPage.test.tsx` (a
+  heavy, untouched test) intermittently times out under full-suite parallel load but passes 18/18 in isolation —
+  pre-existing flakiness, unrelated to this slice.
+- **Next:** Phase 9 is down to its last two areas — **CSV export with masking**, then **WCAG 2.2 AA**.
 
 ### 2026-09-17 — Phase 9, slice 7 ✅ (free-text search rolled out to the five other numbered queues — backend + UI)
 - **Why:** slice 6 gave the claims queue a search box and built the reusable `SearchTerms` foundation. This rolls

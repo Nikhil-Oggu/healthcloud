@@ -109,8 +109,10 @@ describe('AuditEventsPage', () => {
   it('filters by action server-side (re-queries with the action param)', async () => {
     renderPage(<AuditEventsPage />)
     await screen.findByText('CLAIM_ADJUDICATED')
-    // The default fetch carries no action filter.
-    expect(listAuditEvents).toHaveBeenCalledWith({ page: 0, size: 20, sort: undefined, action: undefined })
+    // The default fetch carries no action filter and no search.
+    expect(listAuditEvents).toHaveBeenCalledWith({
+      page: 0, size: 20, sort: undefined, action: undefined, q: undefined,
+    })
 
     // Picking "Consent revoked" re-queries the server with that action (filtering is now server-side, not client).
     await userEvent.click(screen.getByLabelText('Action'))
@@ -119,6 +121,16 @@ describe('AuditEventsPage', () => {
       expect(listAuditEvents).toHaveBeenCalledWith(
         expect.objectContaining({ action: 'CONSENT_REVOKED', page: 0 }),
       ),
+    )
+  })
+
+  it('typing in the search box queries the server by id (debounced)', async () => {
+    renderPage(<AuditEventsPage />)
+    await screen.findByText('CLAIM_ADJUDICATED')
+
+    await userEvent.type(screen.getByRole('textbox', { name: /search correlation/i }), 'abc123')
+    await waitFor(() =>
+      expect(listAuditEvents).toHaveBeenCalledWith(expect.objectContaining({ q: 'abc123', page: 0 })),
     )
   })
 

@@ -5,6 +5,8 @@ export const DEAD_LETTER_EVENTS_QUERY_KEY = ['dead-letter-events'] as const
 
 /** The parameters that drive a page of the dead-letter queue (§Phase 9). */
 export interface DeadLetterPageParams {
+  /** Free-text search — a case-insensitive match on the event id or message key (§Phase 9 slice 8). */
+  q?: string
   page: number
   size: number
   sort?: string

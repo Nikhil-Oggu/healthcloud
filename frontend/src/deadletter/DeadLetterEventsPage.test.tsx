@@ -92,12 +92,22 @@ describe('DeadLetterEventsPage', () => {
     await waitFor(() => expect(replayDeadLetterEvent).toHaveBeenCalledWith('dl-1'))
   })
 
+  it('typing in the search box queries the server by id (debounced)', async () => {
+    renderPage(<DeadLetterEventsPage />)
+    await screen.findAllByText('claim.adjudicated')
+
+    await userEvent.type(screen.getByRole('textbox', { name: /search event id/i }), 'abc123')
+    await waitFor(() =>
+      expect(listDeadLetterEvents).toHaveBeenCalledWith(expect.objectContaining({ q: 'abc123', page: 0 })),
+    )
+  })
+
   it('sorting and paging re-query the server', async () => {
     listDeadLetterEvents.mockResolvedValue(pageOf([PENDING], { totalElements: 45, totalPages: 3, last: false }))
     renderPage(<DeadLetterEventsPage />)
     await screen.findByText('claim.adjudicated')
-    // The default fetch uses page 0, size 20, no sort.
-    expect(listDeadLetterEvents).toHaveBeenCalledWith({ page: 0, size: 20, sort: undefined })
+    // The default fetch uses page 0, size 20, no sort, no search.
+    expect(listDeadLetterEvents).toHaveBeenCalledWith({ page: 0, size: 20, sort: undefined, q: undefined })
 
     await userEvent.click(screen.getByRole('button', { name: /Source topic/i }))
     await waitFor(() =>

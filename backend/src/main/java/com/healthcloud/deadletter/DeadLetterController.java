@@ -41,11 +41,12 @@ public class DeadLetterController {
      */
     @GetMapping
     public PageResponse<DeadLetterEventDto> list(
+            @RequestParam(required = false) String q,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size,
             @RequestParam(required = false) String sort) {
         Pageable pageable = PageRequests.toPageable(page, size, sort, SORTABLE_FIELDS, DEFAULT_SORT);
-        return service.listForTenant(pageable);
+        return service.listForTenant(q, pageable);
     }
 
     /** Re-drive a dead-letter record onto its source topic (ORG_ADMIN); marks it replayed and audits the action. */

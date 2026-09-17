@@ -7,6 +7,8 @@ export const AUDIT_EVENTS_QUERY_KEY = ['audit-events'] as const
 /** The parameters that drive a page of the audit trail (§Phase 9). */
 export interface AuditEventsPageParams {
   action?: AuditAction
+  /** Free-text search — a case-insensitive match on the correlation id or resource id (§Phase 9 slice 8). */
+  q?: string
   page: number
   size: number
   sort?: string

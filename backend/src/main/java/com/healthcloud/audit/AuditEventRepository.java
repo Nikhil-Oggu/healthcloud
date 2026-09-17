@@ -16,12 +16,18 @@ import org.springframework.data.jpa.repository.Query;
 public interface AuditEventRepository extends JpaRepository<AuditEvent, UUID> {
 
     /**
-     * A page of the tenant's events (§Phase 9), optionally filtered to one action. The action is filtered in SQL
-     * ({@code null} = any action); ordering/paging come from the {@link Pageable}. Replaces the old capped view.
+     * A page of the tenant's events (§Phase 9), optionally filtered to one action and/or a free-text search term.
+     * Both filters run in SQL ({@code null} action = any action; {@code null} {@code q} = no search — else a
+     * case-insensitive "contains" match on the correlation id <i>or</i> the resource id, both PHI-free trace
+     * identifiers; the UUID {@code resourceId} is cast to text so a partial id matches). Ordering/paging come from
+     * the {@link Pageable}. Replaces the old capped view.
      */
     @Query("select e from AuditEvent e where e.organizationId = :org "
-            + "and (:action is null or e.action = :action)")
-    Page<AuditEvent> searchRecent(UUID org, AuditAction action, Pageable pageable);
+            + "and (:action is null or e.action = :action) "
+            + "and (:q is null "
+            + "  or lower(e.correlationId) like lower(cast(:q as string)) escape '\\' "
+            + "  or lower(cast(e.resourceId as string)) like lower(cast(:q as string)) escape '\\')")
+    Page<AuditEvent> searchRecent(UUID org, AuditAction action, String q, Pageable pageable);
 
     /** A page of a single resource's audit history in the tenant (the {@code ?resourceType=&resourceId=} view). */
     @Query("select e from AuditEvent e where e.organizationId = :org "
