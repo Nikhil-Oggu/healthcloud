@@ -1,0 +1,6 @@
+# Example variable values. Copy to terraform.tfvars (git-ignored) and adjust per environment.
+# The defaults in variables.tf already make `validate`/`plan` work with no tfvars at all.
+
+aws_region  = "us-east-1"
+project     = "healthcloud"
+environment = "dev"
