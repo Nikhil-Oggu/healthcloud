@@ -11,6 +11,6 @@ terraform {
     }
   }
 
-  # NOTE: no `backend` block here → Terraform uses the default LOCAL backend (state on disk,
-  # git-ignored). The S3 remote-state backend is a later slice — see backend.tf.
+  # NOTE: the `backend` block lives in backend.tf — an S3 remote backend (enabled in slice 6,
+  # backed by the bucket that ./bootstrap creates), with S3-native locking (no DynamoDB).
 }
