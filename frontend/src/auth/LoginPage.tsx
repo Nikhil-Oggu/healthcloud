@@ -5,6 +5,7 @@ import {
   Button,
   Card,
   CardContent,
+  Divider,
   MenuItem,
   Stack,
   TextField,
@@ -17,7 +18,8 @@ import { ME_QUERY_KEY, useCurrentUser } from './useAuth'
 import { PageHeading } from '../components/PageHeading'
 
 /**
- * The seeded demo users (local `dev-login` only — NO password/MFA; replaced by Cognito later).
+ * The seeded demo users (local `dev-login` only — NO password/MFA). This developer sign-in is shown
+ * ONLY in a dev build (`import.meta.env.DEV`); the production build shows just "Sign in with Cognito".
  * Local part maps to a role: patient=PATIENT, provider=PROVIDER, coordinator=CARE_COORDINATOR,
  * reviewer=CLAIMS_REVIEWER, admin=ORG_ADMIN — across two tenants (NorthCare, Green Valley).
  */
@@ -33,6 +35,10 @@ const DEMO_USERS = [
   'reviewer@greenvalley.example.org',
   'admin@greenvalley.example.org',
 ]
+
+// The BFF endpoint that begins the OIDC authorization-code flow (Spring Security). A full-page
+// navigation (not fetch) — the response is a 302 to Cognito's hosted login on another origin.
+const COGNITO_LOGIN_URL = '/oauth2/authorization/cognito'
 
 export function LoginPage() {
   const [email, setEmail] = useState(DEMO_USERS[1])
@@ -61,47 +67,66 @@ export function LoginPage() {
             HealthCloud
           </PageHeading>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-            Local development sign-in. Choose a seeded demo user — no password (dev only).
+            Sign in with your HealthCloud account.
           </Typography>
 
-          <Box
-            component="form"
-            onSubmit={(e) => {
-              e.preventDefault()
-              login.mutate(email)
-            }}
+          {/* Primary, production login: redirect the whole page to the BFF's Cognito flow. */}
+          <Button
+            variant="contained"
+            fullWidth
+            component="a"
+            href={COGNITO_LOGIN_URL}
           >
-            <Stack spacing={2}>
-              <TextField
-                select
-                label="Demo user"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                fullWidth
+            Sign in with Cognito
+          </Button>
+
+          {/* Developer sign-in — local dev builds only (hidden in the production bundle). */}
+          {import.meta.env.DEV && (
+            <>
+              <Divider sx={{ my: 3 }}>Developer sign-in (local only)</Divider>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                Choose a seeded demo user — no password (dev only).
+              </Typography>
+              <Box
+                component="form"
+                onSubmit={(e) => {
+                  e.preventDefault()
+                  login.mutate(email)
+                }}
               >
-                {DEMO_USERS.map((u) => (
-                  <MenuItem key={u} value={u}>
-                    {u}
-                  </MenuItem>
-                ))}
-              </TextField>
+                <Stack spacing={2}>
+                  <TextField
+                    select
+                    label="Demo user"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    fullWidth
+                  >
+                    {DEMO_USERS.map((u) => (
+                      <MenuItem key={u} value={u}>
+                        {u}
+                      </MenuItem>
+                    ))}
+                  </TextField>
 
-              {login.isError && (
-                <Alert severity="error">
-                  {login.error.message}
-                  {login.error.correlationId && (
-                    <Typography variant="caption" sx={{ display: 'block', mt: 0.5 }}>
-                      Reference ID: {login.error.correlationId}
-                    </Typography>
+                  {login.isError && (
+                    <Alert severity="error">
+                      {login.error.message}
+                      {login.error.correlationId && (
+                        <Typography variant="caption" sx={{ display: 'block', mt: 0.5 }}>
+                          Reference ID: {login.error.correlationId}
+                        </Typography>
+                      )}
+                    </Alert>
                   )}
-                </Alert>
-              )}
 
-              <Button type="submit" variant="contained" disabled={login.isPending} fullWidth>
-                {login.isPending ? 'Signing in…' : 'Sign in'}
-              </Button>
-            </Stack>
-          </Box>
+                  <Button type="submit" variant="outlined" disabled={login.isPending} fullWidth>
+                    {login.isPending ? 'Signing in…' : 'Developer sign-in'}
+                  </Button>
+                </Stack>
+              </Box>
+            </>
+          )}
         </CardContent>
       </Card>
     </Box>

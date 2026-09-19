@@ -59,10 +59,19 @@ resource "aws_cognito_user_pool_client" "app" {
   allowed_oauth_scopes                 = ["openid", "email", "profile"]
   supported_identity_providers         = ["COGNITO"]
 
-  # Local-dev redirect URLs (Spring Security's default OAuth2 callback path). The deployed HTTPS URLs
-  # are added in the deploy-with-HTTPS slice — Cognito requires HTTPS for any non-localhost callback.
-  callback_urls = ["http://localhost:8080/login/oauth2/code/cognito"]
-  logout_urls   = ["http://localhost:8080/"]
+  # Local-dev redirect URLs (Spring Security's default OAuth2 callback path). :8080 = the backend run
+  # directly; :5173 = the Vite dev server (slice 13) — when the OIDC flow runs through the SPA's dev
+  # proxy the backend computes the callback with the :5173 host, so Cognito must accept it too. The
+  # deployed HTTPS URLs are added in the deploy-with-HTTPS slice — Cognito requires HTTPS for any
+  # non-localhost callback.
+  callback_urls = [
+    "http://localhost:8080/login/oauth2/code/cognito",
+    "http://localhost:5173/login/oauth2/code/cognito",
+  ]
+  logout_urls = [
+    "http://localhost:8080/",
+    "http://localhost:5173/",
+  ]
 
   explicit_auth_flows = [
     "ALLOW_USER_SRP_AUTH",

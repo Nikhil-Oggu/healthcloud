@@ -3021,3 +3021,53 @@ later slices. The dev-login stand-in is kept for offline work. Cost: **$0** (no 
   `CognitoOidcUserService` throws `OAuth2AuthenticationException`, so the login fails and no session is created —
   rather than letting them authenticate and then hit 403s on every call. Failing at login is cleaner, avoids orphan
   sessions, and makes "who may use this app" an explicit provisioning decision in our own user table.
+
+## Phase 10 — Cloud Deployment on AWS: frontend "Sign in with Cognito" (slice 13) — 2026-09-19
+
+### What we built
+The SPA's browser entry point to the slice-12 Cognito BFF flow: a **"Sign in with Cognito"** button on the login
+page. The existing dev-login dropdown is kept but only in dev builds. Frontend code plus a $0 Cognito client tweak;
+proven end-to-end locally (all the way to the real Cognito login page). The deployed version is slice 14.
+
+### How it works
+- **The button is a full-page link, not a fetch.** It renders as `<Button component="a"
+  href="/oauth2/authorization/cognito">`, so clicking it navigates the whole browser to the BFF endpoint, which
+  responds with a 302 to Cognito's hosted login on another origin. A `fetch`/XHR can't follow a cross-origin login
+  redirect — the page itself must navigate.
+- **Dev proxy.** In dev the SPA is on :5173 and the backend on :8080, so `vite.config.ts` proxies `/oauth2` and
+  `/login/oauth2` to :8080. It's scoped to `/login/oauth2`, not all of `/login`, because `/login` is the SPA's own
+  React Router route — proxying all of it would hijack the app's login page. `changeOrigin:false` keeps the Host as
+  localhost so the session cookie stays first-party.
+- **The :5173 callback.** Because the flow runs through the :5173 proxy, the backend computes the OAuth callback with
+  the :5173 host, so Cognito's app client had to be told to accept `http://localhost:5173/login/oauth2/code/cognito`.
+  We added it (and the matching logout URL) in `cognito.tf`. In production this disappears — the SPA and backend are
+  one origin behind the load balancer.
+- **Dev-login gating.** The dev-login dropdown is wrapped in `import.meta.env.DEV`, which Vite sets to `true` for
+  `npm run dev` and `false` for `npm run build`. So local dev keeps both sign-in options; the deployed bundle shows
+  only "Sign in with Cognito".
+
+### Key points
+- Verified: typecheck + 184 unit tests + build all green, plus a real browser run — clicking the button redirected
+  SPA → vite proxy → backend → the actual Cognito hosted login page, with
+  `redirect_uri=http://localhost:5173/login/oauth2/code/cognito`. Completing the sign-in (the password) is a human
+  step; the assistant doesn't authenticate.
+- Applied the Cognito client change with `-target` so the deliberately torn-down ALB/ECS (still in the config) were
+  not recreated.
+
+### Interview Q&A
+- **Q (beginner): Why is the login button a link instead of a button that calls an API?** A: Logging in with Cognito
+  means the browser must actually travel to Cognito's login page and back. That's a top-level navigation, so the
+  control is an anchor that changes `window.location`. An API call (fetch) stays on the page and can't carry the user
+  through a cross-site login redirect.
+- **Q (intermediate): Why proxy only `/login/oauth2` and not `/login`?** A: `/login` is the SPA's own route (our
+  React login page). If the dev server proxied all of `/login` to the backend, visiting the app's login page would
+  hit the backend instead of the SPA. Scoping the proxy to `/login/oauth2` (the OAuth callback) and `/oauth2` (the
+  authorization request) forwards exactly the OIDC endpoints and nothing else.
+- **Q (intermediate): Why did Cognito need a second callback URL for local dev?** A: The OAuth callback URL must be
+  pre-registered with Cognito, and it's derived from the host the backend sees. Running the flow through the :5173 dev
+  proxy makes that host `localhost:5173`, so Cognito had to accept `http://localhost:5173/login/oauth2/code/cognito`
+  in addition to the :8080 one. Production uses a single origin, so it needs only its own HTTPS callback.
+- **Q (advanced): How do you keep the dev-only login out of production without a runtime flag?** A: The dropdown is
+  wrapped in `import.meta.env.DEV`, a Vite build-time constant — `true` under `npm run dev`, `false` under
+  `npm run build`. Vite tree-shakes the dead branch out of the production bundle entirely, so the dev-login UI isn't
+  just hidden, it isn't shipped.
