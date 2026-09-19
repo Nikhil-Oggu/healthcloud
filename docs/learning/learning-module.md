@@ -3301,3 +3301,210 @@ paid ones) torn down cost-consciously. The order was deliberate: get the **artif
   of the ALB to provide HTTPS (which Cognito requires) with a free certificate. Every step was a small verified slice,
   secrets went to Secrets Manager, and I ran it on-demand — stand it up, prove it, tear it down to ~$0 — all on free
   credits. **Phase 10 COMPLETE.**
+
+---
+
+## Auth-hardening: closing the dev-login bypass on the deployed app — 2026-09-19
+
+### What we built
+After Phase 10 was marked complete, I ran the project's two review subagents (`code-reviewer` and
+`security-reviewer`) in parallel over the Phase 10 diff. Both independently, with high confidence,
+flagged the same standout: the deployed app ran the Spring profile `local,cognito`, and the `local`
+profile keeps the local dev-login endpoint (`POST /api/v1/dev-login`) alive. That endpoint is
+`permitAll`, CSRF-exempt, and takes an email with **no password** — so anyone on the internet could
+`POST /api/v1/dev-login?email=admin@northcare.example.org` and receive a fully authenticated
+ORG_ADMIN session, **bypassing Cognito entirely**. (The app was torn down at the time, so nothing was
+actually exposed — but it was a real hole on every `apply`.)
+
+This slice fixed that plus two smaller items the reviews raised: the ALB was reachable directly over
+plain HTTP (bypassing CloudFront's HTTPS), and the Cognito app client enabled two direct auth flows
+the BFF never uses.
+
+### How it works
+The core insight: the deploy needs the **synthetic seed** (so a Cognito login maps to a real
+`AppUser` row in the DB) but must **not** expose dev-login. Those two things were both bolted onto the
+one `local` profile. The fix separates them.
+
+**1. Split "seed" from "dev-login" via profiles.**
+
+- The seeder now runs under either `local` or a new `demo` profile:
+  ```java
+  // backend/src/main/java/com/healthcloud/devdata/DevDataSeeder.java
+  @Profile({"local", "demo"})
+  public class DevDataSeeder implements ApplicationRunner { ... }
+  ```
+- `DevLoginController` is left untouched at `@Profile("local")`, so it simply does not exist as a bean
+  under `demo`.
+- `SecurityConfig` used to *unconditionally* allow and CSRF-exempt `/api/v1/dev-login`. That was the
+  actual hole — even with the controller gone, an unconditional `permitAll` is a latent risk. It's now
+  gated to the same `local` profile as the controller:
+  ```java
+  // backend/src/main/java/com/healthcloud/auth/SecurityConfig.java
+  boolean devLoginEnabled = environment.acceptsProfiles(Profiles.of("local"));
+  http.authorizeHttpRequests(auth -> {
+      auth.requestMatchers("/actuator/health", "/actuator/health/**", "/actuator/info").permitAll();
+      if (devLoginEnabled) {
+          auth.requestMatchers("/api/v1/dev-login").permitAll();
+      }
+      auth.requestMatchers("/oauth2/**", "/login/oauth2/**").permitAll()
+          .anyRequest().authenticated();
+  })
+  .csrf(csrf -> {
+      csrf.csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse())
+          .csrfTokenRequestHandler(new CsrfTokenRequestAttributeHandler());
+      if (devLoginEnabled) {
+          csrf.ignoringRequestMatchers("/api/v1/dev-login");
+      }
+  });
+  ```
+- The deployed ECS task flips its profile:
+  ```hcl
+  # infrastructure/terraform/ecs.tf
+  { name = "SPRING_PROFILES_ACTIVE", value = "demo,cognito" }   # was "local,cognito"
+  ```
+
+Net effect: the deployed app seeds its synthetic users, offers **only** the Cognito login, and a
+`POST /api/v1/dev-login` is hard-denied — it can never mint a session.
+
+**2. Lock the ALB to CloudFront.** The ALB security group's port-80 ingress used `0.0.0.0/0`. It now
+uses AWS's managed CloudFront prefix list, so only CloudFront (which forces HTTPS) can reach the ALB:
+```hcl
+# infrastructure/terraform/alb.tf
+data "aws_ec2_managed_prefix_list" "cloudfront" {
+  name = "com.amazonaws.global.cloudfront.origin-facing"
+}
+# ingress on :80:
+prefix_list_ids = [data.aws_ec2_managed_prefix_list.cloudfront.id]  # was cidr_blocks = ["0.0.0.0/0"]
+```
+
+**3. Trim Cognito auth flows.** The app client's `explicit_auth_flows` dropped to just
+`ALLOW_REFRESH_TOKEN_AUTH`; `ALLOW_USER_PASSWORD_AUTH` and `ALLOW_USER_SRP_AUTH` were removed. The BFF
+only uses the hosted-UI authorization-code flow (which needs neither), and `admin-set-user-password`
+(how the synthetic passwords are set) is an admin API unaffected by these flags.
+
+**Verification** — a new integration test boots under the deploy shape (`demo`) and proves the fix:
+```java
+// backend/src/test/java/com/healthcloud/auth/DeployProfileNoDevLoginTest.java
+@SpringBootTest(webEnvironment = RANDOM_PORT,
+    properties = {"healthcloud.outbox.relay.enabled=false",
+                  "healthcloud.kafka.consumers.enabled=false"})
+@ActiveProfiles("demo")
+class DeployProfileNoDevLoginTest {
+  // 1) DevDataSeeder bean present, DevLoginController bean absent
+  // 2) POST /api/v1/dev-login -> denied (401/403), never 200, no SESSION cookie
+}
+```
+Full `./mvnw verify` passed (497 tests); `terraform fmt`/`validate` clean.
+
+### Key points to remember
+- **The frontend hiding a button is not security.** The SPA already hid dev-login in prod builds
+  (`import.meta.env.DEV`), but the *backend* still accepted the POST. HealthCloud's own rule 4 —
+  "the backend is the only security boundary" — is exactly what the reviewers held the code to.
+- **A profile can carry more than one concern, and that's a trap.** `local` meant *both* "seed demo
+  data" *and* "enable the password-less login." Bundling them forced the deploy to take the bypass to
+  get the seed. Splitting concerns onto separate profiles (`demo` = seed only) is the fix.
+- **Gate the security rule and the bean together.** The controller was already `@Profile("local")`,
+  but the `SecurityConfig` `permitAll`/CSRF-exemption was unconditional. Keeping both keyed to the
+  same profile means they can't drift out of sync.
+- **Why the endpoint returns 403, not 401, off `local`.** With the CSRF exemption gone, a token-less
+  POST is rejected by the `CsrfFilter` (403) *before* the authorization filter would return 401. Both
+  are hard denials; the security property that matters is "never a 200 that sets a SESSION cookie," so
+  the test accepts either and asserts no session cookie.
+- **Test profile config only loads under `local`.** `src/test/resources/application-local.yml`
+  (which disables the Kafka relay/consumers for the suite) is profile-scoped, so a `@ActiveProfiles("demo")`
+  test doesn't get it — I disabled Kafka via `@SpringBootTest(properties = ...)` instead, or the app
+  would try to reach a broker at startup.
+- **Terraform changes are staged, not applied.** The app is torn down (~$0). `fmt`/`validate` prove the
+  config is valid; the SG and Cognito-client changes take effect on the next `apply`.
+- **The ALB lock isn't airtight.** The CloudFront prefix list admits *any* AWS account's CloudFront
+  distribution. Fully closing it needs a per-distribution secret header (origin-verify) that the ALB
+  listener checks — noted as a follow-up, not built.
+
+### Failures and how we fixed them
+- **The test first failed on 401 vs 403.** My initial assertion expected `401` from
+  `POST /api/v1/dev-login`; the app returned `403`. Root cause: dev-login is no longer CSRF-exempt
+  under `demo`, so the token-less POST is a CSRF denial (403) before it reaches the authorization
+  layer. Fix: assert the response is a denial (401 or 403), never 200, and that no `SESSION` cookie is
+  set — testing the real security property instead of a specific status code.
+- **`mvn verify` failed with a duplicate-class error.** Symptom:
+  `com/healthcloud/TestcontainersConfiguration 2 (wrong name: ...)` and BUILD FAILURE. Root cause: a
+  stray `TestcontainersConfiguration 2.class` under `backend/target/` (the known " 2" duplicate-file
+  gotcha, likely from a file-sync copy) — not a code problem. Fix: `./mvnw clean verify`, which passed
+  (497 tests).
+- **A `tail`-piped exit code masked the first failure.** I ran `./mvnw verify | tail -60`; the shell
+  reported exit 0 (from `tail`), but Maven had actually failed. Lesson: capture the real exit code
+  (`; echo EXIT=$?` on the maven command, not the pipe) or grep the output for `BUILD FAILURE`.
+
+### Interview Q&A
+
+#### 1. Beginner
+
+**Q: What was the security vulnerability?**
+A: The deployed app kept a development-only login endpoint (`/api/v1/dev-login`) publicly reachable.
+It accepted just an email address — no password, no MFA — and returned an authenticated session,
+including an admin one. So anyone could impersonate any user and bypass the real login (Cognito).
+
+**Q: What is a Spring "profile" and how did it cause this?**
+A: A profile is a named set of beans/config Spring activates at runtime (via
+`SPRING_PROFILES_ACTIVE`). The `local` profile bundled two things — seeding demo data *and* enabling
+dev-login. The deploy needed the seed, so it turned on `local`, which dragged in the dev-login bypass.
+
+**Q: How did you fix it at a high level?**
+A: I split the two concerns. Seeding now also runs under a new `demo` profile; dev-login stays only
+under `local`. The deployed app runs `demo,cognito` — it gets the seed and Cognito, but not the
+bypass.
+
+**Q: Why isn't hiding the button in the frontend enough?**
+A: The browser is untrusted. Even with no button, an attacker can POST directly to the endpoint. Only
+a backend check actually stops it — the frontend can only improve UX.
+
+#### 2. Intermediate
+
+**Q: Why gate the `SecurityConfig` rule on the profile too, when the controller was already
+`@Profile("local")`?**
+A: Defense in depth and preventing drift. An unconditional `permitAll` + CSRF-exemption for a path is
+a latent hole even if today no controller serves it — a future controller on that path would inherit
+it. Keying the security rule to the same profile as the controller keeps them consistent.
+
+**Q: Why does the endpoint return 403 rather than 401 on the deployed profile?**
+A: Filter order. Once dev-login is no longer in the CSRF `ignoringRequestMatchers`, a token-less POST
+is rejected by the `CsrfFilter` (403) before the authorization filter (which would give 401) runs.
+Both are denials; the test asserts "denied and no session," not a specific code.
+
+**Q: Why keep seeding on the deployed app at all — isn't seeded data itself a smell?**
+A: The whole project is synthetic-data-only, so seeded users aren't sensitive. And the Cognito login
+maps an authenticated identity (by email) onto an existing `AppUser` for roles/tenant; without seeded
+users there'd be nothing to map to. So the seed is required for the Cognito demo — it's the *login
+bypass*, not the seed, that was the problem.
+
+**Q: Why trim the Cognito `explicit_auth_flows`?**
+A: `ALLOW_USER_PASSWORD_AUTH`/`ALLOW_USER_SRP_AUTH` let a caller trade a username+password directly
+for tokens via the Cognito API. The BFF only uses the hosted-UI authorization-code flow plus refresh,
+so those flows are unused attack surface. Removing them is least-privilege; setting passwords still
+works because `admin-set-user-password` is a separate admin API.
+
+#### 3. Advanced
+
+**Q: Does locking the ALB SG to the CloudFront prefix list fully prevent origin bypass?**
+A: No. The managed prefix list covers *all* CloudFront IP ranges, so another AWS account's
+distribution could still hit the ALB. To fully close it, CloudFront should add a secret custom header
+and the ALB listener rule should require it (origin-verify), or use VPC origins. We documented that as
+a follow-up rather than building it this slice.
+
+**Q: How would you test a profile-conditional security rule without a full app boot?**
+A: You can slice-test the `SecurityFilterChain` with a `@WebMvcTest`/`MockMvc` under different
+`@ActiveProfiles`, or unit-test the boolean decision. We chose a `RANDOM_PORT` integration test under
+`demo` because it also proves bean wiring (seeder present, controller absent) and the real HTTP
+denial, end to end — highest confidence for a security fix.
+
+**Q: The deployed app's SESSION cookie isn't forced `Secure`. Is that safe now?**
+A: It's acceptable because the only viewer-facing hop is CloudFront, which is `redirect-to-https`, so
+the browser always talks HTTPS. The CloudFront→ALB hop is HTTP inside AWS. Forcing `Secure` would be
+strictly better defense-in-depth; the practical exposure is closed by the HTTPS-only viewer protocol
+plus the ALB now being unreachable except through CloudFront.
+
+**Q: Why did the `demo`-profile test need explicit Kafka-disabling properties?**
+A: The suite-wide `application-local.yml` that stops the outbox relay and Kafka consumers only loads
+under the `local` profile. A `demo` test doesn't inherit it, so without overriding
+`healthcloud.outbox.relay.enabled=false` and `healthcloud.kafka.consumers.enabled=false` the app would
+try to connect to a broker at startup and the test context would fail to load.
