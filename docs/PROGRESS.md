@@ -454,6 +454,17 @@
 
 ## Log (newest first)
 
+### 2026-09-19 — UI/Design track, slice 1 ✅ (design-system foundation: "Care Constellation" theme, fonts & brand)
+- **Why:** the UI was plain default MUI (`src/main.tsx` called `createTheme()` with zero customization). We chose an original design direction — **Care Constellation** (dark, network-motif identity on the entry surfaces; light + readable in the deep app) after comparing three live concept mockups. This slice lays the foundation that restyles every page at once.
+- **Design spec first:** `docs/design/design-system.md` — the durable "design CLAUDE.md" (identity, the hybrid dark-hero/light-app rule, all color tokens for both variants, typography, shape/elevation/spacing, component conventions, motion/accessibility, build order).
+- **Done (frontend, no backend changes):**
+  - `frontend/src/theme/index.ts` — the real MUI theme (light-app variant): teal primary `#0d9488` + indigo accent `#4f46e5`, soft `#f6f8fb` background, AA status colors; **Space Grotesk** headings + **Inter** body + **IBM Plex Mono** (exported `MONO`) for codes/IDs; radius 12; soft elevation; component defaults (light `AppBar` instead of the default blue, bordered cards, no-uppercase buttons, tinted table heads, pill chips). Also exports `constellation` dark-hero tokens for the bespoke landing/login/dashboard surfaces in later slices.
+  - `frontend/src/components/Brand.tsx` — the gradient rounded-square logo + Space Grotesk wordmark (`compact` + `onDark` variants).
+  - `frontend/index.html` — Google Fonts `<link>` (Inter / Space Grotesk / IBM Plex Mono) + an inline-SVG gradient favicon.
+  - `frontend/src/main.tsx` — uses the new theme.
+- **Verified:** `npm run typecheck` + `npm run build` clean; **184 frontend tests pass** (incl. the axe accessibility gate — styling didn't break structure); confirmed live in the browser (login page: Space Grotesk brand, teal rounded CTA, soft off-white surfaces).
+- **Next slices:** 2 — app shell + navigation (sidebar + refined top bar + page-header pattern); 3 — the signature dark **animated Constellation hero** on landing + login; 4 — a role-aware dashboard; 5 — work-queue/table polish; 6 — forms/detail polish.
+
 ### 2026-09-19 — Phase 10, auth-hardening slice ✅ (close the dev-login bypass on the deploy; lock the ALB to CloudFront; trim Cognito auth flows)
 - **Why:** the code-reviewer + security-reviewer subagents (run in parallel over the Phase 10 diff) both flagged, high-confidence, that the deployed app ran `SPRING_PROFILES_ACTIVE=local,cognito` — and the `local` profile keeps `/api/v1/dev-login` (a permitAll, CSRF-exempt, unauthenticated email→session endpoint) live. Anyone could `POST /api/v1/dev-login?email=admin@northcare.example.org` and get an ORG_ADMIN session, **bypassing Cognito entirely**. (The app was torn down, so nothing was exposed — but it was a real hole on every `apply`.) Two lesser items came with it: the ALB was reachable directly over plain HTTP (bypassing CloudFront's HTTPS), and the Cognito client enabled `ALLOW_USER_PASSWORD_AUTH`/`ALLOW_USER_SRP_AUTH` the BFF never uses.
 - **The core fix — separate "seed" from "dev-login":** the deploy needs the synthetic seed (so a Cognito login maps to a real `AppUser`) but must NOT expose dev-login.
