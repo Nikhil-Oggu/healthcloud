@@ -1,28 +1,109 @@
+import { useState } from 'react'
 import {
   AppBar,
   Box,
   Button,
   Chip,
   Container,
+  Divider,
+  Drawer,
+  IconButton,
   Link,
-  Stack,
+  List,
+  ListItem,
+  ListItemButton,
+  ListItemIcon,
+  ListItemText,
+  ListSubheader,
   Toolbar,
   Typography,
+  useMediaQuery,
 } from '@mui/material'
-import { Outlet, useNavigate } from 'react-router-dom'
+import { useTheme } from '@mui/material/styles'
+import MenuOutlinedIcon from '@mui/icons-material/MenuOutlined'
+import SpaceDashboardOutlinedIcon from '@mui/icons-material/SpaceDashboardOutlined'
+import PeopleOutlinedIcon from '@mui/icons-material/PeopleOutlined'
+import AssignmentOutlinedIcon from '@mui/icons-material/AssignmentOutlined'
+import CallSplitOutlinedIcon from '@mui/icons-material/CallSplitOutlined'
+import MedicalServicesOutlinedIcon from '@mui/icons-material/MedicalServicesOutlined'
+import ReceiptLongOutlinedIcon from '@mui/icons-material/ReceiptLongOutlined'
+import ShieldOutlinedIcon from '@mui/icons-material/ShieldOutlined'
+import FactCheckOutlinedIcon from '@mui/icons-material/FactCheckOutlined'
+import GavelOutlinedIcon from '@mui/icons-material/GavelOutlined'
+import RateReviewOutlinedIcon from '@mui/icons-material/RateReviewOutlined'
+import AutorenewOutlinedIcon from '@mui/icons-material/AutorenewOutlined'
+import HistoryEduOutlinedIcon from '@mui/icons-material/HistoryEduOutlined'
+import ManageAccountsOutlinedIcon from '@mui/icons-material/ManageAccountsOutlined'
+import ReportProblemOutlinedIcon from '@mui/icons-material/ReportProblemOutlined'
+import LogoutOutlinedIcon from '@mui/icons-material/LogoutOutlined'
+import type { SvgIconComponent } from '@mui/icons-material'
+import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import { api } from '../api/client'
 import { useCurrentUser } from '../auth/useAuth'
+import { Brand } from '../components/Brand'
+
+const DRAWER_WIDTH = 260
+
+type NavItem = { label: string; to: string; icon: SvgIconComponent; roles: string[] }
+type NavGroup = { label: string; items: NavItem[] }
+
+// Role-gated navigation, grouped by domain. Gating is for convenience only — the backend authorizes
+// every operation regardless of what the UI shows.
+const NAV_GROUPS: NavGroup[] = [
+  {
+    label: 'Care',
+    items: [
+      { label: 'Dashboard', to: '/', icon: SpaceDashboardOutlinedIcon, roles: ['PATIENT', 'PROVIDER', 'CARE_COORDINATOR', 'CLAIMS_REVIEWER', 'AUDITOR', 'ORG_ADMIN'] },
+      { label: 'Patients', to: '/patients', icon: PeopleOutlinedIcon, roles: ['PROVIDER', 'CARE_COORDINATOR', 'ORG_ADMIN'] },
+      { label: 'Requests', to: '/requests', icon: AssignmentOutlinedIcon, roles: ['PATIENT', 'PROVIDER', 'CARE_COORDINATOR', 'ORG_ADMIN'] },
+      { label: 'Referrals', to: '/referrals', icon: CallSplitOutlinedIcon, roles: ['PROVIDER', 'CARE_COORDINATOR', 'ORG_ADMIN'] },
+      { label: 'Emergency access', to: '/break-glass', icon: MedicalServicesOutlinedIcon, roles: ['PROVIDER'] },
+    ],
+  },
+  {
+    label: 'Claims & coverage',
+    items: [
+      { label: 'Claims', to: '/claims', icon: ReceiptLongOutlinedIcon, roles: ['PROVIDER', 'CARE_COORDINATOR', 'CLAIMS_REVIEWER', 'ORG_ADMIN'] },
+      { label: 'Coverage', to: '/coverage-plans', icon: ShieldOutlinedIcon, roles: ['PROVIDER', 'CARE_COORDINATOR', 'CLAIMS_REVIEWER', 'ORG_ADMIN'] },
+      { label: 'Prior auth', to: '/prior-authorizations', icon: FactCheckOutlinedIcon, roles: ['PROVIDER', 'CARE_COORDINATOR', 'CLAIMS_REVIEWER', 'ORG_ADMIN'] },
+      { label: 'Appeals', to: '/appeals', icon: GavelOutlinedIcon, roles: ['PROVIDER', 'CARE_COORDINATOR', 'CLAIMS_REVIEWER', 'ORG_ADMIN'] },
+      { label: 'Reviews', to: '/claim-reviews', icon: RateReviewOutlinedIcon, roles: ['CARE_COORDINATOR', 'CLAIMS_REVIEWER', 'ORG_ADMIN'] },
+      { label: 'Reprocessing', to: '/reprocessing', icon: AutorenewOutlinedIcon, roles: ['CLAIMS_REVIEWER', 'ORG_ADMIN'] },
+    ],
+  },
+  {
+    label: 'Governance',
+    items: [
+      { label: 'Audit', to: '/audit', icon: HistoryEduOutlinedIcon, roles: ['AUDITOR', 'ORG_ADMIN'] },
+      { label: 'Access review', to: '/access-review', icon: ManageAccountsOutlinedIcon, roles: ['AUDITOR', 'ORG_ADMIN'] },
+      { label: 'Dead letters', to: '/dead-letters', icon: ReportProblemOutlinedIcon, roles: ['ORG_ADMIN'] },
+    ],
+  },
+]
+
+function isActivePath(pathname: string, to: string): boolean {
+  if (to === '/') return pathname === '/'
+  return pathname === to || pathname.startsWith(to + '/')
+}
 
 /**
- * The authenticated shell: a top bar showing who you are (email · organization · roles), a
- * role-aware nav, and logout. Nav items are gated by role for convenience only — the backend still
- * authorizes every operation. Real destinations are added in Phase 2; they are placeholders now.
+ * The authenticated shell: a grouped, role-aware sidebar (the "Primary" nav landmark), a brand mark,
+ * and a user/logout footer. On desktop the sidebar is permanent; on mobile it's a drawer behind a
+ * hamburger. Nav is gated by role for convenience only — the backend still authorizes every operation.
  */
 export function AppLayout() {
   const { data: user } = useCurrentUser()
   const navigate = useNavigate()
+  const location = useLocation()
   const queryClient = useQueryClient()
+  const theme = useTheme()
+  // defaultMatches:true → the permanent sidebar renders in jsdom tests (no matchMedia there), so the
+  // single "Primary" nav landmark the accessibility test asserts is present.
+  const isDesktop = useMediaQuery(theme.breakpoints.up('md'), { defaultMatches: true })
+  const [mobileOpen, setMobileOpen] = useState(false)
+
+  const roles = user?.roles ?? []
 
   async function handleLogout() {
     try {
@@ -33,19 +114,127 @@ export function AppLayout() {
     }
   }
 
-  const roles = user?.roles ?? []
+  function go(to: string) {
+    navigate(to)
+    if (!isDesktop) setMobileOpen(false)
+  }
+
+  const drawer = (
+    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+      <Box sx={{ px: 2.5, py: 2.25 }}>
+        <Brand />
+      </Box>
+      <Divider />
+
+      <Box
+        component="nav"
+        aria-label="Primary"
+        sx={{ flexGrow: 1, overflowY: 'auto', px: 1.25, py: 1 }}
+      >
+        {NAV_GROUPS.map((group) => {
+          const items = group.items.filter((item) => roles.some((r) => item.roles.includes(r)))
+          if (items.length === 0) return null
+          return (
+            <List
+              key={group.label}
+              disablePadding
+              sx={{ mb: 1 }}
+              subheader={
+                <ListSubheader
+                  disableSticky
+                  sx={{
+                    bgcolor: 'transparent',
+                    color: 'text.secondary',
+                    fontSize: 11,
+                    fontWeight: 700,
+                    letterSpacing: '0.08em',
+                    textTransform: 'uppercase',
+                    lineHeight: 2.4,
+                  }}
+                >
+                  {group.label}
+                </ListSubheader>
+              }
+            >
+              {items.map((item) => {
+                const active = isActivePath(location.pathname, item.to)
+                const Icon = item.icon
+                return (
+                  <ListItem key={item.to} disablePadding>
+                    <ListItemButton
+                      selected={active}
+                      onClick={() => go(item.to)}
+                      sx={{
+                        borderRadius: 2,
+                        mb: 0.25,
+                        py: 0.9,
+                        '& .MuiListItemIcon-root': { minWidth: 38, color: 'text.secondary' },
+                        '&.Mui-selected': {
+                          bgcolor: 'rgba(13,148,136,0.10)',
+                          color: 'primary.dark',
+                          fontWeight: 600,
+                          '& .MuiListItemIcon-root': { color: 'primary.dark' },
+                          '&:hover': { bgcolor: 'rgba(13,148,136,0.16)' },
+                        },
+                      }}
+                    >
+                      <ListItemIcon>
+                        <Icon fontSize="small" />
+                      </ListItemIcon>
+                      <ListItemText
+                        primary={item.label}
+                        slotProps={{ primary: { sx: { fontSize: 14, fontWeight: active ? 600 : 500 } } }}
+                      />
+                    </ListItemButton>
+                  </ListItem>
+                )
+              })}
+            </List>
+          )
+        })}
+      </Box>
+
+      {user && (
+        <>
+          <Divider />
+          <Box sx={{ p: 2 }}>
+            <Typography variant="body2" sx={{ fontWeight: 600, lineHeight: 1.3 }} noWrap>
+              {user.fullName ?? user.email}
+            </Typography>
+            <Typography variant="caption" color="text.secondary" noWrap sx={{ display: 'block' }}>
+              {user.organizationName ?? 'No organization'}
+            </Typography>
+            <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', mt: 1 }}>
+              {roles.map((role) => (
+                <Chip key={role} label={role} size="small" variant="outlined" />
+              ))}
+            </Box>
+            <Button
+              fullWidth
+              variant="outlined"
+              color="inherit"
+              startIcon={<LogoutOutlinedIcon />}
+              onClick={handleLogout}
+              sx={{ mt: 1.5, justifyContent: 'flex-start' }}
+            >
+              Log out
+            </Button>
+          </Box>
+        </>
+      )}
+    </Box>
+  )
 
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
-      {/* Skip link (WCAG 2.4.1): the first focusable element, hidden until focused, so a keyboard user can
-          jump past the nav straight to the page content. */}
+    <Box sx={{ display: 'flex', minHeight: '100vh', bgcolor: 'background.default' }}>
+      {/* Skip link (WCAG 2.4.1): the first focusable element, hidden until focused. */}
       <Link
         href="#main"
         sx={{
           position: 'absolute',
           left: 8,
           top: -40,
-          zIndex: (theme) => theme.zIndex.tooltip + 1,
+          zIndex: (t) => t.zIndex.tooltip + 1,
           px: 2,
           py: 1,
           borderRadius: 1,
@@ -58,118 +247,54 @@ export function AppLayout() {
         Skip to main content
       </Link>
 
-      <AppBar position="static">
-        <Toolbar>
-          {/* The brand is decorative here, not a heading — the page's own PageHeading is the <h1>. */}
-          <Typography variant="h6" component="div" sx={{ fontWeight: 700, mr: 4 }}>
-            HealthCloud
-          </Typography>
+      {/* Mobile top bar: hamburger + brand (desktop uses the permanent sidebar instead). */}
+      {!isDesktop && (
+        <AppBar position="fixed" sx={{ zIndex: (t) => t.zIndex.drawer + 1 }}>
+          <Toolbar>
+            <IconButton
+              edge="start"
+              aria-label="Open navigation"
+              onClick={() => setMobileOpen(true)}
+              sx={{ mr: 1.5 }}
+            >
+              <MenuOutlinedIcon />
+            </IconButton>
+            <Brand />
+          </Toolbar>
+        </AppBar>
+      )}
 
-          <Stack component="nav" aria-label="Primary" direction="row" spacing={1} sx={{ flexGrow: 1 }}>
-            <Button color="inherit" onClick={() => navigate('/')}>
-              Home
-            </Button>
-            {roles.some((r) => ['PROVIDER', 'CARE_COORDINATOR', 'ORG_ADMIN'].includes(r)) && (
-              <Button color="inherit" onClick={() => navigate('/patients')}>
-                Patients
-              </Button>
-            )}
-            {roles.some((r) => ['PATIENT', 'PROVIDER', 'CARE_COORDINATOR', 'ORG_ADMIN'].includes(r)) && (
-              <Button color="inherit" onClick={() => navigate('/requests')}>
-                Requests
-              </Button>
-            )}
-            {roles.includes('CARE_COORDINATOR') && (
-              <Button color="inherit" disabled>
-                Coordination
-              </Button>
-            )}
-            {roles.some((r) => ['PROVIDER', 'CARE_COORDINATOR', 'CLAIMS_REVIEWER', 'ORG_ADMIN'].includes(r)) && (
-              <Button color="inherit" onClick={() => navigate('/claims')}>
-                Claims
-              </Button>
-            )}
-            {roles.some((r) => ['PROVIDER', 'CARE_COORDINATOR', 'CLAIMS_REVIEWER', 'ORG_ADMIN'].includes(r)) && (
-              <Button color="inherit" onClick={() => navigate('/coverage-plans')}>
-                Coverage
-              </Button>
-            )}
-            {roles.some((r) => ['PROVIDER', 'CARE_COORDINATOR', 'CLAIMS_REVIEWER', 'ORG_ADMIN'].includes(r)) && (
-              <Button color="inherit" onClick={() => navigate('/prior-authorizations')}>
-                Prior auth
-              </Button>
-            )}
-            {roles.some((r) => ['PROVIDER', 'CARE_COORDINATOR', 'ORG_ADMIN'].includes(r)) && (
-              <Button color="inherit" onClick={() => navigate('/referrals')}>
-                Referrals
-              </Button>
-            )}
-            {roles.some((r) => ['PROVIDER', 'CARE_COORDINATOR', 'CLAIMS_REVIEWER', 'ORG_ADMIN'].includes(r)) && (
-              <Button color="inherit" onClick={() => navigate('/appeals')}>
-                Appeals
-              </Button>
-            )}
-            {roles.some((r) => ['CARE_COORDINATOR', 'CLAIMS_REVIEWER', 'ORG_ADMIN'].includes(r)) && (
-              <Button color="inherit" onClick={() => navigate('/claim-reviews')}>
-                Reviews
-              </Button>
-            )}
-            {roles.some((r) => ['CLAIMS_REVIEWER', 'ORG_ADMIN'].includes(r)) && (
-              <Button color="inherit" onClick={() => navigate('/reprocessing')}>
-                Reprocessing
-              </Button>
-            )}
-            {roles.some((r) => ['AUDITOR', 'ORG_ADMIN'].includes(r)) && (
-              <Button color="inherit" onClick={() => navigate('/audit')}>
-                Audit
-              </Button>
-            )}
-            {roles.some((r) => ['AUDITOR', 'ORG_ADMIN'].includes(r)) && (
-              <Button color="inherit" onClick={() => navigate('/access-review')}>
-                Access review
-              </Button>
-            )}
-            {roles.includes('ORG_ADMIN') && (
-              <Button color="inherit" onClick={() => navigate('/dead-letters')}>
-                Dead letters
-              </Button>
-            )}
-            {roles.includes('PROVIDER') && (
-              <Button color="inherit" onClick={() => navigate('/break-glass')}>
-                Emergency access
-              </Button>
-            )}
-            {roles.includes('ORG_ADMIN') && (
-              <Button color="inherit" disabled>
-                Administration
-              </Button>
-            )}
-          </Stack>
+      <Drawer
+        variant={isDesktop ? 'permanent' : 'temporary'}
+        open={isDesktop ? true : mobileOpen}
+        onClose={() => setMobileOpen(false)}
+        ModalProps={{ keepMounted: true }}
+        sx={{
+          width: isDesktop ? DRAWER_WIDTH : undefined,
+          flexShrink: 0,
+          '& .MuiDrawer-paper': {
+            width: DRAWER_WIDTH,
+            boxSizing: 'border-box',
+            borderRight: '1px solid',
+            borderColor: 'divider',
+            bgcolor: 'background.paper',
+          },
+        }}
+      >
+        {drawer}
+      </Drawer>
 
-          {user && (
-            <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
-              <Box sx={{ textAlign: 'right', lineHeight: 1.2 }}>
-                <Typography variant="body2">{user.email}</Typography>
-                <Typography variant="caption" sx={{ opacity: 0.85 }}>
-                  {user.organizationName ?? 'No organization'}
-                </Typography>
-              </Box>
-              <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
-                {roles.map((role) => (
-                  <Chip key={role} label={role} size="small" color="secondary" />
-                ))}
-              </Box>
-              <Button color="inherit" variant="outlined" onClick={handleLogout}>
-                Log out
-              </Button>
-            </Stack>
-          )}
-        </Toolbar>
-      </AppBar>
-
-      <Container component="main" id="main" tabIndex={-1} sx={{ py: 4, flexGrow: 1, outline: 'none' }}>
-        <Outlet />
-      </Container>
+      <Box
+        component="main"
+        id="main"
+        tabIndex={-1}
+        sx={{ flexGrow: 1, minWidth: 0, outline: 'none' }}
+      >
+        {!isDesktop && <Toolbar />}
+        <Container sx={{ py: 4 }}>
+          <Outlet />
+        </Container>
+      </Box>
     </Box>
   )
 }

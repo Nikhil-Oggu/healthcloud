@@ -454,6 +454,17 @@
 
 ## Log (newest first)
 
+### 2026-09-19 — UI/Design track, slice 2 ✅ (app shell + navigation: grouped sidebar)
+- **Why:** the shell crammed ~16 role-gated items into one horizontal top bar (cluttered, wrapped, "regular"). A grouped **sidebar** is the biggest single "real product" upgrade and touches one shared file (`layout/AppLayout.tsx`).
+- **Done (frontend):**
+  - Rebuilt `AppLayout.tsx` as a **permanent left sidebar on desktop / temporary drawer + hamburger top bar on mobile** (`useMediaQuery(up('md'), { defaultMatches: true })` — `defaultMatches:true` so the permanent sidebar renders in jsdom tests, keeping the single `Primary` nav landmark the a11y test asserts).
+  - **Grouped, role-gated nav with icons + active-route highlight** (teal tint + `primary.dark`): **Care** (Dashboard, Patients, Requests, Referrals, Emergency access) · **Claims & coverage** (Claims, Coverage, Prior auth, Appeals, Reviews, Reprocessing) · **Governance** (Audit, Access review, Dead letters). Brand mark at top; user identity (name · org · role chips) + Log out in the footer.
+  - **Removed the two dead disabled placeholders** ("Coordination", "Administration").
+  - Added dependency **`@mui/icons-material`** (`^9.4.0`) for the nav icons.
+  - Accessibility preserved (the tests enforce it): skip link first (`href="#main"`), sidebar is the `<nav aria-label="Primary">`, `<main id="main" tabIndex={-1}>`, brand non-heading, axe clean. **Fix hit en route:** MUI `ListItemButton` renders a `<div>`, so putting it directly under `<ul>` broke list semantics (axe "list" violation) — wrapped each in `<ListItem disablePadding>`.
+- **Verified:** `npm run typecheck` + `npm run build` clean; **184 tests pass** (incl. the axe + shell tests); confirmed live in the browser logged in as ORG_ADMIN — all **13 grouped nav items + Log out** render with the active highlight (desktop), and the sidebar collapses to a hamburger top bar (mobile).
+- **Next slices:** 3 — the signature dark **animated Constellation hero** on landing + login; 4 — role-aware dashboard; 5 — work-queue/table polish; 6 — forms/detail polish.
+
 ### 2026-09-19 — UI/Design track, slice 1 ✅ (design-system foundation: "Care Constellation" theme, fonts & brand)
 - **Why:** the UI was plain default MUI (`src/main.tsx` called `createTheme()` with zero customization). We chose an original design direction — **Care Constellation** (dark, network-motif identity on the entry surfaces; light + readable in the deep app) after comparing three live concept mockups. This slice lays the foundation that restyles every page at once.
 - **Design spec first:** `docs/design/design-system.md` — the durable "design CLAUDE.md" (identity, the hybrid dark-hero/light-app rule, all color tokens for both variants, typography, shape/elevation/spacing, component conventions, motion/accessibility, build order).
