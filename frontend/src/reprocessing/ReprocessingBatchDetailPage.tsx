@@ -1,4 +1,5 @@
 import { Link as RouterLink, useParams } from 'react-router-dom'
+import { BackLink } from '../components/BackLink'
 import {
   Box,
   Card,
@@ -37,9 +38,7 @@ export function ReprocessingBatchDetailPage() {
   return (
     <Stack spacing={3}>
       <Box>
-        <Link component={RouterLink} to="/reprocessing">
-          ← Back to reprocessing
-        </Link>
+        <BackLink to="/reprocessing" label="Back to reprocessing" />
       </Box>
 
       <Card variant="outlined">

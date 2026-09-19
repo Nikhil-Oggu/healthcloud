@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Link as RouterLink, useParams } from 'react-router-dom'
+import { BackLink } from '../components/BackLink'
 import {
   Alert,
   Box,
@@ -79,9 +80,7 @@ export function AppealDetailPage() {
   return (
     <Stack spacing={3}>
       <Box>
-        <Link component={RouterLink} to="/appeals">
-          ← Back to appeals
-        </Link>
+        <BackLink to="/appeals" label="Back to appeals" />
       </Box>
 
       <Card variant="outlined">

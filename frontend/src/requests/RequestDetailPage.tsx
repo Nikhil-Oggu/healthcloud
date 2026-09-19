@@ -2,7 +2,8 @@ import { useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { Link as RouterLink, useParams } from 'react-router-dom'
+import { useParams } from 'react-router-dom'
+import { BackLink } from '../components/BackLink'
 import {
   Alert,
   Box,
@@ -11,7 +12,6 @@ import {
   CardContent,
   Chip,
   Divider,
-  Link,
   Stack,
   TextField,
   Typography,
@@ -88,9 +88,7 @@ export function RequestDetailPage() {
   return (
     <Stack spacing={3}>
       <Box>
-        <Link component={RouterLink} to="/requests">
-          ← Back to requests
-        </Link>
+        <BackLink to="/requests" label="Back to requests" />
       </Box>
 
       <Card variant="outlined">

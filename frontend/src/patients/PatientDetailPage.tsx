@@ -2,7 +2,8 @@ import { useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { Link as RouterLink, useParams } from 'react-router-dom'
+import { useParams } from 'react-router-dom'
+import { BackLink } from '../components/BackLink'
 import {
   Alert,
   Box,
@@ -10,7 +11,6 @@ import {
   Card,
   CardContent,
   Chip,
-  Link,
   Paper,
   Stack,
   Table,
@@ -139,9 +139,7 @@ export function PatientDetailPage() {
   return (
     <Stack spacing={3}>
       <Box>
-        <Link component={RouterLink} to="/patients" variant="body2">
-          ← Patients
-        </Link>
+        <BackLink to="/patients" label="Back to patients" />
         <PageHeading sx={{ mt: 1 }}>
           {p.fullName}
         </PageHeading>

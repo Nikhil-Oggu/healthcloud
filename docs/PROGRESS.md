@@ -454,6 +454,15 @@
 
 ## Log (newest first)
 
+### 2026-09-19 — UI/Design track, slice 6 ✅ (detail-page finish: unified BackLink) — UI/Design track COMPLETE
+- **Why:** the finishing consistency pass. After slices 1–5 the app is already cohesive (theme, sidebar, dark hero, dashboard, soft chips + clean tables), so the remaining clear inconsistency was the detail pages' ad-hoc back links (`← Back to X`, styled slightly differently per page).
+- **Done (frontend):**
+  - New **`src/components/BackLink.tsx`** — a consistent back affordance (an `ArrowBack` icon + label, muted → teal on hover).
+  - Rolled it across **all 9 detail pages** (claims, prior-auth, referrals, appeals, claim-reviews, reprocessing, requests, coverage, patients), replacing the hand-rolled `<Link>… ← Back to X` blocks. Removed the now-unused `Link`/`RouterLink` imports from the 6 pages where they were only used there.
+- **Scoping decision (honest):** I deliberately **did not** do the deeper `DetailHeader`/`FormCard` restructuring across ~17 detail pages + forms that the plan floated — the app is already cohesive and that rewrite is high-regression-risk for marginal gain. The detail-page title/status blocks and the create forms already inherit the theme (cards, buttons, inputs, soft chips) and read consistently. That deeper restructuring is available as an optional future slice if desired.
+- **Verified:** typecheck + build clean; **187 tests pass** (no test relied on the old `←` text); confirmed **live** — the claim detail page shows the new icon back link, the soft ADJUDICATED chip, and the clean card.
+- **UI/Design track COMPLETE ✅** (slices 1–6): design-system foundation → grouped sidebar shell → dark animated Constellation login hero → role-aware dashboard → work-queue/table polish → detail-page finish. The app now presents a distinctive, cohesive "Care Constellation" identity from the login screen through every working page. Follow-ups (optional): dark-mode toggle; deeper `DetailHeader`/`FormCard` unification; a separate public marketing landing page.
+
 ### 2026-09-19 — UI/Design track, slice 5 ✅ (work-queue & table polish across all 8 queues)
 - **Why:** the 8 work queues all share one structure (heading → filters → table → status chips → pagination). Polish them consistently — mostly at the **theme level** so all improve at once with low risk (no rewrite of the pagination/sort/search/filter logic).
 - **Done (frontend):**

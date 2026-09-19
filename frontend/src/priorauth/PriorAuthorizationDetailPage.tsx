@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { Link as RouterLink, useParams } from 'react-router-dom'
+import { useParams } from 'react-router-dom'
+import { BackLink } from '../components/BackLink'
 import {
   Alert,
   Box,
@@ -8,7 +9,6 @@ import {
   CardContent,
   Chip,
   Divider,
-  Link,
   Stack,
   TextField,
   Typography,
@@ -75,9 +75,7 @@ export function PriorAuthorizationDetailPage() {
   return (
     <Stack spacing={3}>
       <Box>
-        <Link component={RouterLink} to="/prior-authorizations">
-          ← Back to prior authorizations
-        </Link>
+        <BackLink to="/prior-authorizations" label="Back to prior authorizations" />
       </Box>
 
       <Card variant="outlined">

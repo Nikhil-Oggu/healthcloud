@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { Link as RouterLink, useParams } from 'react-router-dom'
+import { useParams } from 'react-router-dom'
+import { BackLink } from '../components/BackLink'
 import {
   Alert,
   Box,
@@ -7,7 +8,6 @@ import {
   Card,
   CardContent,
   Divider,
-  Link,
   Stack,
   Table,
   TableBody,
@@ -58,9 +58,7 @@ export function CoveragePlanDetailPage() {
   return (
     <Stack spacing={3}>
       <Box>
-        <Link component={RouterLink} to="/coverage-plans">
-          ← Back to coverage plans
-        </Link>
+        <BackLink to="/coverage-plans" label="Back to coverage plans" />
       </Box>
 
       <Card variant="outlined">

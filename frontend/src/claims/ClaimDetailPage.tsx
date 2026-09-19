@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { Link as RouterLink, useParams } from 'react-router-dom'
+import { useParams } from 'react-router-dom'
+import { BackLink } from '../components/BackLink'
 import {
   Alert,
   Box,
@@ -8,7 +9,6 @@ import {
   CardContent,
   Chip,
   Divider,
-  Link,
   Stack,
   Table,
   TableBody,
@@ -130,9 +130,7 @@ export function ClaimDetailPage() {
   return (
     <Stack spacing={3}>
       <Box>
-        <Link component={RouterLink} to="/claims">
-          ← Back to claims
-        </Link>
+        <BackLink to="/claims" label="Back to claims" />
       </Box>
 
       <Card variant="outlined">
