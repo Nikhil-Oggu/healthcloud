@@ -22,6 +22,7 @@ import { usePatients } from '../patients/usePatients'
 import { useCurrentUser } from '../auth/useAuth'
 import { LoadingScreen } from '../components/LoadingScreen'
 import { ErrorScreen } from '../components/ErrorScreen'
+import { EmptyState } from '../components/EmptyState'
 import { priorAuthStatusColor } from './statusColor'
 import { CreatePriorAuthForm } from './CreatePriorAuthForm'
 import { usePriorAuthorizations } from './usePriorAuth'
@@ -154,9 +155,7 @@ export function PriorAuthorizationsPage() {
             {rows.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={5}>
-                  <Typography variant="body2" color="text.secondary">
-                    No prior authorizations yet.
-                  </Typography>
+                  <EmptyState message="No prior authorizations yet." />
                 </TableCell>
               </TableRow>
             ) : (

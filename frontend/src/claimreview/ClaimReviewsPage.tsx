@@ -15,7 +15,6 @@ import {
   TableRow,
   TableSortLabel,
   TextField,
-  Typography,
 } from '@mui/material'
 import type { ClaimReviewStatus } from '../api/types'
 import { usePatients } from '../patients/usePatients'
@@ -23,6 +22,7 @@ import { useClaims } from '../claims/useClaims'
 import { useCurrentUser } from '../auth/useAuth'
 import { LoadingScreen } from '../components/LoadingScreen'
 import { ErrorScreen } from '../components/ErrorScreen'
+import { EmptyState } from '../components/EmptyState'
 import { claimReviewStatusColor } from './statusColor'
 import { CreateClaimReviewForm } from './CreateClaimReviewForm'
 import { useClaimReviews } from './useClaimReview'
@@ -157,9 +157,7 @@ export function ClaimReviewsPage() {
             {rows.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={4}>
-                  <Typography variant="body2" color="text.secondary">
-                    No reviews yet.
-                  </Typography>
+                  <EmptyState message="No reviews yet." />
                 </TableCell>
               </TableRow>
             ) : (

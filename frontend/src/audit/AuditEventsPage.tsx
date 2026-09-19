@@ -21,6 +21,7 @@ import {
 import type { AuditAction } from '../api/types'
 import { LoadingScreen } from '../components/LoadingScreen'
 import { ErrorScreen } from '../components/ErrorScreen'
+import { EmptyState } from '../components/EmptyState'
 import { auditActionColor, auditOutcomeColor } from './statusColor'
 import { useAuditEvents, useVerifyAuditChain } from './useAudit'
 import { PageHeading } from '../components/PageHeading'
@@ -176,9 +177,7 @@ export function AuditEventsPage() {
             {rows.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={8}>
-                  <Typography variant="body2" color="text.secondary">
-                    No audit events{action === '' ? ' yet' : ' for this action'}.
-                  </Typography>
+                  <EmptyState message={`No audit events${action === '' ? ' yet' : ' for this action'}.`} />
                 </TableCell>
               </TableRow>
             ) : (

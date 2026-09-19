@@ -21,6 +21,7 @@ import type { ReprocessingBatchStatus } from '../api/types'
 import { useCurrentUser } from '../auth/useAuth'
 import { LoadingScreen } from '../components/LoadingScreen'
 import { ErrorScreen } from '../components/ErrorScreen'
+import { EmptyState } from '../components/EmptyState'
 import { reprocessingStatusColor } from './statusColor'
 import { CreateReprocessingBatchForm } from './CreateReprocessingBatchForm'
 import { useReprocessingBatches } from './useReprocessing'
@@ -151,9 +152,7 @@ export function ReprocessingBatchesPage() {
             {rows.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={7}>
-                  <Typography variant="body2" color="text.secondary">
-                    No batches yet.
-                  </Typography>
+                  <EmptyState message="No batches yet." />
                 </TableCell>
               </TableRow>
             ) : (

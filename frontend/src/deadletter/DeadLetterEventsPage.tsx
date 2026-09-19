@@ -18,6 +18,7 @@ import {
 } from '@mui/material'
 import { LoadingScreen } from '../components/LoadingScreen'
 import { ErrorScreen } from '../components/ErrorScreen'
+import { EmptyState } from '../components/EmptyState'
 import { useDeadLetterEvents, useReplayDeadLetter } from './useDeadLetter'
 import { PageHeading } from '../components/PageHeading'
 
@@ -126,9 +127,7 @@ export function DeadLetterEventsPage() {
             {rows.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={6}>
-                  <Typography variant="body2" color="text.secondary">
-                    No dead-lettered messages.
-                  </Typography>
+                  <EmptyState message="No dead-lettered messages." />
                 </TableCell>
               </TableRow>
             ) : (

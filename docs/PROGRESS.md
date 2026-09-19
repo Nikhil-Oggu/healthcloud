@@ -454,6 +454,15 @@
 
 ## Log (newest first)
 
+### 2026-09-19 — UI/Design track, slice 5 ✅ (work-queue & table polish across all 8 queues)
+- **Why:** the 8 work queues all share one structure (heading → filters → table → status chips → pagination). Polish them consistently — mostly at the **theme level** so all improve at once with low risk (no rewrite of the pagination/sort/search/filter logic).
+- **Done (frontend):**
+  - **Soft status chips (global, theme):** `MuiChip` override — filled colored chips now render **soft tinted** (light colored bg + strong colored text) instead of solid fills. Restyles every status chip across all 8 queues **and** every detail page at once. Outlined chips (nav/identity) keep their border. AA-contrast.
+  - **Refined tables (global, theme):** `MuiTableCell` divider-colored borders + `MuiTableRow` subtle teal hover tint, keeping the tinted uppercase headers from slice 1. Applies to every table app-wide.
+  - **Shared `EmptyState` component** (`src/components/EmptyState.tsx` — centered inbox icon + message) rolled across **all 8 queues** (claims, prior-auth, referrals, appeals, claim-reviews, reprocessing, audit, dead-letters), replacing the plain "No X yet." cell text while **keeping each queue's exact message** (so existing tests pass). Removed the now-unused `Typography` import from the 3 pages where it was only used for that text.
+- **Verified:** typecheck + build clean; **187 tests pass** (all queue + axe tests — behavior unchanged); confirmed **live** — the claims queue shows the softer tinted chips + cleaner table, and the dead-letters queue shows the new centered empty state.
+- **Next slice:** 6 — forms/detail-page polish (the last consistency pass), then the app is cohesively designed end to end.
+
 ### 2026-09-19 — UI/Design track, slice 4 ✅ (role-aware dashboard: constellation hero band + real counts + launchpad)
 - **Why:** the post-login home (`HomePage.tsx`) was a bare identity card. Make it a real landing that carries the Constellation look into the app and gives each role a launchpad.
 - **Done (frontend):**

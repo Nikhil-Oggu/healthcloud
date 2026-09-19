@@ -22,6 +22,7 @@ import { usePatients } from '../patients/usePatients'
 import { useCurrentUser } from '../auth/useAuth'
 import { LoadingScreen } from '../components/LoadingScreen'
 import { ErrorScreen } from '../components/ErrorScreen'
+import { EmptyState } from '../components/EmptyState'
 import { referralStatusColor } from './statusColor'
 import { CreateReferralForm } from './CreateReferralForm'
 import { useReferrals } from './useReferral'
@@ -154,9 +155,7 @@ export function ReferralsPage() {
             {rows.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={5}>
-                  <Typography variant="body2" color="text.secondary">
-                    No referrals yet.
-                  </Typography>
+                  <EmptyState message="No referrals yet." />
                 </TableCell>
               </TableRow>
             ) : (

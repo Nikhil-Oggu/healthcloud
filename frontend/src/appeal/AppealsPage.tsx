@@ -15,7 +15,6 @@ import {
   TableRow,
   TableSortLabel,
   TextField,
-  Typography,
 } from '@mui/material'
 import type { AppealStatus } from '../api/types'
 import { usePatients } from '../patients/usePatients'
@@ -23,6 +22,7 @@ import { useClaims } from '../claims/useClaims'
 import { useCurrentUser } from '../auth/useAuth'
 import { LoadingScreen } from '../components/LoadingScreen'
 import { ErrorScreen } from '../components/ErrorScreen'
+import { EmptyState } from '../components/EmptyState'
 import { appealStatusColor } from './statusColor'
 import { CreateAppealForm } from './CreateAppealForm'
 import { useAppeals } from './useAppeal'
@@ -157,9 +157,7 @@ export function AppealsPage() {
             {rows.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={4}>
-                  <Typography variant="body2" color="text.secondary">
-                    No appeals yet.
-                  </Typography>
+                  <EmptyState message="No appeals yet." />
                 </TableCell>
               </TableRow>
             ) : (

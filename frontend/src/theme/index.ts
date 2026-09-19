@@ -1,4 +1,4 @@
-import { createTheme } from '@mui/material/styles'
+import { alpha, createTheme } from '@mui/material/styles'
 
 /**
  * HealthCloud design system — "Care Constellation".
@@ -87,11 +87,29 @@ export const theme = createTheme({
     },
     MuiChip: {
       styleOverrides: {
-        root: { fontWeight: 600, borderRadius: 999 },
+        // Soft, tinted status chips (light colored background + strong colored text) instead of solid
+        // fills — the premium look, applied globally so every status chip across all queues + detail
+        // pages restyles at once. Outlined chips (nav/identity) keep their border.
+        root: ({ theme, ownerState }) => {
+          const color = ownerState.color
+          const palette = theme.palette as unknown as Record<string, { main: string; dark?: string }>
+          const isPaletteColor = !!color && color !== 'default' && !!palette[color]?.main
+          return {
+            fontWeight: 600,
+            borderRadius: 999,
+            ...(ownerState.variant === 'filled' && isPaletteColor
+              ? {
+                  backgroundColor: alpha(palette[color].main, 0.12),
+                  color: palette[color].dark ?? palette[color].main,
+                }
+              : {}),
+          }
+        },
       },
     },
     MuiTableCell: {
       styleOverrides: {
+        root: { borderColor: '#e6e9f0' },
         head: {
           backgroundColor: '#f6f8fb',
           color: '#5b6576',
@@ -100,6 +118,11 @@ export const theme = createTheme({
           letterSpacing: '0.06em',
           textTransform: 'uppercase',
         },
+      },
+    },
+    MuiTableRow: {
+      styleOverrides: {
+        root: { '&.MuiTableRow-hover:hover': { backgroundColor: 'rgba(13,148,136,0.04)' } },
       },
     },
     MuiLink: {

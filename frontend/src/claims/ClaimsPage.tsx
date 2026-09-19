@@ -15,13 +15,13 @@ import {
   TableRow,
   TableSortLabel,
   TextField,
-  Typography,
 } from '@mui/material'
 import type { ClaimStatus } from '../api/types'
 import { usePatients } from '../patients/usePatients'
 import { useCurrentUser } from '../auth/useAuth'
 import { LoadingScreen } from '../components/LoadingScreen'
 import { ErrorScreen } from '../components/ErrorScreen'
+import { EmptyState } from '../components/EmptyState'
 import { claimStatusColor } from './statusColor'
 import { CreateClaimForm } from './CreateClaimForm'
 import { useClaimsPage } from './useClaims'
@@ -159,9 +159,7 @@ export function ClaimsPage() {
             {rows.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={5}>
-                  <Typography variant="body2" color="text.secondary">
-                    No claims yet.
-                  </Typography>
+                  <EmptyState message="No claims yet." />
                 </TableCell>
               </TableRow>
             ) : (
