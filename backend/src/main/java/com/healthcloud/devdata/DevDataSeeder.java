@@ -84,7 +84,7 @@ import org.springframework.transaction.annotation.Transactional;
  * Idempotent: if NorthCare already exists it does nothing. All data is SYNTHETIC.
  */
 @Component
-@Profile("local")
+@Profile({"local", "demo"})
 public class DevDataSeeder implements ApplicationRunner {
 
     private static final Logger log = LoggerFactory.getLogger(DevDataSeeder.class);

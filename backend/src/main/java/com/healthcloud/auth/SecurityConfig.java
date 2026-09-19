@@ -7,6 +7,8 @@ import com.healthcloud.error.RestAuthenticationEntryPoint;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.env.Environment;
+import org.springframework.core.env.Profiles;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
@@ -22,7 +24,10 @@ import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
  * Session-based security for the API/BFF:
  * - unauthenticated protected requests get 401 (no login-page redirect);
  * - CSRF protection via a readable cookie token (the future SPA sends it back as a header);
- * - {@code /dev-login} is public and CSRF-exempt because it bootstraps the session (local only);
+ * - {@code /dev-login} is public and CSRF-exempt because it bootstraps the session, but ONLY when the
+ *   {@code local} profile is active — matching {@link DevLoginController}'s own {@code @Profile("local")}.
+ *   On the deployed app (profile {@code demo,cognito}) the controller is absent AND the endpoint is not
+ *   permitted, so the dev-login bypass cannot be reached; Cognito is the only login path;
  * - the real Cognito OIDC login (BFF) is enabled ONLY when a client registration is configured
  *   (Phase 10 slice 12): its {@code /oauth2/**} + {@code /login/oauth2/**} endpoints are then public,
  *   and a login is accepted only for a provisioned, ACTIVE app user (see {@link CognitoOidcUserService});
@@ -37,18 +42,31 @@ public class SecurityConfig {
                                             ObjectMapper objectMapper,
                                             CurrentUserService currentUserService,
                                             ObjectProvider<ClientRegistrationRepository> clientRegistrations,
-                                            CognitoOidcUserService oidcUserService) throws Exception {
+                                            CognitoOidcUserService oidcUserService,
+                                            Environment environment) throws Exception {
+        // The dev-login bypass is permitted ONLY under the `local` profile (like DevLoginController itself),
+        // so the deployed `demo,cognito` app has no unauthenticated login path.
+        boolean devLoginEnabled = environment.acceptsProfiles(Profiles.of("local"));
+
         http
-                .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/actuator/health", "/actuator/health/**", "/actuator/info").permitAll()
-                        .requestMatchers("/api/v1/dev-login").permitAll()
-                        // The OIDC authorization request + Cognito callback must be reachable pre-auth.
-                        .requestMatchers("/oauth2/**", "/login/oauth2/**").permitAll()
-                        .anyRequest().authenticated())
-                .csrf(csrf -> csrf
-                        .csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse())
-                        .csrfTokenRequestHandler(new CsrfTokenRequestAttributeHandler())
-                        .ignoringRequestMatchers("/api/v1/dev-login"))
+                .authorizeHttpRequests(auth -> {
+                    auth
+                            .requestMatchers("/actuator/health", "/actuator/health/**", "/actuator/info").permitAll();
+                    if (devLoginEnabled) {
+                        auth.requestMatchers("/api/v1/dev-login").permitAll();
+                    }
+                    // The OIDC authorization request + Cognito callback must be reachable pre-auth.
+                    auth.requestMatchers("/oauth2/**", "/login/oauth2/**").permitAll()
+                            .anyRequest().authenticated();
+                })
+                .csrf(csrf -> {
+                    csrf
+                            .csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse())
+                            .csrfTokenRequestHandler(new CsrfTokenRequestAttributeHandler());
+                    if (devLoginEnabled) {
+                        csrf.ignoringRequestMatchers("/api/v1/dev-login");
+                    }
+                })
                 .addFilterAfter(new CsrfCookieFilter(), CsrfFilter.class)
                 // After authorization succeeds, resolve the backend-derived caller/tenant context.
                 .addFilterAfter(new UserContextFilter(currentUserService), AuthorizationFilter.class)

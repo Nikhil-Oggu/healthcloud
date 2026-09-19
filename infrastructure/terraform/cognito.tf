@@ -76,9 +76,11 @@ resource "aws_cognito_user_pool_client" "app" {
     "https://${aws_cloudfront_distribution.main.domain_name}/",
   ]
 
+  # The BFF uses only the hosted-UI authorization-code flow (which needs none of the direct InitiateAuth
+  # flows) plus refresh-token rotation. We deliberately DON'T enable ALLOW_USER_PASSWORD_AUTH or
+  # ALLOW_USER_SRP_AUTH — they'd let a caller trade a username+password straight for tokens, widening the
+  # attack surface for no benefit. (Setting synthetic passwords via admin-set-user-password is unaffected.)
   explicit_auth_flows = [
-    "ALLOW_USER_SRP_AUTH",
-    "ALLOW_USER_PASSWORD_AUTH",
     "ALLOW_REFRESH_TOKEN_AUTH",
   ]
 

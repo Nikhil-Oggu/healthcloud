@@ -3,18 +3,26 @@
 #   Internet → ALB :80 → the Fargate task's frontend (nginx) container :8080
 # HTTP only this slice; HTTPS (ACM cert + a domain) arrives with the CloudFront/Cognito slices.
 
-# SG for the ALB: HTTP in from anywhere, all out.
+# AWS-managed prefix list of CloudFront's origin-facing IP ranges. Locking the ALB's :80 ingress to
+# this means the ALB is reachable ONLY through CloudFront (which forces HTTPS) — a request straight to
+# the ALB's http://…elb.amazonaws.com name from the internet is dropped. (Hardening follow-up: a
+# per-distribution secret origin-verify header would also exclude *other* accounts' CloudFront distros.)
+data "aws_ec2_managed_prefix_list" "cloudfront" {
+  name = "com.amazonaws.global.cloudfront.origin-facing"
+}
+
+# SG for the ALB: HTTP in from CloudFront only, all out.
 resource "aws_security_group" "alb" {
   name        = "${local.name_prefix}-alb-sg"
   description = "Public HTTP to the load balancer"
   vpc_id      = aws_vpc.main.id
 
   ingress {
-    description = "HTTP from the internet"
-    from_port   = 80
-    to_port     = 80
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
+    description     = "HTTP from CloudFront origin-facing ranges only"
+    from_port       = 80
+    to_port         = 80
+    protocol        = "tcp"
+    prefix_list_ids = [data.aws_ec2_managed_prefix_list.cloudfront.id]
   }
 
   egress {

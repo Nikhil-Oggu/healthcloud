@@ -454,6 +454,19 @@
 
 ## Log (newest first)
 
+### 2026-09-19 — Phase 10, auth-hardening slice ✅ (close the dev-login bypass on the deploy; lock the ALB to CloudFront; trim Cognito auth flows)
+- **Why:** the code-reviewer + security-reviewer subagents (run in parallel over the Phase 10 diff) both flagged, high-confidence, that the deployed app ran `SPRING_PROFILES_ACTIVE=local,cognito` — and the `local` profile keeps `/api/v1/dev-login` (a permitAll, CSRF-exempt, unauthenticated email→session endpoint) live. Anyone could `POST /api/v1/dev-login?email=admin@northcare.example.org` and get an ORG_ADMIN session, **bypassing Cognito entirely**. (The app was torn down, so nothing was exposed — but it was a real hole on every `apply`.) Two lesser items came with it: the ALB was reachable directly over plain HTTP (bypassing CloudFront's HTTPS), and the Cognito client enabled `ALLOW_USER_PASSWORD_AUTH`/`ALLOW_USER_SRP_AUTH` the BFF never uses.
+- **The core fix — separate "seed" from "dev-login":** the deploy needs the synthetic seed (so a Cognito login maps to a real `AppUser`) but must NOT expose dev-login.
+  - `DevDataSeeder`: `@Profile("local")` → **`@Profile({"local", "demo"})`** (seeds under either).
+  - `DevLoginController`: **unchanged** (`@Profile("local")`) — so it's absent under `demo`.
+  - `SecurityConfig`: the `/api/v1/dev-login` `permitAll()` + CSRF `ignoringRequestMatchers` are now applied **only when the `local` profile is active** (`Environment.acceptsProfiles(Profiles.of("local"))`), keeping the security exemption in lockstep with the controller's own profile.
+  - `ecs.tf`: deploy profile flipped **`local,cognito` → `demo,cognito`**. The deployed app is now **Cognito-only**; `/api/v1/dev-login` is hard-denied (403 CSRF / 401 — never a 200 session) and the controller isn't even wired.
+  - **Local dev, all CLAUDE.md commands, and every existing test still use `local` unchanged** (zero breakage) — only the *deployed* profile changed.
+- **ALB → CloudFront lock (`alb.tf`):** the ALB SG's `:80` ingress changed from `cidr_blocks = ["0.0.0.0/0"]` to the AWS-managed **`com.amazonaws.global.cloudfront.origin-facing`** prefix list (new `data "aws_ec2_managed_prefix_list"`). Direct plaintext HTTP from the internet to the ALB is dropped; only CloudFront (which forces HTTPS) reaches it.
+- **Cognito auth flows trimmed (`cognito.tf`):** `explicit_auth_flows` reduced to just **`ALLOW_REFRESH_TOKEN_AUTH`** (dropped `ALLOW_USER_PASSWORD_AUTH` + `ALLOW_USER_SRP_AUTH`). The BFF uses only the hosted-UI authorization-code flow + refresh; `admin-set-user-password` (how the synthetic passwords are set) is unaffected.
+- **Verified ($0, no AWS touched):** new **`DeployProfileNoDevLoginTest`** boots under the `demo` deploy profile and proves (a) `DevDataSeeder` is present (seed still runs), (b) `DevLoginController` is absent, (c) `POST /api/v1/dev-login` is denied (403/401, never 200, no `SESSION` cookie). Full backend `./mvnw verify` green; `terraform fmt -check` + `validate` clean. The Terraform changes land on the next `apply` (the app is torn down).
+- **Honest limitations / follow-ups (documented, not built):** the ALB prefix-list still admits *any* account's CloudFront distro — a per-distribution secret origin-verify header would fully close it; RP-initiated Cognito logout; a custom domain; enforcing MFA.
+
 ### 2026-09-19 — Phase 10, slice 15 ✅ (CloudFront HTTPS — the live Cognito login completes over HTTPS)
 - **Why:** Cognito rejects non-HTTPS callbacks and ACM can't cert the ALB's `*.elb.amazonaws.com` name, so put
   CloudFront (free trusted `*.cloudfront.net` cert, no domain) in front of the ALB. This is the finish line of the

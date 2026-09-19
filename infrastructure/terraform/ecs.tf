@@ -91,9 +91,10 @@ resource "aws_ecs_task_definition" "app" {
         # nginx owns 8080, so the backend listens on 8081 in the shared task namespace.
         { name = "SERVER_PORT", value = "8081" },
         { name = "SPRING_DATASOURCE_URL", value = "jdbc:postgresql://${aws_db_instance.main.address}:${aws_db_instance.main.port}/${aws_db_instance.main.db_name}" },
-        # `local,cognito`: dev-login + synthetic seed (so a Cognito login maps to a real app user) PLUS the
-        # real Cognito OIDC login. The production frontend build hides dev-login; Cognito is the visible path.
-        { name = "SPRING_PROFILES_ACTIVE", value = "local,cognito" },
+        # `demo,cognito`: synthetic seed (so a Cognito login maps to a real app user) + the real Cognito
+        # OIDC login — but NOT the `local` profile, so `/api/v1/dev-login` is neither wired nor permitted.
+        # Cognito is the ONLY login path on the deployed app (the dev-login bypass exists only locally).
+        { name = "SPRING_PROFILES_ACTIVE", value = "demo,cognito" },
         # Cognito OIDC client (Phase 10 slice 14) — non-secret config; the secret is injected below.
         { name = "COGNITO_CLIENT_ID", value = aws_cognito_user_pool_client.app.id },
         { name = "COGNITO_ISSUER_URI", value = "https://cognito-idp.${var.aws_region}.amazonaws.com/${aws_cognito_user_pool.main.id}" },
