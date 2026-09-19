@@ -2645,6 +2645,68 @@ term; the shim was the smaller, lower-risk step while paging rolled out.
 
 ---
 
+## Phase 10 — Cloud Deployment on AWS: containerize the app + CI images + Terraform skeleton (slices 1–5) — 2026-09-17
+
+### What we built
+The **local-only, $0** foundation of the cloud phase, before any AWS account was touched: production container images
+for both the backend and frontend, a CI pipeline that builds and publishes those images on every push, and a Terraform
+skeleton that establishes the IaC conventions while declaring **no resources**. Nothing here costs money or needs AWS —
+it's the artifacts and scaffolding that the later slices (6–15) actually deploy.
+
+### How it works
+- **Slice 1 — containerize the backend.** A multi-stage `backend/Dockerfile`: stage 1 builds the jar on a full JDK 25,
+  stage 2 runs it on a slim JRE as a **non-root** `spring` user, with an `/actuator/health` HEALTHCHECK. Tests are
+  skipped in the image build (they need Testcontainers/Docker and already gate in CI). An **opt-in `backend` service**
+  in `docker-compose.yml` behind a `full` profile so the everyday `up -d postgres kafka` is unchanged. This is the exact
+  artifact ECS Fargate runs later.
+- **Slice 2 — publish the backend image in CI.** A `backend-image` job in `.github/workflows/ci.yml` (`needs: backend`,
+  so only a tested image ships) builds the image via `docker/build-push-action` and **pushes it to GHCR**
+  (`ghcr.io/nikhil-oggu/healthcloud-backend`, tags `sha-<short>` immutable + `latest`) **only on push to `main`** — PRs
+  build but don't push. Auth is the automatic `GITHUB_TOKEN` (`packages: write`), so there are no secrets to manage.
+- **Slice 3 — containerize the frontend.** A multi-stage `frontend/Dockerfile`: build the SPA with Node, then serve it
+  from a **non-root nginx** that also **reverse-proxies `/api` + `/actuator` to the backend same-origin** — the
+  production mirror of the Vite dev proxy, so the session + CSRF cookies stay first-party (no CORS, no token in JS).
+  `default.conf.template` holds the SPA deep-link fallback + the `${BACKEND_UPSTREAM}`-templated proxy. Now the whole
+  app runs as containers locally (frontend → backend → postgres).
+- **Slice 4 — publish the frontend image in CI.** A `frontend-image` job mirrors slice 2 (GHCR, same tags, push only on
+  `main`); the two image jobs use distinct GHA cache scopes so they don't evict each other. Both deployable images now
+  build + publish automatically.
+- **Slice 5 — Terraform skeleton.** `infrastructure/terraform/` establishes the IaC baseline: version pins (Terraform
+  ≥1.9, AWS provider ~>6.0), the `aws` provider with **`default_tags`**, region/project/environment variables, a
+  `name_prefix` + `common_tags` locals, outputs, and a `backend.tf` documenting local-state-now / S3-later. It
+  **declares NO resources**, so `fmt`/`validate`/`plan` all run with **no AWS account, no credentials, and $0**.
+
+### Key points
+- Everything in slices 1–5 is **local-only and free** — the deliberate "get the artifacts + conventions right before
+  spending a cent" phase. The first real AWS resource is slice 6 (the S3 state bucket).
+- **Non-root containers + a slim runtime** are defense-in-depth and smaller images; the healthcheck is the same signal
+  ECS/ALB use later.
+- **Immutable `sha-<short>` tags** are what a deploy pins to; `latest` is the moving convenience tag.
+- CI publishes to **GHCR**, but ECS later pulls from **ECR** — a distinction that matters in slices 9/14 (we push to
+  ECR by hand with crane; CI's GHCR images aren't what the cluster runs).
+
+### Interview Q&A
+- **Q (beginner): Why put the app in a container at all?** A: A container bundles the app with the exact runtime it
+  needs, so it runs identically on a laptop, in CI, and on AWS. It's the unit ECS Fargate schedules — "build once, run
+  anywhere" instead of configuring a server by hand.
+- **Q (intermediate): Why a multi-stage Dockerfile?** A: The build stage needs the full JDK and Maven (or Node) and
+  produces a lot of intermediate junk; the runtime stage needs only the compiled artifact and a slim JRE (or nginx).
+  Multi-stage keeps the final image small and free of build tooling — smaller attack surface, faster pulls.
+- **Q (intermediate): Why does the frontend image run nginx that proxies to the backend, instead of the SPA calling the
+  API cross-origin?** A: Same-origin. If nginx serves the SPA and forwards `/api` to the backend, the browser sees one
+  origin, so the HttpOnly session cookie and CSRF cookie are first-party — no CORS, and no auth token ever touches
+  JavaScript. It's the production mirror of the Vite dev proxy.
+- **Q (advanced): Your CI only pushes images on `main`, not on PRs. Why build them on PRs at all then?** A: Building on
+  a PR proves the Dockerfile still works and the image assembles before merge, catching breakage early — but publishing
+  a `latest`/`sha` image from unreviewed code would pollute the registry and could be deployed by mistake. So PRs build
+  (verify) and only `main` publishes (release).
+- **Q (advanced): The Terraform skeleton declares no resources. What's the point of committing it?** A: It locks in the
+  conventions every later resource inherits — provider version, automatic tagging via `default_tags`, the naming prefix,
+  the remote-state plan — and proves `fmt`/`validate`/`plan` are green, all with zero cost and no AWS account. It makes
+  the first resource-adding slice a small, low-risk diff instead of a big-bang setup.
+
+---
+
 ## Phase 10 — Cloud Deployment on AWS: account setup, remote state, VPC, RDS, ECR (slices 6–9) — 2026-09-19
 
 ### What we built
@@ -3186,3 +3248,56 @@ image rebuild. Slices 11–15 together take the app from "dev-login stand-in" to
   require a shared secret header), and the deployment authenticates against seeded synthetic users under the
   `local,cognito` profile rather than a real provisioning flow. None are blockers for a synthetic demo, but each is a
   real hardening item before anything resembling production.
+
+---
+
+## Phase 10 COMPLETE — Cloud Deployment & CI/CD: the whole arc (slices 1–15) — 2026-09-19
+
+### The journey in one view
+Phase 10 took HealthCloud from a locally-run app to a **multi-tenant healthcare platform running on real AWS with real
+OIDC authentication over HTTPS** — built as fifteen small, individually-verified slices, each applied and (for the
+paid ones) torn down cost-consciously. The order was deliberate: get the **artifacts** right (containers), then the
+**pipeline** (CI images), then the **scaffolding** (Terraform + remote state), then **infrastructure bottom-up**
+(network → database → registry → compute), then **authentication** (Cognito), then **HTTPS**.
+
+- **1–2 Backend:** containerize (multi-stage, non-root, healthcheck) → publish to GHCR in CI.
+- **3–4 Frontend:** containerize (non-root nginx, same-origin API proxy) → publish to GHCR in CI.
+- **5 Terraform skeleton:** conventions + `default_tags`, no resources, $0.
+- **6 Remote state:** an S3 backend (bucket created by a `bootstrap/` config), S3-native locking, no DynamoDB — the
+  first real AWS resource.
+- **7 VPC:** 2 public + 2 private subnets across 2 AZs, **no NAT Gateway** (~$32/mo saved).
+- **8 RDS:** managed Postgres 17, private, encrypted, master password in Secrets Manager.
+- **9 ECR:** two repos; images built **arm64** and pushed with **crane** (docker push timed out on a home uplink).
+- **10 ECS Fargate + ALB:** the app goes **live** — one task, two containers over localhost, ARM64, DB secret injected.
+- **11 Cognito user pool:** the identity provider (confidential client, hosted UI, synthetic users).
+- **12 Backend BFF:** Spring Security OAuth2 maps a Cognito login → app user by email, proven locally.
+- **13 Frontend button:** "Sign in with Cognito" (dev-login hidden in production builds).
+- **14 Redeploy Cognito-capable app:** rebuilt/re-pushed both images, nginx OAuth proxy, Cognito secret in Secrets
+  Manager — OAuth proxy proven over HTTP.
+- **15 CloudFront HTTPS:** free trusted cert in front of the ALB → **the real Cognito login completes over HTTPS**.
+
+### The cross-cutting lessons (the ones worth remembering)
+- **One small verified slice at a time.** Fifteen slices, each with its own plan → build → verify → commit → (apply) →
+  destroy loop, is what kept a large, multi-service cloud migration debuggable. Every slice had a concrete proof.
+- **Two-gate cost discipline.** Nothing touched AWS without an explicit go-ahead, and paid resources were always
+  plan-first (`$0`) then apply-second, run **on-demand** (apply → capture evidence → `destroy` back to ~$0). The whole
+  phase ran on free credits with the card never charged.
+- **Cost-conscious architecture is a design skill.** No NAT Gateway, no MSK, single-AZ db.t4g.micro, ARM64/Graviton,
+  CloudFront's free cert instead of a bought domain, `PriceClass_100` — each was a deliberate, defensible trade-off.
+- **Secrets never in code or state.** Both the RDS password and the Cognito client secret live in Secrets Manager and
+  are injected into the task at runtime; nothing sensitive is committed or in the task definition.
+- **The backend stays the authorization boundary.** Cognito supplies *identity*; roles, tenant, and the §21 access
+  gate are still derived from the database by email — an external IdP never dictates what a user can do.
+- **Know your proxies.** ARM64 vs x86 images, `docker push` vs crane on a slow link, forwarded headers behind an ALB,
+  pinning the OIDC redirect_uri behind CloudFront, and verifying a deploy only after `rolloutState=COMPLETED` — each
+  was a concrete gotcha with a concrete fix, now documented.
+
+### The headline interview answer
+- **Q: Walk me through how you deployed this to AWS.** A: I containerized both services and had CI publish them, then
+  built the infrastructure as code in Terraform with remote state — a VPC (no NAT, for cost), a private encrypted RDS
+  Postgres, an ECR registry, and ECS Fargate behind an Application Load Balancer running the app as a single ARM64
+  task. Then I added real authentication: a Cognito user pool with a Spring Boot BFF (backend-for-frontend) that maps a
+  Cognito login onto the app's own users and roles, a "Sign in with Cognito" button in the SPA, and CloudFront in front
+  of the ALB to provide HTTPS (which Cognito requires) with a free certificate. Every step was a small verified slice,
+  secrets went to Secrets Manager, and I ran it on-demand — stand it up, prove it, tear it down to ~$0 — all on free
+  credits. **Phase 10 COMPLETE.**
