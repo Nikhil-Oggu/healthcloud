@@ -3071,3 +3071,55 @@ proven end-to-end locally (all the way to the real Cognito login page). The depl
   wrapped in `import.meta.env.DEV`, a Vite build-time constant — `true` under `npm run dev`, `false` under
   `npm run build`. Vite tree-shakes the dead branch out of the production bundle entirely, so the dev-login UI isn't
   just hidden, it isn't shipped.
+
+## Phase 10 — Cloud Deployment on AWS: redeploy the Cognito-capable app + OAuth proxy (slice 14) — 2026-09-19
+
+### What we built
+Redeployed the *current* app (with the slice-12/13 Cognito code) to AWS and wired the pieces the deployed app needs
+for OIDC: nginx proxying the OAuth endpoints, and the backend's Cognito config with its secret injected from Secrets
+Manager. Proven on HTTP; the HTTPS layer (CloudFront) that lets login actually complete is slice 15.
+
+### How it works
+- **The images were stale.** ECR still held the slice-9 images (pre-Cognito). CI publishes images to GHCR, but ECS
+  pulls from ECR, and we push to ECR by hand with `crane`. So the first step was rebuilding both images (arm64) with
+  the current code and re-pushing — the backend jar now contains `application-cognito.yml` and the oauth2-client
+  dependency; the frontend contains the "Sign in with Cognito" button and the new nginx config.
+- **nginx OAuth proxy.** In production the SPA and backend are one origin behind nginx, so nginx must forward the
+  OAuth endpoints to the backend. We added `location /oauth2/` and `location /login/oauth2/` (scoped, not all of
+  `/login`) — the production mirror of the Vite dev proxy from slice 13.
+- **Secret injection.** The Cognito client secret goes into Secrets Manager and is injected into the task as
+  `COGNITO_CLIENT_SECRET`, exactly like the RDS password — never a plaintext value in the task definition. The ECS
+  execution role's policy now lists both secret ARNs.
+- **Forwarded headers.** `SERVER_FORWARD_HEADERS_STRATEGY=framework` makes Spring honor the `X-Forwarded-*` headers
+  the ALB adds, so the OIDC redirect URI is built from the *external* host (the ALB/CloudFront), not the container's
+  localhost. You can see it worked: the 302's redirect_uri was the ALB hostname, not `localhost`.
+
+### Key points
+- `terraform apply` = 7 added, 2 destroyed (the task definition and IAM policy are immutable-ish, so a change
+  replaces them with new revisions; the ALB/ECS were recreated from the torn-down state).
+- Verified: `GET /oauth2/authorization/cognito` through the deployed nginx returns a 302 to Cognito with PKCE, and the
+  deployed login page shows only "Sign in with Cognito" (the production build drops the dev-login UI). Login can't
+  finish yet because the callback is the ALB's HTTP URL, which Cognito won't accept — that's the HTTPS slice.
+- This restarts the hourly meter; on-demand teardown still applies.
+
+### Interview Q&A
+- **Q (beginner): Why did you have to rebuild the images before deploying auth?** A: The images already in the
+  registry were built before the Cognito code existed. A container ships a fixed snapshot of the app, so new code only
+  reaches production when you rebuild the image and push it — otherwise the cluster keeps running the old snapshot.
+- **Q (intermediate): Why does nginx need `/oauth2` and `/login/oauth2` locations?** A: The browser talks only to the
+  frontend origin; nginx reverse-proxies API-ish paths to the backend. The OAuth authorization request and the
+  Cognito callback are backend endpoints, so nginx must forward those two paths too — otherwise they'd fall through
+  to the SPA's catch-all and 404 (or serve index.html) instead of reaching Spring Security.
+- **Q (intermediate): How does the app get the Cognito client secret without it being in the image or task def?** A:
+  It's stored in Secrets Manager, and the task definition references the secret's ARN in its `secrets` block; the ECS
+  agent (via the execution role) fetches it at container start and injects it as an env var. The secret never appears
+  in the image, the task definition JSON, or the git repo.
+- **Q (advanced): Why set `SERVER_FORWARD_HEADERS_STRATEGY`, and how did you confirm it mattered?** A: Behind a load
+  balancer the container sees the request as HTTP on its own hostname, but the public URL is different (and will be
+  HTTPS via CloudFront). Spring needs to trust the `X-Forwarded-Proto`/`Host` headers the proxy sets to build correct
+  external URLs — including the OIDC redirect URI. We confirmed it by inspecting the 302: the redirect_uri used the
+  ALB's external hostname, not the container's localhost, which only happens when forwarded headers are honored.
+- **Q (advanced): The deployed login still can't complete a Cognito sign-in. Why, and what's the fix?** A: The
+  computed callback is `http://<alb-dns>/login/oauth2/code/cognito`, and Cognito refuses non-HTTPS callbacks for
+  non-localhost hosts (and this one isn't registered). The fix is to put HTTPS in front — CloudFront gives a free
+  trusted `https://…cloudfront.net` endpoint — then register that HTTPS callback and pin the redirect URI to it.

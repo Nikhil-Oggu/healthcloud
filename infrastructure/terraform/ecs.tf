@@ -44,15 +44,18 @@ resource "aws_iam_role_policy_attachment" "execution_managed" {
 }
 
 resource "aws_iam_role_policy" "execution_secrets" {
-  name = "read-db-secret"
+  name = "read-app-secrets"
   role = aws_iam_role.execution.id
 
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
-      Effect   = "Allow"
-      Action   = ["secretsmanager:GetSecretValue"]
-      Resource = aws_db_instance.main.master_user_secret[0].secret_arn
+      Effect = "Allow"
+      Action = ["secretsmanager:GetSecretValue"]
+      Resource = [
+        aws_db_instance.main.master_user_secret[0].secret_arn, # RDS master password
+        aws_secretsmanager_secret.cognito_client.arn,          # Cognito app-client secret (slice 14)
+      ]
     }]
   })
 }
@@ -88,17 +91,25 @@ resource "aws_ecs_task_definition" "app" {
         # nginx owns 8080, so the backend listens on 8081 in the shared task namespace.
         { name = "SERVER_PORT", value = "8081" },
         { name = "SPRING_DATASOURCE_URL", value = "jdbc:postgresql://${aws_db_instance.main.address}:${aws_db_instance.main.port}/${aws_db_instance.main.db_name}" },
-        # `local` profile: dev-login + synthetic seed, so the deployed URL is demoable before Cognito.
-        { name = "SPRING_PROFILES_ACTIVE", value = "local" },
+        # `local,cognito`: dev-login + synthetic seed (so a Cognito login maps to a real app user) PLUS the
+        # real Cognito OIDC login. The production frontend build hides dev-login; Cognito is the visible path.
+        { name = "SPRING_PROFILES_ACTIVE", value = "local,cognito" },
+        # Cognito OIDC client (Phase 10 slice 14) — non-secret config; the secret is injected below.
+        { name = "COGNITO_CLIENT_ID", value = aws_cognito_user_pool_client.app.id },
+        { name = "COGNITO_ISSUER_URI", value = "https://cognito-idp.${var.aws_region}.amazonaws.com/${aws_cognito_user_pool.main.id}" },
+        # Honor X-Forwarded-* from the ALB/CloudFront so generated URLs use the external scheme/host.
+        { name = "SERVER_FORWARD_HEADERS_STRATEGY", value = "framework" },
         # No Kafka on AWS (no MSK) — keep the relay + consumers off so nothing tries to reach a broker.
         { name = "HEALTHCLOUD_OUTBOX_RELAY_ENABLED", value = "false" },
         { name = "HEALTHCLOUD_KAFKA_CONSUMERS_ENABLED", value = "false" },
       ]
 
-      # Injected from the RDS-managed secret (JSON keys username/password) — never in state.
+      # Injected from Secrets Manager (never plaintext in the task def / state):
+      #   RDS master creds (JSON keys username/password) + the Cognito app-client secret (whole value).
       secrets = [
         { name = "HEALTHCLOUD_DB_USER", valueFrom = "${aws_db_instance.main.master_user_secret[0].secret_arn}:username::" },
         { name = "HEALTHCLOUD_DB_PASSWORD", valueFrom = "${aws_db_instance.main.master_user_secret[0].secret_arn}:password::" },
+        { name = "COGNITO_CLIENT_SECRET", valueFrom = aws_secretsmanager_secret.cognito_client.arn },
       ]
 
       portMappings = [{ containerPort = 8081, protocol = "tcp" }]

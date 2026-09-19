@@ -83,6 +83,19 @@ resource "aws_cognito_user_pool_client" "app" {
   prevent_user_existence_errors = "ENABLED"
 }
 
+# The Cognito app-client secret, stored in Secrets Manager so the ECS task injects it like the DB
+# password (never a plaintext env in the task definition). Phase 10 slice 14. recovery_window_in_days=0
+# so `terraform destroy` removes it immediately (no 7-30 day retention blocking a same-name recreate).
+resource "aws_secretsmanager_secret" "cognito_client" {
+  name                    = "${local.name_prefix}-cognito-client-secret"
+  recovery_window_in_days = 0
+}
+
+resource "aws_secretsmanager_secret_version" "cognito_client" {
+  secret_id     = aws_secretsmanager_secret.cognito_client.id
+  secret_string = aws_cognito_user_pool_client.app.client_secret
+}
+
 # The free Cognito-hosted login page: https://<prefix>.auth.<region>.amazoncognito.com
 resource "aws_cognito_user_pool_domain" "main" {
   domain       = "${local.name_prefix}-${data.aws_caller_identity.current.account_id}"

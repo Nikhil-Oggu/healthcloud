@@ -28,6 +28,25 @@ server {
         proxy_set_header X-Forwarded-Proto $scheme;
     }
 
+    # The Cognito OIDC login (Phase 10 slice 14): the BFF's authorization request and the Cognito
+    # callback both live on the backend. Scoped to /login/oauth2 (NOT all of /login, which the SPA
+    # fallback below owns) — the production mirror of the Vite dev proxy.
+    location /oauth2/ {
+        proxy_pass ${BACKEND_UPSTREAM};
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location /login/oauth2/ {
+        proxy_pass ${BACKEND_UPSTREAM};
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
     # SPA fallback: serve the requested file if it exists, otherwise index.html so client-side routes
     # (e.g. /claims/123) resolve on a direct load or refresh (React Router).
     location / {
