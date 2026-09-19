@@ -454,6 +454,15 @@
 
 ## Log (newest first)
 
+### 2026-09-19 — UI/Design track, slice 4 ✅ (role-aware dashboard: constellation hero band + real counts + launchpad)
+- **Why:** the post-login home (`HomePage.tsx`) was a bare identity card. Make it a real landing that carries the Constellation look into the app and gives each role a launchpad.
+- **Done (frontend):**
+  - Rewrote **`HomePage.tsx`**: (1) a **dark constellation hero band** reusing `ConstellationBackground` — *"Welcome back, {name}"* + org + role chips; (2) an **"At a glance" stat row** of **real, role-gated counts** and (3) a **role-aware quick-access launchpad** of navigation tiles (icon + title + one-line description), each a `CardActionArea` link.
+  - **Honest counts (rule 2):** the stats come from the existing paged endpoints' `totalElements` (a cheap `size=1` query) via a `useQueries` fan-out gated per role (Patients, Claims, Prior auth, Referrals, Appeals, Reviews) — real tenant-scoped/relationship-gated reads, never fabricated; a card shows a dash while loading or on error.
+  - New **`src/pages/HomePage.test.tsx`** (greeting h1 + role-aware tiles + a resolved real count + axe). Updated `shell.test.tsx`'s name assertion to a substring (the dashboard now greets "Welcome back, {name}").
+- **Verified:** typecheck + build clean; **187 tests pass** (184 + 3 new; incl. axe); confirmed **live** logged in as ORG_ADMIN — the hero band animates, real seeded counts render (Patients 3, Claims 3, Prior auth/Referrals/Appeals/Reviews 1), and the launchpad shows all accessible areas.
+- **Next slices:** 5 — work-queue/table polish (all 8 queues, one pattern); 6 — forms/detail polish.
+
 ### 2026-09-19 — UI/Design track, slice 3 ✅ (signature dark Constellation hero on the login page)
 - **Why:** an unauthenticated visitor (a recruiter opening the deployed URL) is redirected `/` → `/login`, so **the login page is the first impression**. This slice makes it the bespoke "recruiter stop" surface — the dark, animated Care Constellation hero.
 - **Done (frontend):**

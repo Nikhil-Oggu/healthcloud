@@ -45,7 +45,8 @@ describe('authenticated shell', () => {
 
     expect(await screen.findByText('NorthCare Health')).toBeInTheDocument()
     expect(screen.getByText('PROVIDER')).toBeInTheDocument()
-    expect(screen.getByText('Dana Provider')).toBeInTheDocument()
+    // The dashboard greets the user by name ("Welcome back, Dana Provider").
+    expect(screen.getByText(/Dana Provider/)).toBeInTheDocument()
   })
 
   it('redirects to /login when /me returns 401', async () => {
