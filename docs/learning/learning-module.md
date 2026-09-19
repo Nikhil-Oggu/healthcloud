@@ -2964,3 +2964,60 @@ the app-code wiring deferred to the next slices. Cost: **$0** (Cognito's free ti
   allows non-HTTPS redirect URLs for `localhost` (a dev convenience). Any real hostname (like the ALB or a domain)
   must use HTTPS, so deploying the Cognito-backed app forces us to add an ACM certificate + an HTTPS listener (or
   CloudFront) — which is exactly why that work is bundled into the deploy slice.
+
+## Phase 10 — Cloud Deployment on AWS: Spring Security OAuth2 BFF (real Cognito login) (slice 12) — 2026-09-19
+
+### What we built
+The backend now authenticates real users against the slice-11 Cognito pool using the **BFF (Backend-For-Frontend)**
+pattern — the server completes the OIDC flow and keeps the session in an HttpOnly cookie; the browser never handles
+tokens. This is backend-only and proven locally against the real pool; the frontend button and the HTTPS deploy are
+later slices. The dev-login stand-in is kept for offline work. Cost: **$0** (no AWS changes).
+
+### How it works
+- **The email join key (why this was low-risk).** `UserContextFilter` already resolved the caller by
+  `resolveByEmail(authentication.getName())`, and dev-login set the principal name to the user's email. By configuring
+  the Cognito provider with `user-name-attribute: email`, the OIDC principal's name is *also* the email — so the
+  entire authorization stack (roles, tenant, the §21 access gate) keeps working unchanged. Cognito only establishes an
+  email-keyed session; **roles are still read from the database**, never from Cognito claims (rule 4: the backend is
+  the authorization source of truth).
+- **Conditional wiring.** `spring-boot-starter-oauth2-client` is added, but `SecurityConfig` only calls
+  `.oauth2Login(...)` when a `ClientRegistrationRepository` bean exists (injected as an `ObjectProvider` and
+  null-checked). So when Cognito isn't configured — offline dev, CI — the app boots on dev-login alone and nothing
+  changes. The Cognito config lives in a `cognito`-profile file activated with `SPRING_PROFILES_ACTIVE=local,cognito`.
+- **Provisioning gate.** `CognitoOidcUserService` (extends Spring's `OidcUserService`) runs after Cognito
+  authenticates and rejects the login (throws `OAuth2AuthenticationException`) unless an ACTIVE `AppUser` exists for
+  the token's email — so a valid Cognito identity with no app account never gets a session.
+- **Secret hygiene.** Only the client secret is sensitive; it's `${COGNITO_CLIENT_SECRET}` from the environment and
+  never committed. The pool/client IDs and issuer are non-secret and env-overridable, with the dev pool's values as
+  defaults.
+
+### Key points
+- Verified without a full login: 3 unit tests for the provisioning gate, and — running against the real pool —
+  `GET /oauth2/authorization/cognito` returns a **302 to Cognito's authorize endpoint** with `response_type=code`,
+  the right scopes and redirect URI, and **PKCE** (`code_challenge`, S256). That proves the client registration and
+  flow initiation end to end. dev-login still works (regression check).
+- The interactive round-trip (typing the password at Cognito) is a manual step: it needs the demo users to have a
+  password set (`admin-set-user-password --permanent`), and entering a password to authenticate is something the
+  human does, not the assistant.
+
+### Interview Q&A
+- **Q (beginner): What is the BFF pattern?** A: A Backend-For-Frontend is a server-side app that sits between the SPA
+  and the identity provider: it performs the OAuth login, exchanges the code for tokens, and keeps the session in a
+  secure HttpOnly cookie. The browser never sees or stores tokens, which removes a big class of XSS token-theft risks.
+- **Q (intermediate): You added Cognito but CI and offline dev still pass with no Cognito config. How?** A: The
+  OAuth2 login is wired only when a `ClientRegistrationRepository` bean is present (checked via an `ObjectProvider`).
+  With no client configured, Spring doesn't create that bean, so `.oauth2Login(...)` is never added and the app runs on
+  the existing dev-login path — builds and tests are untouched.
+- **Q (intermediate): Cognito authenticated the user — where do their roles and tenant come from?** A: From our
+  database, by email. Cognito only proves *who* the user is; the app looks that email up in `AppUser` /
+  `OrganizationMembership` / `UserRole` to decide *what they can do*. Keeping authorization server-side and
+  DB-derived is a core rule — we never trust an external IdP's claims for authorization.
+- **Q (advanced): Why set `user-name-attribute: email`, and what would break otherwise?** A: Our whole request
+  pipeline resolves the current user by `authentication.getName()` treated as an email. By default an OIDC user's name
+  is the `sub` (an opaque UUID), so `resolveByEmail(sub)` would find no user and every request would fail authz.
+  Setting the name attribute to `email` makes the principal name the email, so the existing filter works unchanged —
+  a one-line change instead of rewriting the identity resolution.
+- **Q (advanced): A real Cognito user logs in but has no app account. What happens, and why do it that way?** A:
+  `CognitoOidcUserService` throws `OAuth2AuthenticationException`, so the login fails and no session is created —
+  rather than letting them authenticate and then hit 403s on every call. Failing at login is cleaner, avoids orphan
+  sessions, and makes "who may use this app" an explicit provisioning decision in our own user table.

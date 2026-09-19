@@ -54,6 +54,12 @@
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-security</artifactId>
 		</dependency>
+		<!-- OAuth2 client: the real Cognito OIDC login (BFF), Phase 10 slice 12. Its login filters stay
+		     inert unless a ClientRegistration is configured, so builds/tests without Cognito are unaffected. -->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-oauth2-client</artifactId>
+		</dependency>
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-session-jdbc</artifactId>

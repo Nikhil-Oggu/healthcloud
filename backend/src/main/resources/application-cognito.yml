@@ -1,0 +1,30 @@
+# Cognito OIDC client — the real login (BFF), Phase 10 slice 12.
+# Active under the `cognito` profile (e.g. SPRING_PROFILES_ACTIVE=local,cognito for local testing, or
+# the deployed profile once HTTPS is wired). When this file is NOT active there is no ClientRegistration,
+# so SecurityConfig leaves OIDC login off and the app runs on dev-login / default auth alone.
+#
+# SECRET HANDLING: only the client SECRET is sensitive and it is NEVER committed — it comes from the
+# COGNITO_CLIENT_SECRET env var (locally: `export COGNITO_CLIENT_SECRET=$(terraform output -raw
+# cognito_client_secret)`; in the deploy slice: injected from Secrets Manager). The pool/client IDs and
+# issuer are not secrets; the committed values are the dev pool's defaults and are env-overridable
+# (COGNITO_CLIENT_ID / COGNITO_ISSUER_URI) so another environment can point at its own pool with no rebuild.
+spring:
+  security:
+    oauth2:
+      client:
+        registration:
+          cognito:
+            client-id: ${COGNITO_CLIENT_ID:3b6dmtfvsbhl2j5qofgfh0vcsv}
+            client-secret: ${COGNITO_CLIENT_SECRET}
+            client-name: Cognito
+            authorization-grant-type: authorization_code
+            redirect-uri: "{baseUrl}/login/oauth2/code/cognito"
+            scope:
+              - openid
+              - email
+              - profile
+        provider:
+          cognito:
+            issuer-uri: ${COGNITO_ISSUER_URI:https://cognito-idp.us-east-1.amazonaws.com/us-east-1_YA95ksq5k}
+            # Make the email claim the principal name so UserContextFilter.resolveByEmail works unchanged.
+            user-name-attribute: email
