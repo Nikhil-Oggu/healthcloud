@@ -454,6 +454,16 @@
 
 ## Log (newest first)
 
+### 2026-09-19 — UI/Design track, slice 3 ✅ (signature dark Constellation hero on the login page)
+- **Why:** an unauthenticated visitor (a recruiter opening the deployed URL) is redirected `/` → `/login`, so **the login page is the first impression**. This slice makes it the bespoke "recruiter stop" surface — the dark, animated Care Constellation hero.
+- **Done (frontend):**
+  - New **`src/components/ConstellationBackground.tsx`** — the signature motif as a `<canvas>` (glowing nodes + connecting lines, teal→indigo) that fills its positioned parent; `aria-hidden`, resize-aware, **static when `prefers-reduced-motion`**, and it **bails cleanly in jsdom** (no 2d context) so tests are unaffected. Reusable — the Slice 4 dashboard hero will use it too.
+  - Rebuilt **`LoginPage.tsx`** as a full-height dark split-hero: left = brand + a big Space-Grotesk headline (*"Care that stays **connected** — and consent that stays in control."*, with a gradient "connected"), a lede, and three trust chips (Tenant-isolated · Consent-aware · Tamper-evident audit); right = a clean **white sign-in card** (readable light components on the dark bg) with the unchanged **"Sign in with Cognito"** button + the DEV-gated developer sign-in.
+  - Uses a CSS-grid two-column layout (`1fr` on mobile) — no MUI `Grid` API dependency.
+- **Preserved (tests enforce):** Cognito link `href="/oauth2/authorization/cognito"`; the "Demo user" select + "Developer sign-in" button (DEV only); exactly one `<h1>` (the headline); brand + canvas non-heading/`aria-hidden`; axe clean.
+- **Verified:** `npm run typecheck` + `npm run build` clean; **184 tests pass** (incl. LoginPage + axe); confirmed **live in the browser** — the dark hero renders with the animated network, gradient headline, trust chips, and the white sign-in card (desktop two-column; stacks on mobile).
+- **Next slices:** 4 — role-aware dashboard (reuse the constellation hero band + stat cards); 5 — work-queue/table polish; 6 — forms/detail polish.
+
 ### 2026-09-19 — UI/Design track, slice 2 ✅ (app shell + navigation: grouped sidebar)
 - **Why:** the shell crammed ~16 role-gated items into one horizontal top bar (cluttered, wrapped, "regular"). A grouped **sidebar** is the biggest single "real product" upgrade and touches one shared file (`layout/AppLayout.tsx`).
 - **Done (frontend):**
