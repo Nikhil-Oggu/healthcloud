@@ -3123,3 +3123,66 @@ Manager. Proven on HTTP; the HTTPS layer (CloudFront) that lets login actually c
   computed callback is `http://<alb-dns>/login/oauth2/code/cognito`, and Cognito refuses non-HTTPS callbacks for
   non-localhost hosts (and this one isn't registered). The fix is to put HTTPS in front — CloudFront gives a free
   trusted `https://…cloudfront.net` endpoint — then register that HTTPS callback and pin the redirect URI to it.
+
+## Phase 10 — Cloud Deployment on AWS: CloudFront HTTPS, the live Cognito login (slice 15) — 2026-09-19
+
+### What we built
+The finish line of the Cognito arc: a **CloudFront distribution in front of the ALB** giving the app a free, trusted
+`https://<id>.cloudfront.net` URL, so the real Cognito login completes over HTTPS on the cloud. Terraform-only — no
+image rebuild. Slices 11–15 together take the app from "dev-login stand-in" to "real OIDC login on a live HTTPS URL."
+
+### How it works
+- **Why CloudFront and not ACM-on-the-ALB.** Cognito refuses non-HTTPS callbacks, and ACM won't issue a certificate
+  for the ALB's AWS-owned `*.elb.amazonaws.com` hostname. CloudFront hands out a free trusted cert for its own
+  `*.cloudfront.net` domain, so it's the no-domain path to HTTPS. Origin = the ALB over HTTP; viewers are forced to
+  HTTPS (`redirect-to-https`).
+- **Caching disabled, everything forwarded.** The app is a dynamic BFF that sets a session cookie, so we attach the
+  managed `CachingDisabled` cache policy and the `AllViewer` origin-request policy — every header, cookie, and query
+  string (including the OAuth `code` and `state`) is forwarded to the origin and nothing is cached.
+- **Pinning the redirect URI (the key trick).** Between CloudFront and the ALB the hop is plain HTTP, so the ALB tells
+  the backend `X-Forwarded-Proto: http`. Left alone, Spring would build an `http://…/login/oauth2/code/cognito`
+  redirect URI, which Cognito rejects. Instead of fighting the header chain, we pin the value: the task sets
+  `SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_COGNITO_REDIRECTURI=https://<cloudfront>/login/oauth2/code/cognito`.
+  Spring's relaxed binding maps that env var onto the hyphenated property `…cognito.redirect-uri`, overriding the
+  YAML default with **no image rebuild**. That exact URL is also registered as a callback on the Cognito client.
+- **Rolling-deploy gotcha.** Changing the task definition triggers a rolling ECS deploy: the new task starts while the
+  old one keeps serving until it's healthy and drained. Right after apply, the old task (without the pinned env) still
+  answered — so the redirect URI briefly showed `http`. It flipped to `https` only once the deployment reached
+  `rolloutState=COMPLETED`. Lesson: verify a deploy after it completes, not the instant apply returns.
+
+### Key points
+- `terraform apply` = 2 added, 2 changed, 1 destroyed — CloudFront created (~3 min), the Cognito client updated in
+  place, and the ECS service rolled to the new task-def revision. The ALB/ECS were not recreated (incremental change).
+- Verified over HTTPS: `/actuator/health` UP through CloudFront→ALB→nginx→backend→RDS; `/oauth2/authorization/cognito`
+  → 302 to Cognito with the pinned `https://…cloudfront…` redirect URI; and in the browser the app loads with a valid
+  cert and "Sign in with Cognito" reaches the Cognito hosted login. The password step is the human's.
+- Honest follow-ups: logout is still local-only (no RP-initiated Cognito logout); the ALB is directly reachable on
+  HTTP (a hardening step would restrict it to CloudFront's origin IP ranges); and the deploy runs the `local,cognito`
+  profile so seeded synthetic users back the logins (a real deployment would flip to the default profile and provision
+  users without the seeder).
+
+### Interview Q&A
+- **Q (beginner): Why put CloudFront in front of a load balancer you already have?** A: To get HTTPS. The load
+  balancer only had an HTTP listener and its AWS hostname can't get a certificate, but Cognito (and good practice)
+  needs HTTPS. CloudFront provides a free trusted certificate on its own domain and forwards requests to the load
+  balancer, so the public URL becomes HTTPS with no domain purchase.
+- **Q (intermediate): Why disable caching on a CDN?** A: A CDN's job is usually to cache, but this app is dynamic and
+  per-user — it sets session cookies and returns personalized data. Caching would serve one user's response to
+  another. We use CloudFront purely as an HTTPS front door, so we disable caching and forward everything to the
+  origin. (Static assets could be cached later as an optimization.)
+- **Q (intermediate): The login redirect came back as http right after deploy, then became https. Why?** A: ECS does
+  a rolling deploy — the old task keeps serving until the new one is healthy. The old task didn't have the pinned
+  redirect-uri env var, so it computed http from the forwarded headers. Once the deployment reached COMPLETED and the
+  new task took over, the pinned https value appeared. It's a reminder to check deploys after they finish rolling.
+- **Q (advanced): Why pin the redirect URI instead of fixing the forwarded headers?** A: Behind CloudFront→ALB the
+  origin hop is HTTP, so the backend legitimately sees `X-Forwarded-Proto: http`; making Spring believe it's HTTPS
+  would mean injecting/trusting a proto header through two proxies, which is fragile. Pinning the redirect URI to the
+  known external HTTPS URL is deterministic — it doesn't depend on any header surviving the chain — and it's a single
+  env var with no rebuild. The redirect URI must match on the auth request, the token exchange, and the Cognito
+  client registration, and pinning guarantees all three agree.
+- **Q (advanced): What are the security caveats of this exact setup?** A: Three, all documented: logout only clears
+  the app session (the Cognito session persists until it expires), the ALB is still reachable directly over HTTP so
+  someone could bypass CloudFront/HTTPS (fix: restrict the ALB security group to CloudFront's origin prefix list or
+  require a shared secret header), and the deployment authenticates against seeded synthetic users under the
+  `local,cognito` profile rather than a real provisioning flow. None are blockers for a synthetic demo, but each is a
+  real hardening item before anything resembling production.

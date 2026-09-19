@@ -85,3 +85,9 @@ output "cognito_hosted_ui_domain" {
   description = "Cognito hosted login page domain."
   value       = "https://${aws_cognito_user_pool_domain.main.domain}.auth.${var.aws_region}.amazoncognito.com"
 }
+
+# ── CloudFront (Phase 10 slice 15) — the public HTTPS URL of the app ──
+output "cloudfront_url" {
+  description = "Public HTTPS URL of the app (CloudFront in front of the ALB)."
+  value       = "https://${aws_cloudfront_distribution.main.domain_name}"
+}

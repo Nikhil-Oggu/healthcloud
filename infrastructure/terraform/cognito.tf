@@ -67,10 +67,13 @@ resource "aws_cognito_user_pool_client" "app" {
   callback_urls = [
     "http://localhost:8080/login/oauth2/code/cognito",
     "http://localhost:5173/login/oauth2/code/cognito",
+    # The deployed HTTPS callback via CloudFront (Phase 10 slice 15).
+    "https://${aws_cloudfront_distribution.main.domain_name}/login/oauth2/code/cognito",
   ]
   logout_urls = [
     "http://localhost:8080/",
     "http://localhost:5173/",
+    "https://${aws_cloudfront_distribution.main.domain_name}/",
   ]
 
   explicit_auth_flows = [

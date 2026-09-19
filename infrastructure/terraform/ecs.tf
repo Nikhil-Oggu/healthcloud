@@ -99,6 +99,10 @@ resource "aws_ecs_task_definition" "app" {
         { name = "COGNITO_ISSUER_URI", value = "https://cognito-idp.${var.aws_region}.amazonaws.com/${aws_cognito_user_pool.main.id}" },
         # Honor X-Forwarded-* from the ALB/CloudFront so generated URLs use the external scheme/host.
         { name = "SERVER_FORWARD_HEADERS_STRATEGY", value = "framework" },
+        # Pin the OIDC callback to the fixed CloudFront HTTPS URL (Phase 10 slice 15). Behind CloudFront→ALB
+        # the ALB hop is HTTP, so Spring would otherwise compute an http:// redirect_uri that Cognito rejects.
+        # This Spring relaxed-binding env var overrides application-cognito.yml's {baseUrl} default — no rebuild.
+        { name = "SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_COGNITO_REDIRECTURI", value = "https://${aws_cloudfront_distribution.main.domain_name}/login/oauth2/code/cognito" },
         # No Kafka on AWS (no MSK) — keep the relay + consumers off so nothing tries to reach a broker.
         { name = "HEALTHCLOUD_OUTBOX_RELAY_ENABLED", value = "false" },
         { name = "HEALTHCLOUD_KAFKA_CONSUMERS_ENABLED", value = "false" },
