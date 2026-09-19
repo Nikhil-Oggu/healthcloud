@@ -2907,3 +2907,60 @@ lives in `infrastructure/terraform/ecs.tf` + `alb.tf`, with a one-line tighten t
   domain, which is deferred to the CloudFront/custom-domain slice, and real auth (Cognito OIDC, which itself requires
   HTTPS redirect URIs) replaces the dev-login stand-in in a later slice. The honest framing — "demoable now, hardened
   later" — matters; you never present a dev-login HTTP deployment as production-ready.
+
+## Phase 10 — Cloud Deployment on AWS: Amazon Cognito (real-auth infrastructure) (slice 11) — 2026-09-19
+
+### What we built
+The first step of replacing the local **dev-login stand-in** (email-only, no password) with **real authentication**
+via **Amazon Cognito** (ADR-004: Cognito + a Spring Boot BFF). Because real auth spans infrastructure, the backend,
+and the frontend, we sliced it: **slice 11 is the Cognito infrastructure only** — a user pool, an app client, a hosted
+login page, and two synthetic users — stood up in Terraform (`infrastructure/terraform/cognito.tf`) and proven, with
+the app-code wiring deferred to the next slices. Cost: **$0** (Cognito's free tier covers 50k monthly active users).
+
+### How it works
+- **User pool** = the directory of users. We set email as the sign-in name (`username_attributes = ["email"]`) so
+  Cognito users line up with the app's existing user emails, auto-verify email, and set MFA to **OPTIONAL** (TOTP
+  available but not forced — simpler demo login; enforcing MFA is a documented follow-up).
+- **App client** = the application's registration with the pool. It's a **confidential client**
+  (`generate_secret = true`) because our backend is a server-side **BFF (Backend-For-Frontend)** that holds the
+  session — the browser never sees tokens. It uses the OIDC **authorization-code** flow with `openid`/`email`/`profile`
+  scopes. The callback URL is Spring Security's default (`/login/oauth2/code/cognito`) on `http://localhost` for now.
+- **Hosted UI domain** = Cognito's own free login page (`https://<prefix>.auth.<region>.amazoncognito.com`). No custom
+  domain or certificate needed; the prefix carries the account id to be globally unique.
+- **Synthetic users** = two `aws_cognito_user` records (`provider@`, `admin@northcare.example.org`) matching seeded
+  app users, so the next slice's login maps straight onto existing roles. Crucially, **no password is in Terraform** —
+  passwords would be stored in the state file — so the users are created in `FORCE_CHANGE_PASSWORD` and a permanent
+  synthetic password is set afterward with `aws cognito-idp admin-set-user-password --permanent`.
+
+### Key points
+- Applied **via `-target`** (only the Cognito resources), because the ALB/ECS from slice 10 were deliberately torn
+  down but are still in the config — a plain `terraform apply` would recreate them and restart the hourly bill. This
+  is a good example of using `-target` for a real, specific reason (not routine use).
+- Verified without any app: `describe-user-pool` (pool + MFA config), `list-users` (both users present), the OIDC
+  discovery document (`/.well-known/openid-configuration`) resolves its authorize + token endpoints, and the hosted
+  login page renders over HTTPS in the browser.
+- The client **secret** is a real output (`sensitive = true`) — it lives in the private encrypted state and will be
+  handed to the backend via config/Secrets Manager, never committed.
+
+### Interview Q&A
+- **Q (beginner): What is a Cognito user pool, in one sentence?** A: A managed directory of users plus the sign-up /
+  sign-in machinery (password storage, email verification, MFA, a hosted login page) so the app doesn't build or store
+  any of that itself.
+- **Q (intermediate): Why a confidential client with a secret instead of a public client?** A: Our backend is a BFF —
+  a server-side app that completes the OAuth code exchange and keeps the session in an HttpOnly cookie, so the browser
+  never handles tokens. A confidential client (with a secret only the server knows) is the correct, more secure shape
+  for that. A public client + PKCE is for cases where the client can't keep a secret, like a pure SPA doing the flow
+  itself.
+- **Q (intermediate): Why is there no password in your Terraform, and how do the demo users get one?** A: Anything in
+  a Terraform resource ends up in the state file, so putting a password there would persist a credential in state. We
+  create the user records without a password (invite suppressed) and set a permanent synthetic password out-of-band
+  with the AWS CLI, keeping every credential out of code and state.
+- **Q (advanced): You applied with `-target`. Why, and what's the risk of `-target` normally?** A: Slice 10's ALB and
+  ECS service are still described in the config but were destroyed to stop billing, so a normal apply would recreate
+  them. Targeting just the Cognito resources avoids that. The general risk of `-target` is that it applies a partial
+  plan — the config and state can drift and outputs may not fully refresh — so it's for exceptional situations, which
+  this is; routine changes should be a full plan/apply.
+- **Q (advanced): Why can Cognito use `http://localhost` now but the deployed app will need HTTPS?** A: Cognito only
+  allows non-HTTPS redirect URLs for `localhost` (a dev convenience). Any real hostname (like the ALB or a domain)
+  must use HTTPS, so deploying the Cognito-backed app forces us to add an ACM certificate + an HTTPS listener (or
+  CloudFront) — which is exactly why that work is bundled into the deploy slice.

@@ -58,3 +58,30 @@ output "app_url" {
   description = "Public URL of the running app (the ALB DNS name; HTTP this slice)."
   value       = "http://${aws_lb.main.dns_name}"
 }
+
+# ── Cognito (Phase 10, slice 11) — consumed by the backend BFF wiring slice ──
+output "cognito_user_pool_id" {
+  description = "Cognito user pool ID."
+  value       = aws_cognito_user_pool.main.id
+}
+
+output "cognito_client_id" {
+  description = "Cognito app client ID (the BFF's client_id)."
+  value       = aws_cognito_user_pool_client.app.id
+}
+
+output "cognito_client_secret" {
+  description = "Cognito app client secret (the BFF reads this; keep it out of code)."
+  value       = aws_cognito_user_pool_client.app.client_secret
+  sensitive   = true
+}
+
+output "cognito_issuer_url" {
+  description = "OIDC issuer URL (Spring Security's issuer-uri for discovery)."
+  value       = "https://cognito-idp.${var.aws_region}.amazonaws.com/${aws_cognito_user_pool.main.id}"
+}
+
+output "cognito_hosted_ui_domain" {
+  description = "Cognito hosted login page domain."
+  value       = "https://${aws_cognito_user_pool_domain.main.domain}.auth.${var.aws_region}.amazoncognito.com"
+}
