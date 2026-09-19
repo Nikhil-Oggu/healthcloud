@@ -52,3 +52,9 @@ output "ecr_repository_urls" {
   description = "ECR repository URLs, keyed by app (backend/frontend)."
   value       = { for k, r in aws_ecr_repository.app : k => r.repository_url }
 }
+
+# ── ECS Fargate + ALB (Phase 10, slice 10) — the live app ──
+output "app_url" {
+  description = "Public URL of the running app (the ALB DNS name; HTTP this slice)."
+  value       = "http://${aws_lb.main.dns_name}"
+}

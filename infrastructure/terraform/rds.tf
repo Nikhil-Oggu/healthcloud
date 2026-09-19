@@ -12,20 +12,22 @@ resource "aws_db_subnet_group" "main" {
   tags = { Name = "${local.name_prefix}-db-subnet-group" }
 }
 
-# Security group: Postgres 5432 inbound from within the VPC only.
-# (Tightened to the Fargate app's security group in the ECS slice; VPC-only is safe meanwhile
-# because the DB lives in private subnets with no public access.)
+# Security group: Postgres 5432 inbound from the Fargate app's security group only.
+# (Tightened from VPC-wide to the app SG in the ECS slice — least privilege; the DB also lives in
+# private subnets with no public access.)
 resource "aws_security_group" "rds" {
-  name        = "${local.name_prefix}-rds-sg"
+  name = "${local.name_prefix}-rds-sg"
+  # NB: the SG description is immutable in AWS — changing it forces a replacement — so it keeps its
+  # original wording. The actual (tightened) rule is the app-SG ingress below.
   description = "PostgreSQL access from within the VPC"
   vpc_id      = aws_vpc.main.id
 
   ingress {
-    description = "PostgreSQL from within the VPC"
-    from_port   = 5432
-    to_port     = 5432
-    protocol    = "tcp"
-    cidr_blocks = [local.vpc_cidr]
+    description     = "PostgreSQL from the Fargate app tasks"
+    from_port       = 5432
+    to_port         = 5432
+    protocol        = "tcp"
+    security_groups = [aws_security_group.app.id]
   }
 
   egress {

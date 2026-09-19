@@ -2839,3 +2839,71 @@ handle on `Docker.raw`, so the new VM's open failed and Desktop latched into an 
 processes (and `lsof` showing the file free), the app's state machine stayed wedged. A reboot guarantees every
 process and file handle is gone and Desktop starts from a clean slate — hence the reliable fix. A non-reboot
 alternative is Docker Desktop's "Clean / Purge data," which rebuilds the VM disk.
+
+## Phase 10 — Cloud Deployment on AWS: ECS Fargate + ALB — the app goes LIVE (slice 10) — 2026-09-19
+
+### What we built
+The pushed images from slice 9 are now a **running, reachable web app on the internet**, behind an Application Load
+Balancer, backed by the slice-8 RDS database. This is the first slice that costs money per hour, so it is run
+**on-demand**: `terraform apply` → prove it works + capture evidence → `terraform destroy` back to ~$0. The Terraform
+lives in `infrastructure/terraform/ecs.tf` + `alb.tf`, with a one-line tighten to `rds.tf` and a new `app_url` output.
+
+### How it works
+- **One task, two containers, localhost.** Instead of two services (two Fargate charges), a single ECS **task
+  definition** holds both containers — the backend (Spring) and the frontend (nginx) — and they talk over
+  `localhost`, exactly like the local docker-compose setup. This is the cheapest shape and reuses both images
+  **unchanged**, setting only environment variables.
+- **The port trick.** In Fargate `awsvpc` networking, all containers in a task share one network namespace (one
+  localhost, one set of ports), so two containers can't both bind 8080. The nginx image is hard-wired to 8080, so we
+  moved the **backend to 8081** via the `SERVER_PORT` env var (Spring honours it) and pointed nginx at it with
+  `BACKEND_UPSTREAM=http://localhost:8081`. The ALB sends traffic to the frontend on 8080; nginx reverse-proxies
+  `/api` + `/actuator` to the backend on 8081 — same-origin, so the session + CSRF cookies stay first-party.
+- **ARM64 is mandatory.** The images were built on an Apple-Silicon Mac (`linux/arm64`), so the task definition sets
+  `runtime_platform { cpu_architecture = "ARM64" }`. A mismatch means the container silently won't start. Graviton is
+  also ~20% cheaper.
+- **The DB password is never in code or state.** The RDS master password lives in Secrets Manager (slice 8). ECS
+  injects it at container start via the container `secrets` block — `valueFrom = "<secretArn>:password::"` pulls just
+  that JSON key of the secret into the `HEALTHCLOUD_DB_PASSWORD` env var. The **execution role** (the role the ECS
+  *agent* uses, distinct from the app's own **task role**) carries the AWS-managed `AmazonECSTaskExecutionRolePolicy`
+  (ECR pull + CloudWatch logs) plus a tiny inline policy granting `secretsmanager:GetSecretValue` on that one secret.
+- **Networking + security groups.** Tasks run in the **public subnets** with `assign_public_ip = true` — because
+  there's no NAT Gateway (slice-7 cost decision), a task needs its own public IP to reach ECR and Secrets Manager. The
+  **app security group** allows port 8080 only from the **ALB security group**; the **RDS security group** was
+  tightened to allow 5432 only from the app SG (was VPC-wide). The ALB itself allows HTTP :80 from anywhere.
+- **Demoable profile.** Cognito (real auth) isn't wired yet, so to have a working, clickable site the backend runs
+  the **`local` Spring profile** — which enables the dev-login stand-in and seeds synthetic demo data. Kafka is turned
+  off (`HEALTHCLOUD_OUTBOX_RELAY_ENABLED=false`, `HEALTHCLOUD_KAFKA_CONSUMERS_ENABLED=false`) because there's no MSK
+  on AWS. Once Cognito lands we flip to the default (production-shape) profile.
+
+### Key points
+- `terraform apply` = **13 added, 1 changed (RDS SG in-place), 0 destroyed**. The task was healthy in ~60 s.
+- Verified live at the ALB URL: `/actuator/health` UP with `db` UP (proves the whole chain ALB → nginx → backend →
+  RDS); the SPA is served; `dev-login` + `/me` work over plain HTTP (the session cookie isn't forced `Secure`); the
+  seeded patients read is **relationship-gated** (the provider sees only assigned patients) and **consent-masked**
+  (`dateOfBirth` blanked) — the app's whole security model runs intact in the cloud.
+- Cost ~$0.08–0.10/hr (ALB + Fargate ARM 1 vCPU/2 GB + a few public IPv4s + RDS), from account credits — the card is
+  not charged. Return to ~$0 with `terraform destroy` (the S3 state bucket is kept).
+
+### Interview Q&A
+- **Q (beginner): What does the load balancer actually do here?** A: The ALB is the single public entry point. It
+  gets a stable DNS name, listens on port 80, health-checks the task, and forwards requests to the container. Without
+  it you'd expose the task's ephemeral public IP directly — no health checking, no stable address, no place to later
+  add HTTPS.
+- **Q (intermediate): Why one task with two containers instead of two services?** A: Cost and simplicity. Two
+  services means two Fargate tasks (roughly double the compute bill) plus service discovery so the frontend can find
+  the backend. Co-locating them in one task lets them talk over `localhost` — identical to the compose setup — and
+  keeps the same-origin cookie design. The trade-off is they scale together; for a portfolio demo that's fine.
+- **Q (intermediate): How does the app get the database password without it being in the repo or Terraform state?**
+  A: RDS stores the master password in Secrets Manager. The ECS task definition references the secret's ARN in its
+  `secrets` block; the ECS agent (using the execution role's `GetSecretValue` permission) fetches it at container
+  start and injects it as an environment variable. The password never appears in the `.tf` files, the state file, or
+  the container image.
+- **Q (advanced): You built the images on an M-series Mac. What breaks on Fargate if you ignore that, and why?** A:
+  The images are `linux/arm64`. Fargate defaults to x86_64; if the task's `runtime_platform` doesn't say `ARM64`, the
+  scheduler places the task on x86 hardware and the arm64 binaries can't execute — the container fails to start with
+  an exec-format error. Setting `cpu_architecture = "ARM64"` runs it on Graviton, which also costs less.
+- **Q (advanced): The site is HTTP-only and runs a dev-login. Is that acceptable?** A: For an on-demand, synthetic-
+  data demo that's stood up and torn down, yes — but it's explicitly temporary. HTTPS needs an ACM certificate and a
+  domain, which is deferred to the CloudFront/custom-domain slice, and real auth (Cognito OIDC, which itself requires
+  HTTPS redirect URIs) replaces the dev-login stand-in in a later slice. The honest framing — "demoable now, hardened
+  later" — matters; you never present a dev-login HTTP deployment as production-ready.
