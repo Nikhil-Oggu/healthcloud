@@ -2642,3 +2642,200 @@ A: It's a deliberate compatibility shim. The claims queue itself uses the paged 
 page. Rather than force those callers to page through everything, `api.listClaims()` fetches one large page and
 returns `.content`. The alternative — a dedicated lightweight "list ids/numbers" endpoint — would be cleaner long
 term; the shim was the smaller, lower-risk step while paging rolled out.
+
+---
+
+## Phase 10 — Cloud Deployment on AWS: account setup, remote state, VPC, RDS, ECR (slices 6–9) — 2026-09-19
+
+### What we built
+This session took HealthCloud from "container images + a resource-free Terraform skeleton" to **real AWS
+infrastructure**, one small verified slice at a time, on a brand-new AWS account using free credits:
+
+- **AWS account onboarding** — a new account (Free Plan, $100 credits), a dedicated IAM user for Terraform, a
+  `$5` budget alarm, and the AWS CLI configured locally.
+- **Slice 6 — Terraform remote state (S3):** a one-time `bootstrap/` config created an encrypted, versioned S3
+  bucket, and the main config switched from local state to that S3 backend (with S3-native locking).
+- **Slice 7 — VPC & networking:** a VPC with public + private subnets across 2 AZs, an internet gateway, and
+  route tables — deliberately **no NAT Gateway** to save cost.
+- **Slice 8 — RDS PostgreSQL:** a managed Postgres 17 database in the private subnets, encrypted, not publicly
+  accessible, with its master password managed in Secrets Manager.
+- **Slice 9 — ECR (in progress):** two container registries were created; pushing the images hit a real-world
+  Docker wall (documented below) and the push method is still undecided.
+
+Everything followed a strict **two-gate cost rule**: (1) write Terraform + `plan` ($0, nothing created), shown
+for approval; (2) explicit go-ahead before `terraform apply`.
+
+### How it works
+
+**Remote state bootstrap (the chicken-and-egg).** Terraform can't store its state *in* a bucket that doesn't
+exist yet. So a small standalone `infrastructure/terraform/bootstrap/` config with its **own local state**
+creates the bucket first; then the main config points at it:
+
+```hcl
+# infrastructure/terraform/backend.tf
+terraform {
+  backend "s3" {
+    bucket       = "healthcloud-tfstate-927747714796"
+    key          = "healthcloud/dev/terraform.tfstate"
+    region       = "us-east-1"
+    encrypt      = true
+    use_lockfile = true   # S3-native locking (Terraform >= 1.10) — no DynamoDB table needed
+  }
+}
+```
+`terraform init -migrate-state` moved the existing state into S3.
+
+**Networking, cost-first.** The key decision is *where compute lives*:
+
+- **Public subnets** host the future ALB + Fargate — tasks get a public IP and reach the internet directly.
+- **Private subnets** host RDS — no outbound internet needed.
+- Because compute is in public subnets, there is **no NAT Gateway** (which would cost ~$32/mo). The private
+  route table is local-only (no `0.0.0.0/0`), which *is* the "no egress" guarantee.
+
+**RDS, private + secret-managed.** The database sits in the private subnets via a DB subnet group, is not
+publicly accessible, and its password is never in code or state:
+
+```hcl
+resource "aws_db_instance" "main" {
+  engine                      = "postgres"
+  engine_version              = "17"            # prefix-matches latest 17.x (no drift)
+  instance_class              = "db.t4g.micro"
+  storage_encrypted           = true
+  publicly_accessible         = false
+  manage_master_user_password = true            # password lives in Secrets Manager
+  # ... backups off, skip_final_snapshot, deletion_protection=false -> clean teardown
+}
+```
+The app will later read `db_master_secret_arn` from Secrets Manager via IAM.
+
+**ECR.** Two repositories (`healthcloud-dev-backend`, `healthcloud-dev-frontend`) with `scan_on_push`, a
+"keep last 5 images" lifecycle policy, and `force_delete = true` so `terraform destroy` removes them cleanly.
+
+### Key points to remember
+
+- **The new AWS Free Plan model:** free-tier usage is free; usage *above* free tier **draws from the $100
+  credit balance**, and the card isn't charged while credits cover it. So paid services (Fargate/RDS/ALB) are
+  *not blocked* — they consume credits. An account can auto-upgrade to a paid plan if it uses certain services
+  (e.g. AWS Organizations); we avoid those.
+- **New accounts take time to activate.** For ~1 hour, every S3 call failed with
+  `NotSignedUp: Your account is not signed up for the S3 service`. This is account activation lag (AWS says up
+  to 24h), **not** a code/credentials/permissions problem. It cleared when AWS emailed "account is now active."
+- **Cost discipline is a design input, not an afterthought:** no NAT Gateway, `db.t4g.micro`, single-AZ, backups
+  off, `skip_final_snapshot` — all chosen so the stack is cheap and **`destroy`-able on demand** (apply → capture
+  evidence → destroy → ~$0).
+- **Never put a DB password in Terraform.** `manage_master_user_password = true` keeps it in Secrets Manager,
+  out of both the `.tf` and the state file.
+- **S3-native locking** (`use_lockfile = true`) replaced the old S3+DynamoDB pattern on Terraform ≥ 1.10 — one
+  fewer resource.
+- **Secrets:** we never pasted AWS keys into the chat; the human ran `aws configure` privately, and verification
+  used `aws sts get-caller-identity` (shows account/ARN, never the secret).
+- **MSK is deliberately out of scope for AWS** — managed Kafka bills ~continuously and would dominate cost. The
+  event-driven system stays proven locally (Phase 8); the cloud deploy is web app + DB + auth.
+
+### Failures and how we fixed them
+
+- **AWS CLI wouldn't run (Homebrew build broken).** Symptom: `aws` crashed with
+  `dlopen(... pyexpat ...): Symbol not found: _XML_SetAllocTrackerActivationThreshold`. Root cause: the Homebrew
+  `awscli`'s bundled Python linked against the wrong `expat`. Fix: uninstall the brew version and install the
+  **official AWS CLI v2 pkg** (self-contained), which worked immediately.
+- **`aws configure` credential mismatch.** After several re-runs, `aws sts get-caller-identity` returned
+  `InvalidClientTokenId`. Root cause: an access-key ID and secret from *different* keys got mixed. Fix: re-enter
+  both values from the **same** downloaded `.csv`.
+- **S3 apply failed: `NotSignedUp`.** Not our bug — new-account activation lag (see Key points). Fix: wait for
+  the "account is now active" email, then re-run `terraform apply` (idempotent — nothing had been created).
+- **`docker push` to ECR kept timing out.** Symptom: `net/http: timeout awaiting response headers` on one large
+  layer. Root cause: the backend image is **823 MB**, and Docker splits upload bandwidth across parallel layers,
+  so the biggest layer never finished within the HTTP timeout on a home uplink. Attempted fix
+  (`max-concurrent-uploads: 1` in `~/.docker/daemon.json`) **didn't stick** — Docker Desktop stripped the key on
+  restart.
+- **Docker Desktop wedged: `Docker.raw is held by another process / disk image in use`.** Root cause: a quick
+  quit-and-reopen left the old VM holding the disk image, so the new VM couldn't start; kill-and-reopen cycles
+  didn't clear it. Fix in progress: a **Mac restart** (guaranteed to release the lock), or Docker Desktop →
+  Troubleshoot → Clean/Purge data. **This is why slice 9's image push is unfinished.**
+- **The bigger lesson:** the image push is bottlenecked on a home upload link. The robust alternative is to push
+  from **CI** (fast runner network) via **GitHub OIDC** — no local Docker needed. Decision still open.
+
+### Interview Q&A
+
+#### 1. Beginner
+
+**Q: What is Terraform "state" and why store it remotely in S3?**
+A: State is Terraform's record of what it has created and how config maps to real resources. Stored locally
+it's a fragile file on one laptop; in S3 it's durable, shared, encrypted, and versioned, and with locking two
+runs can't corrupt it. We used an S3 backend with S3-native locking.
+
+**Q: Why does the database go in a "private" subnet and the load balancer in a "public" one?**
+A: Public subnets have a route to the internet gateway, so things that must be reachable from the internet
+(the ALB, and our Fargate tasks pulling images) live there. The database should never be reachable from the
+internet, so it lives in a private subnet with no internet route — only things inside the VPC can talk to it.
+
+**Q: What is a NAT Gateway and why did we skip it?**
+A: A NAT Gateway lets resources in *private* subnets make *outbound* internet connections (e.g. to pull an
+image) without being publicly reachable. It costs ~$32/mo. We skipped it by putting our compute in public
+subnets (so it has its own egress) and keeping only the database — which needs no egress — private.
+
+**Q: Where is the database password stored?**
+A: In AWS Secrets Manager, created and managed by RDS (`manage_master_user_password = true`). It is never in
+our Terraform code or state file; the application will read it at runtime via its IAM role.
+
+#### 2. Intermediate
+
+**Q: Explain the remote-state "bootstrap" chicken-and-egg and how you solved it.**
+A: The main config wants to store its state in an S3 bucket, but that bucket doesn't exist until Terraform
+creates it — and Terraform can't store the state of *creating* the bucket in the bucket itself. We solved it
+with a tiny separate `bootstrap/` config that uses **local** state to create the bucket, then pointed the main
+config's `backend "s3"` at that bucket and ran `terraform init -migrate-state`.
+
+**Q: Your CI builds `linux/amd64` images for GHCR, but you were about to build `arm64` locally for ECR. Why,
+and what breaks if the architecture is wrong?**
+A: The dev Mac is Apple Silicon, so a native `docker build` produces arm64 — fast, and Fargate can run arm64
+(Graviton, ~20% cheaper). If we instead push from CI (amd64 runners), the images are amd64 and Fargate must be
+configured x86_64. The rule: the Fargate task's `cpu_architecture` must match the image architecture, or the
+container won't start (exec format error).
+
+**Q: Why is `skip_final_snapshot = true` and `backup_retention_period = 0` acceptable here but not in
+production?**
+A: This is a synthetic-data demo we intentionally `destroy` and recreate to control cost, so a final snapshot
+and automated backups would just add storage and slow teardown. In production you'd keep backups and a final
+snapshot (and multi-AZ, deletion protection) because the data is irreplaceable — those are the very features
+Phase 11 (backup/restore drills) is about.
+
+**Q: How did you keep this whole session at (near) $0 despite creating real resources?**
+A: Free-tier-eligible/free resources (VPC, subnets, S3 state, `db.t4g.micro`), no NAT Gateway, the Free Plan's
+credits absorbing any overage, a `$5` budget alarm as a tripwire, and an on-demand model (destroy when idle).
+
+#### 3. Advanced
+
+**Q: `docker push` kept timing out on a large layer. Walk through the root cause and the range of fixes.**
+A: The image was 823 MB and Docker uploads layers in parallel, splitting the uplink; the largest blob's PUT
+never returned headers before the client timeout on a slow home connection. Fixes, cheapest first: (1) serialize
+uploads (`max-concurrent-uploads: 1`) so the big layer gets full bandwidth — but Docker Desktop stripped that
+setting; (2) use `crane`, which streams with retries instead of a hard timeout; (3) shrink the image (slimmer
+base/JRE) so no single layer is huge; (4) **push from CI** where the runner has a fast, stable uplink — the most
+robust, and what real teams do. The deeper lesson: pushing large artifacts from a developer laptop is the wrong
+place; image publishing belongs in CI.
+
+**Q: If you push to ECR from GitHub Actions, how do you authenticate without long-lived AWS keys, and what are
+the risks?**
+A: Use GitHub OIDC: create an IAM OIDC identity provider for `token.actions.githubusercontent.com` and an IAM
+role whose trust policy is scoped to your specific repo (ideally branch/ref), granting only ECR-push
+permissions. GitHub Actions exchanges its OIDC token for short-lived AWS credentials — no stored secrets. Risks:
+if the trust policy is too broad (wildcard repo/ref) or the permissions aren't least-privilege, any workflow in
+that repo (or a malicious PR) could assume the role. Mitigate by pinning the repo/ref and ECR-only actions.
+
+**Q: A brand-new account returned `NotSignedUp` for S3 for about an hour. How do you tell that apart from a real
+permissions or configuration bug, and what would you do in an automated pipeline?**
+A: `NotSignedUp` specifically means the *service isn't activated for the account* — distinct from `AccessDenied`
+(IAM policy), `InvalidClientTokenId` (bad creds), or a region/name error. Confirm creds work with
+`aws sts get-caller-identity` (it succeeded), confirm the IAM policy allows the action, then treat `NotSignedUp`
+as transient activation lag. In a pipeline you'd add a bounded retry-with-backoff around the first calls on a
+fresh account, or gate the pipeline until an activation check passes — never hard-fail on the first attempt.
+
+**Q: The Docker VM wedged on "disk image in use." What actually happened at the OS level, and why is a restart
+the reliable fix?**
+A: Docker Desktop runs a Linux VM backed by a single disk image file (`Docker.raw`) via the macOS Virtualization
+framework. Quitting and immediately relaunching started a new VM before the old process released its exclusive
+handle on `Docker.raw`, so the new VM's open failed and Desktop latched into an error state. Even after killing
+processes (and `lsof` showing the file free), the app's state machine stayed wedged. A reboot guarantees every
+process and file handle is gone and Desktop starts from a clean slate — hence the reliable fix. A non-reboot
+alternative is Docker Desktop's "Clean / Purge data," which rebuilds the VM disk.

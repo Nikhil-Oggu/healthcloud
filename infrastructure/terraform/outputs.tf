@@ -46,3 +46,9 @@ output "db_master_secret_arn" {
   description = "Secrets Manager ARN holding the RDS master credentials (the app reads this via IAM)."
   value       = aws_db_instance.main.master_user_secret[0].secret_arn
 }
+
+# ── ECR (Phase 10, slice 9) — the ECS task definitions reference these image repos ──
+output "ecr_repository_urls" {
+  description = "ECR repository URLs, keyed by app (backend/frontend)."
+  value       = { for k, r in aws_ecr_repository.app : k => r.repository_url }
+}
