@@ -78,7 +78,7 @@ export function ReferralDetailPage() {
         <BackLink to="/referrals" label="Back to referrals" />
       </Box>
 
-      <Card variant="outlined">
+      <Card>
         <CardContent>
           <Stack direction="row" spacing={2} sx={{ alignItems: 'center', mb: 1 }}>
             <PageHeading>Referral {r.referralNumber}</PageHeading>
@@ -148,7 +148,7 @@ export function ReferralDetailPage() {
         </CardContent>
       </Card>
 
-      <Card variant="outlined">
+      <Card>
         <CardContent>
           <Typography variant="subtitle1" gutterBottom>
             Timeline

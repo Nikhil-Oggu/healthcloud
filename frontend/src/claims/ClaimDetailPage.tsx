@@ -133,7 +133,7 @@ export function ClaimDetailPage() {
         <BackLink to="/claims" label="Back to claims" />
       </Box>
 
-      <Card variant="outlined">
+      <Card>
         <CardContent>
           <Stack direction="row" spacing={2} sx={{ alignItems: 'center', mb: 1 }}>
             <PageHeading>Claim {c.claimNumber}</PageHeading>
@@ -226,7 +226,7 @@ export function ClaimDetailPage() {
         </CardContent>
       </Card>
 
-      <Card variant="outlined">
+      <Card>
         <CardContent>
           <Typography variant="subtitle1" gutterBottom>
             Lines
@@ -267,7 +267,7 @@ export function ClaimDetailPage() {
         onScan={() => void onScan()}
       />
 
-      <Card variant="outlined">
+      <Card>
         <CardContent>
           <Typography variant="subtitle1" gutterBottom>
             Timeline
@@ -305,7 +305,7 @@ export function ClaimDetailPage() {
 function AdjudicationCard({ result }: { result: ReturnType<typeof useAdjudication> }) {
   const version = result.data?.adjudicationVersion
   return (
-    <Card variant="outlined">
+    <Card>
       <CardContent>
         <Typography variant="subtitle1" gutterBottom>
           Adjudication{version ? ` — version ${version}` : ''}
@@ -402,7 +402,7 @@ function AnomaliesCard({
 }) {
   const signals = result.data ?? []
   return (
-    <Card variant="outlined">
+    <Card>
       <CardContent>
         <Stack direction="row" spacing={2} sx={{ alignItems: 'center', mb: 1, flexWrap: 'wrap', rowGap: 1 }}>
           <Typography variant="subtitle1">Anomaly signals</Typography>
@@ -456,7 +456,7 @@ function VersionHistoryCard({ versions }: { versions: ReturnType<typeof useAdjud
     return null
   }
   return (
-    <Card variant="outlined">
+    <Card>
       <CardContent>
         <Typography variant="subtitle1" gutterBottom>
           Version history

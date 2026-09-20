@@ -1,3 +1,8 @@
+/** Public sign-in capabilities of this environment (GET /api/v1/auth/config, mirrors AuthConfigDto). */
+export interface AuthConfig {
+  cognitoEnabled: boolean
+}
+
 /** The authenticated user's context, as returned by GET /api/v1/me (mirrors CurrentUserDto). */
 export interface CurrentUser {
   userId: string

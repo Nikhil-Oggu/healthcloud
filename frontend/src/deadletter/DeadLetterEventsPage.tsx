@@ -111,7 +111,7 @@ export function DeadLetterEventsPage() {
         sx={{ maxWidth: 320 }}
       />
 
-      <TableContainer component={Paper} variant="outlined">
+      <TableContainer component={Paper} elevation={0}>
         <Table aria-label="Dead-letter events" size="small">
           <TableHead>
             <TableRow>

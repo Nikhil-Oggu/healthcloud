@@ -61,7 +61,7 @@ export function CoveragePlanDetailPage() {
         <BackLink to="/coverage-plans" label="Back to coverage plans" />
       </Box>
 
-      <Card variant="outlined">
+      <Card>
         <CardContent>
           <PageHeading gutterBottom>
             {p.name} <Typography component="span" color="text.secondary">({p.planCode})</Typography>
@@ -127,7 +127,7 @@ function ExclusionsCard({ planId, canAdmin }: { planId: string; canAdmin: boolea
   }
 
   return (
-    <Card variant="outlined">
+    <Card>
       <CardContent>
         <Typography variant="subtitle1" gutterBottom>
           Excluded procedures
@@ -255,7 +255,7 @@ function FeeScheduleCard({ planId, canAdmin }: { planId: string; canAdmin: boole
   }
 
   return (
-    <Card variant="outlined">
+    <Card>
       <CardContent>
         <Typography variant="subtitle1" gutterBottom>
           Fee schedule
@@ -393,7 +393,7 @@ function PriorAuthRequirementsCard({ planId, canAdmin }: { planId: string; canAd
   }
 
   return (
-    <Card variant="outlined">
+    <Card>
       <CardContent>
         <Typography variant="subtitle1" gutterBottom>
           Prior-auth requirements
@@ -521,7 +521,7 @@ function NetworkProvidersCard({ planId, canAdmin }: { planId: string; canAdmin: 
   }
 
   return (
-    <Card variant="outlined">
+    <Card>
       <CardContent>
         <Typography variant="subtitle1" gutterBottom>
           Network providers

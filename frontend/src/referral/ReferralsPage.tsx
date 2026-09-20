@@ -117,7 +117,7 @@ export function ReferralsPage() {
             setPage(0)
           }}
           placeholder="e.g. REF-1A2B"
-          sx={{ maxWidth: 260 }}
+          sx={{ minWidth: 220, maxWidth: 340 }}
         />
 
         <TextField
@@ -129,7 +129,7 @@ export function ReferralsPage() {
             setStatus(e.target.value as ReferralStatus | '')
             setPage(0)
           }}
-          sx={{ maxWidth: 220 }}
+          sx={{ minWidth: 200 }}
         >
           <MenuItem value="">All statuses</MenuItem>
           {STATUSES.map((s) => (
@@ -140,7 +140,7 @@ export function ReferralsPage() {
         </TextField>
       </Stack>
 
-      <TableContainer component={Paper} variant="outlined">
+      <TableContainer component={Paper} elevation={0}>
         <Table aria-label="Referrals">
           <TableHead>
             <TableRow>

@@ -79,7 +79,7 @@ export function CreatePriorAuthForm() {
   }
 
   return (
-    <Card variant="outlined">
+    <Card>
       <CardContent>
         <Typography variant="subtitle1" gutterBottom>
           New request

@@ -112,7 +112,7 @@ export function ReprocessingBatchesPage() {
             setPage(0)
           }}
           placeholder="e.g. RPB-1A2B"
-          sx={{ maxWidth: 260 }}
+          sx={{ minWidth: 220, maxWidth: 340 }}
         />
 
         <TextField
@@ -124,7 +124,7 @@ export function ReprocessingBatchesPage() {
             setStatus(e.target.value as ReprocessingBatchStatus | '')
             setPage(0)
           }}
-          sx={{ maxWidth: 260 }}
+          sx={{ minWidth: 220, maxWidth: 340 }}
         >
           <MenuItem value="">All statuses</MenuItem>
           {STATUSES.map((s) => (
@@ -135,7 +135,7 @@ export function ReprocessingBatchesPage() {
         </TextField>
       </Stack>
 
-      <TableContainer component={Paper} variant="outlined">
+      <TableContainer component={Paper} elevation={0}>
         <Table aria-label="Reprocessing batches">
           <TableHead>
             <TableRow>

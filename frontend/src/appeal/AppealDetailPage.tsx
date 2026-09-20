@@ -83,7 +83,7 @@ export function AppealDetailPage() {
         <BackLink to="/appeals" label="Back to appeals" />
       </Box>
 
-      <Card variant="outlined">
+      <Card>
         <CardContent>
           <Stack direction="row" spacing={2} sx={{ alignItems: 'center', mb: 1 }}>
             <PageHeading>Appeal {a.appealNumber}</PageHeading>
@@ -159,7 +159,7 @@ export function AppealDetailPage() {
         </CardContent>
       </Card>
 
-      <Card variant="outlined">
+      <Card>
         <CardContent>
           <Typography variant="subtitle1" gutterBottom>
             Timeline

@@ -55,7 +55,7 @@ export function CreateClaimReviewForm() {
   }
 
   return (
-    <Card variant="outlined">
+    <Card>
       <CardContent>
         <Typography variant="subtitle1" gutterBottom>
           New review

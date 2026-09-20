@@ -52,6 +52,9 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> {
                     auth
                             .requestMatchers("/actuator/health", "/actuator/health/**", "/actuator/info").permitAll();
+                    // Public sign-in capability probe — lets the login page render correctly pre-auth
+                    // (whether the Cognito button is available). Exposes only a boolean, no secrets.
+                    auth.requestMatchers("/api/v1/auth/config").permitAll();
                     if (devLoginEnabled) {
                         auth.requestMatchers("/api/v1/dev-login").permitAll();
                         // Local-only: let a local Prometheus scrape /actuator/prometheus without a session

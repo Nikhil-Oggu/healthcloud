@@ -145,7 +145,7 @@ export function PatientDetailPage() {
         </PageHeading>
       </Box>
 
-      <Card variant="outlined">
+      <Card>
         <CardContent>
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={4}>
             <Field label="MRN" value={p.medicalRecordNumber} />
@@ -180,7 +180,7 @@ export function PatientDetailPage() {
         {directives.isError ? (
           <ErrorScreen error={directives.error} />
         ) : (
-          <TableContainer component={Paper} variant="outlined" sx={{ mt: 2 }}>
+          <TableContainer component={Paper} elevation={0} sx={{ mt: 2 }}>
             <Table aria-label="Consent directives">
               <TableHead>
                 <TableRow>
@@ -357,7 +357,7 @@ function AssignmentGroup({
   }
 
   return (
-    <Card variant="outlined" sx={{ flex: 1 }}>
+    <Card sx={{ flex: 1 }}>
       <CardContent>
         <Typography variant="subtitle1" gutterBottom>
           {label}
@@ -461,7 +461,7 @@ function EligibilityCard({ patientId, canWrite }: { patientId: string; canWrite:
       {eligibility.isError ? (
         <ErrorScreen error={eligibility.error} />
       ) : (
-        <TableContainer component={Paper} variant="outlined" sx={{ mt: 2 }}>
+        <TableContainer component={Paper} elevation={0} sx={{ mt: 2 }}>
           <Table aria-label="Coverage eligibility">
             <TableHead>
               <TableRow>
@@ -540,7 +540,7 @@ function EnrollEligibilityForm({ patientId }: { patientId: string }) {
   }
 
   return (
-    <Card variant="outlined">
+    <Card>
       <CardContent>
         <Typography variant="subtitle1" gutterBottom>
           Enroll in a plan
@@ -669,7 +669,7 @@ function DocumentsCard({ patientId, canWrite }: { patientId: string; canWrite: b
       )}
 
       {canWrite && (
-        <Card variant="outlined" sx={{ mb: 2 }}>
+        <Card sx={{ mb: 2 }}>
           <CardContent>
             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ alignItems: 'center' }}>
               <input
@@ -692,7 +692,7 @@ function DocumentsCard({ patientId, canWrite }: { patientId: string; canWrite: b
       {documents.isError ? (
         <ErrorScreen error={documents.error} />
       ) : (
-        <TableContainer component={Paper} variant="outlined">
+        <TableContainer component={Paper} elevation={0}>
           <Table aria-label="Documents">
             <TableHead>
               <TableRow>
@@ -860,7 +860,7 @@ function RecordDirectiveForm({ patientId }: { patientId: string }) {
   }
 
   return (
-    <Card variant="outlined">
+    <Card>
       <CardContent>
         <Typography variant="subtitle1" gutterBottom>
           Record directive

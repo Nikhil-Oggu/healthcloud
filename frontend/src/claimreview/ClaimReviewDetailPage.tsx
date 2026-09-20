@@ -79,7 +79,7 @@ export function ClaimReviewDetailPage() {
         <BackLink to="/claim-reviews" label="Back to reviews" />
       </Box>
 
-      <Card variant="outlined">
+      <Card>
         <CardContent>
           <Stack direction="row" spacing={2} sx={{ alignItems: 'center', mb: 1 }}>
             <PageHeading>Review {r.reviewNumber}</PageHeading>
@@ -157,7 +157,7 @@ export function ClaimReviewDetailPage() {
         </CardContent>
       </Card>
 
-      <Card variant="outlined">
+      <Card>
         <CardContent>
           <Typography variant="subtitle1" gutterBottom>
             Timeline

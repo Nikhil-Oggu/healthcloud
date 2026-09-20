@@ -1,6 +1,7 @@
 import type {
   AddCommentRequest,
   Adjudication,
+  AuthConfig,
   ClaimAnomalySignal,
   ApiError,
   AssignableUser,
@@ -155,6 +156,10 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
 /** Typed API surface used by the app. */
 export const api = {
   me: () => request<CurrentUser>('/api/v1/me'),
+
+  // Public sign-in capability probe (no auth) — the login page uses it to decide whether the
+  // "Sign in with Cognito" button is available in this environment.
+  authConfig: () => request<AuthConfig>('/api/v1/auth/config'),
 
   devLogin: (email: string) =>
     request<void>('/api/v1/dev-login', {

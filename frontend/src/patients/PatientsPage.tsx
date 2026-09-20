@@ -96,7 +96,7 @@ export function PatientsPage() {
 
       {canWrite && <AddPatientForm />}
 
-      <TableContainer component={Paper} variant="outlined">
+      <TableContainer component={Paper} elevation={0}>
         <Table aria-label="Patients">
           <TableHead>
             <TableRow>
@@ -181,7 +181,7 @@ function AddPatientForm() {
   }
 
   return (
-    <Card variant="outlined">
+    <Card>
       <CardContent>
         <Typography variant="subtitle1" gutterBottom>
           Add patient

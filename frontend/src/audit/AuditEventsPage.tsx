@@ -148,7 +148,7 @@ export function AuditEventsPage() {
             setAction(e.target.value as AuditAction | '')
             setPage(0)
           }}
-          sx={{ maxWidth: 260 }}
+          sx={{ minWidth: 220, maxWidth: 340 }}
         >
           <MenuItem value="">All actions</MenuItem>
           {ACTIONS.map((a) => (
@@ -159,7 +159,7 @@ export function AuditEventsPage() {
         </TextField>
       </Stack>
 
-      <TableContainer component={Paper} variant="outlined">
+      <TableContainer component={Paper} elevation={0}>
         <Table aria-label="Audit events" size="small">
           <TableHead>
             <TableRow>

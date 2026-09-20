@@ -35,7 +35,7 @@ export function MyBreakGlassPage() {
         the glass for a new patient, open that patient and use the emergency-access panel.
       </Typography>
 
-      <TableContainer component={Paper} variant="outlined">
+      <TableContainer component={Paper} elevation={0}>
         <Table aria-label="Break-glass grants">
           <TableHead>
             <TableRow>

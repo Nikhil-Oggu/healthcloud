@@ -13,7 +13,7 @@ import {
   TextField,
   Typography,
 } from '@mui/material'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Navigate, useNavigate } from 'react-router-dom'
 import { api, ApiClientError } from '../api/client'
 import { ME_QUERY_KEY, useCurrentUser } from './useAuth'
@@ -57,6 +57,19 @@ export function LoginPage() {
       navigate('/', { replace: true })
     },
   })
+
+  // Is the Cognito flow actually configured in this environment? (Deployed: yes; local without the
+  // `cognito` profile: no.) Drives whether the button is live or shown disabled with an explanation,
+  // so a click never lands on the BFF's 500 when no OIDC client is wired.
+  const authConfig = useQuery({
+    queryKey: ['auth-config'],
+    queryFn: () => api.authConfig(),
+    staleTime: Infinity,
+    retry: false,
+  })
+  // Treat "still loading" as available (optimistic) so the button doesn't flicker disabled; once the
+  // probe resolves we know for certain. Only an explicit `false` disables it.
+  const cognitoEnabled = authConfig.data?.cognitoEnabled ?? true
 
   // Already authenticated (e.g. navigated to /login directly) → go home.
   if (user) {
@@ -155,10 +168,25 @@ export function LoginPage() {
                 Access your HealthCloud workspace.
               </Typography>
 
-              {/* Primary, production login: redirect the whole page to the BFF's Cognito flow. */}
-              <Button variant="contained" fullWidth size="large" component="a" href={COGNITO_LOGIN_URL}>
+              {/* Primary, production login: redirect the whole page to the BFF's Cognito flow. Rendered
+                  disabled (with an explanation) when this environment has no Cognito client configured, so
+                  a click can never hit the BFF's 500. */}
+              <Button
+                variant="contained"
+                fullWidth
+                size="large"
+                component={cognitoEnabled ? 'a' : 'button'}
+                href={cognitoEnabled ? COGNITO_LOGIN_URL : undefined}
+                disabled={!cognitoEnabled}
+              >
                 Sign in with Cognito
               </Button>
+              {!cognitoEnabled && (
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
+                  Cognito sign-in isn’t configured in this environment
+                  {import.meta.env.DEV ? ' — use the developer sign-in below.' : '.'}
+                </Typography>
+              )}
 
               {/* Developer sign-in — local dev builds only (hidden in the production bundle). */}
               {import.meta.env.DEV && (

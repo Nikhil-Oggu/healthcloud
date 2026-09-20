@@ -57,7 +57,7 @@ export function CreateAppealForm() {
   }
 
   return (
-    <Card variant="outlined">
+    <Card>
       <CardContent>
         <Typography variant="subtitle1" gutterBottom>
           New appeal

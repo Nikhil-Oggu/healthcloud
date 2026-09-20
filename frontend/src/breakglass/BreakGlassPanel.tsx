@@ -40,7 +40,7 @@ export function BreakGlassPanel({ patientId }: { patientId: string }) {
 
   return (
     <Box sx={{ maxWidth: 560, mx: 'auto', mt: 8, px: 2 }}>
-      <Card variant="outlined">
+      <Card>
         <CardContent>
           <Alert severity="warning" sx={{ mb: 2 }}>
             <AlertTitle>You do not have access to this patient</AlertTitle>

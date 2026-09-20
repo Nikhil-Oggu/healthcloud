@@ -91,7 +91,7 @@ export function RequestDetailPage() {
         <BackLink to="/requests" label="Back to requests" />
       </Box>
 
-      <Card variant="outlined">
+      <Card>
         <CardContent>
           <Stack direction="row" spacing={2} sx={{ alignItems: 'center', mb: 1 }}>
             <PageHeading>{r.title}</PageHeading>
@@ -157,7 +157,7 @@ export function RequestDetailPage() {
         </CardContent>
       </Card>
 
-      <Card variant="outlined">
+      <Card>
         <CardContent>
           <Typography variant="subtitle1" gutterBottom>
             Timeline
@@ -247,7 +247,7 @@ function AssignmentCard({
   }
 
   return (
-    <Card variant="outlined">
+    <Card>
       <CardContent>
         <Typography variant="subtitle1" gutterBottom>
           Assignment
@@ -352,7 +352,7 @@ function CommentsCard({ requestId, canComment }: { requestId: string; canComment
   }
 
   return (
-    <Card variant="outlined">
+    <Card>
       <CardContent>
         <Typography variant="subtitle1" gutterBottom>
           Comments

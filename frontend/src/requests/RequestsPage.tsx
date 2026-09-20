@@ -58,7 +58,7 @@ export function RequestsPage() {
 
       {canCreate && <CreateRequestForm />}
 
-      <TableContainer component={Paper} variant="outlined">
+      <TableContainer component={Paper} elevation={0}>
         <Table aria-label="Service requests">
           <TableHead>
             <TableRow>
@@ -126,7 +126,7 @@ function CreateRequestForm() {
   }
 
   return (
-    <Card variant="outlined">
+    <Card>
       <CardContent>
         <Typography variant="subtitle1" gutterBottom>
           New request

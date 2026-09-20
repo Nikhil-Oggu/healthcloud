@@ -51,7 +51,7 @@ export function CoveragePlansPage() {
 
       {canCreate && <CreateCoveragePlanForm />}
 
-      <TableContainer component={Paper} variant="outlined">
+      <TableContainer component={Paper} elevation={0}>
         <Table aria-label="Coverage plans">
           <TableHead>
             <TableRow>
@@ -148,7 +148,7 @@ function CreateCoveragePlanForm() {
   }
 
   return (
-    <Card variant="outlined">
+    <Card>
       <CardContent>
         <Typography variant="subtitle1" gutterBottom>
           New coverage plan

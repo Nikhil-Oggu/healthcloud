@@ -12,7 +12,7 @@ vi.mock('../api/client', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../api/client')>()
   return {
     ...actual,
-    api: { me: vi.fn(), devLogin: vi.fn(), logout: vi.fn() },
+    api: { me: vi.fn(), devLogin: vi.fn(), logout: vi.fn(), authConfig: vi.fn() },
   }
 })
 
@@ -32,6 +32,8 @@ describe('LoginPage', () => {
     vi.clearAllMocks()
     // Not authenticated → the login page shows its sign-in options.
     meMock.mockRejectedValue(new Error('not logged in'))
+    // Default: Cognito available (the button renders as a live link). Tests can override per case.
+    vi.mocked(api.authConfig).mockResolvedValue({ cognitoEnabled: true })
   })
 
   it('offers "Sign in with Cognito" as a full-page link to the BFF OIDC endpoint', () => {

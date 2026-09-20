@@ -78,7 +78,7 @@ export function PriorAuthorizationDetailPage() {
         <BackLink to="/prior-authorizations" label="Back to prior authorizations" />
       </Box>
 
-      <Card variant="outlined">
+      <Card>
         <CardContent>
           <Stack direction="row" spacing={2} sx={{ alignItems: 'center', mb: 1 }}>
             <PageHeading>Prior auth {a.authNumber}</PageHeading>
@@ -150,7 +150,7 @@ export function PriorAuthorizationDetailPage() {
         </CardContent>
       </Card>
 
-      <Card variant="outlined">
+      <Card>
         <CardContent>
           <Typography variant="subtitle1" gutterBottom>
             Timeline

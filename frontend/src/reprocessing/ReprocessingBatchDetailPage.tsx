@@ -41,7 +41,7 @@ export function ReprocessingBatchDetailPage() {
         <BackLink to="/reprocessing" label="Back to reprocessing" />
       </Box>
 
-      <Card variant="outlined">
+      <Card>
         <CardContent>
           <Stack direction="row" spacing={2} sx={{ alignItems: 'center', mb: 1 }}>
             <PageHeading>Batch {b.batchNumber}</PageHeading>
@@ -60,7 +60,7 @@ export function ReprocessingBatchDetailPage() {
         </CardContent>
       </Card>
 
-      <TableContainer component={Paper} variant="outlined">
+      <TableContainer component={Paper} elevation={0}>
         <Table aria-label="Reprocessed claims">
           <TableHead>
             <TableRow>

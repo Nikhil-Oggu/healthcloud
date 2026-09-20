@@ -120,7 +120,7 @@ export function AppealsPage() {
             setPage(0)
           }}
           placeholder="e.g. APL-1A2B"
-          sx={{ maxWidth: 260 }}
+          sx={{ minWidth: 220, maxWidth: 340 }}
         />
 
         <TextField
@@ -132,7 +132,7 @@ export function AppealsPage() {
             setStatus(e.target.value as AppealStatus | '')
             setPage(0)
           }}
-          sx={{ maxWidth: 220 }}
+          sx={{ minWidth: 200 }}
         >
           <MenuItem value="">All statuses</MenuItem>
           {STATUSES.map((s) => (
@@ -143,7 +143,7 @@ export function AppealsPage() {
         </TextField>
       </Stack>
 
-      <TableContainer component={Paper} variant="outlined">
+      <TableContainer component={Paper} elevation={0}>
         <Table aria-label="Appeals">
           <TableHead>
             <TableRow>

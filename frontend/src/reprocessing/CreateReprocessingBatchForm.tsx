@@ -51,7 +51,7 @@ export function CreateReprocessingBatchForm() {
   }
 
   return (
-    <Card variant="outlined">
+    <Card>
       <CardContent>
         <Typography variant="subtitle1" gutterBottom>
           Run a batch

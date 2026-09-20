@@ -46,7 +46,7 @@ export function AccessReviewPage() {
         is time-boxed and audited; an administrator can revoke one early to end access immediately.
       </Typography>
 
-      <TableContainer component={Paper} variant="outlined">
+      <TableContainer component={Paper} elevation={0}>
         <Table aria-label="Active break-glass grants">
           <TableHead>
             <TableRow>

@@ -139,11 +139,12 @@ export const theme = createTheme({
     },
     MuiChip: {
       styleOverrides: {
-        // Soft, tinted status chips (light-tint background + strong colored text) instead of solid
-        // fills — applied globally so every status chip across all queues + detail pages restyles at
-        // once. Uses the CSS-variable channel tokens so the tint follows the active color scheme; dark
-        // mode uses a stronger tint + a lighter text so the chip stays legible on the deep navy.
-        // Outlined chips (nav / identity) keep their border.
+        // Soft, tinted status chips (light-tint background + a same-color ring + strong colored text)
+        // instead of solid fills — applied globally so every status chip across all queues + detail pages
+        // restyles at once. The ring + label padding give short labels (ACTIVE / REQUESTED) real presence
+        // and proper width. Uses the CSS-variable channel tokens so the tint follows the active scheme;
+        // dark mode uses a stronger tint + lighter text so the chip stays legible on the deep navy.
+        // Outlined chips (nav / identity) keep their own border.
         root: ({ theme, ownerState }) => {
           const color = ownerState.color
           const isPaletteColor =
@@ -151,15 +152,31 @@ export const theme = createTheme({
             color !== 'default' &&
             ['primary', 'secondary', 'success', 'info', 'warning', 'error'].includes(color)
           return {
-            fontWeight: 600,
+            fontWeight: 700,
             borderRadius: 999,
+            letterSpacing: '0.02em',
+            '& .MuiChip-label': { paddingInline: 11 },
             ...(ownerState.variant === 'filled' && isPaletteColor
               ? {
-                  backgroundColor: `rgba(var(--mui-palette-${color}-mainChannel) / 0.14)`,
+                  backgroundColor: `rgba(var(--mui-palette-${color}-mainChannel) / 0.16)`,
                   color: `var(--mui-palette-${color}-dark)`,
+                  border: `1px solid rgba(var(--mui-palette-${color}-mainChannel) / 0.34)`,
                   ...theme.applyStyles('dark', {
-                    backgroundColor: `rgba(var(--mui-palette-${color}-mainChannel) / 0.22)`,
+                    backgroundColor: `rgba(var(--mui-palette-${color}-mainChannel) / 0.24)`,
                     color: `var(--mui-palette-${color}-light)`,
+                    border: `1px solid rgba(var(--mui-palette-${color}-mainChannel) / 0.45)`,
+                  }),
+                }
+              : {}),
+            // A defined neutral for a `default` filled chip (e.g. an INACTIVE status) so it isn't washed out.
+            ...(ownerState.variant === 'filled' && color === 'default'
+              ? {
+                  backgroundColor: 'rgba(15,23,41,0.06)',
+                  color: theme.vars.palette.text.secondary,
+                  border: '1px solid rgba(15,23,41,0.12)',
+                  ...theme.applyStyles('dark', {
+                    backgroundColor: 'rgba(255,255,255,0.08)',
+                    border: '1px solid rgba(255,255,255,0.14)',
                   }),
                 }
               : {}),
@@ -167,16 +184,54 @@ export const theme = createTheme({
         },
       },
     },
+    // Tables read as a lifted, contained surface (not a flat sheet on the canvas). Pages use
+    // `TableContainer component={Paper} elevation={0}`, so this override owns the whole look.
+    MuiTableContainer: {
+      styleOverrides: {
+        root: ({ theme }) => ({
+          backgroundColor: theme.vars.palette.background.paper,
+          border: `1px solid ${theme.vars.palette.divider}`,
+          borderRadius: 14,
+          overflow: 'hidden',
+          boxShadow: '0 1px 2px rgba(15,23,41,.04), 0 10px 28px -18px rgba(15,23,41,.22)',
+          ...theme.applyStyles('dark', {
+            boxShadow: '0 1px 2px rgba(0,0,0,.5), 0 12px 30px -18px rgba(0,0,0,.7)',
+          }),
+        }),
+      },
+    },
     MuiTableCell: {
       styleOverrides: {
-        root: ({ theme }) => ({ borderColor: theme.vars.palette.divider }),
+        root: ({ theme }) => ({ borderColor: theme.vars.palette.divider, paddingTop: 14, paddingBottom: 14 }),
+        // A subtly teal-tinted header rule (not the washed grey) so the table reads as branded + intentional.
         head: ({ theme }) => ({
-          backgroundColor: theme.vars.palette.background.default,
+          backgroundColor: 'rgba(13,148,136,0.05)',
           color: theme.vars.palette.text.secondary,
           fontSize: 11,
           fontWeight: 700,
-          letterSpacing: '0.06em',
+          letterSpacing: '0.07em',
           textTransform: 'uppercase',
+          borderBottom: `1px solid ${theme.vars.palette.divider}`,
+          ...theme.applyStyles('dark', { backgroundColor: 'rgba(45,212,191,0.08)' }),
+        }),
+      },
+    },
+    // Form inputs get a soft filled resting state + a clear teal focus ring, so forms read as deliberate
+    // rather than bare fields on white. Applies to every outlined TextField/Select across the app.
+    MuiOutlinedInput: {
+      styleOverrides: {
+        root: ({ theme }) => ({
+          backgroundColor: theme.vars.palette.background.default,
+          transition: 'background-color .15s, box-shadow .15s',
+          '& .MuiOutlinedInput-notchedOutline': { borderColor: theme.vars.palette.divider },
+          '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: theme.vars.palette.text.secondary },
+          '&.Mui-focused': {
+            backgroundColor: theme.vars.palette.background.paper,
+            '& .MuiOutlinedInput-notchedOutline': {
+              borderColor: theme.vars.palette.primary.main,
+              borderWidth: 2,
+            },
+          },
         }),
       },
     },
