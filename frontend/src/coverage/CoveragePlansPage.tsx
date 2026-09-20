@@ -180,25 +180,25 @@ function CreateCoveragePlanForm() {
             </Stack>
             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
               <TextField
-                label="Deductible" type="number" size="small"
+                label="Deductible" type="number" size="small" sx={{ minWidth: 150 }}
                 slotProps={{ htmlInput: { step: '0.01', min: '0' } }}
                 {...register('deductibleAmount')} error={!!errors.deductibleAmount}
                 helperText={errors.deductibleAmount?.message}
               />
               <TextField
-                label="Coinsurance (0–1)" type="number" size="small"
+                label="Coinsurance (0–1)" type="number" size="small" sx={{ minWidth: 150 }}
                 slotProps={{ htmlInput: { step: '0.0001', min: '0', max: '1' } }}
                 {...register('coinsuranceRate')} error={!!errors.coinsuranceRate}
                 helperText={errors.coinsuranceRate?.message}
               />
               <TextField
-                label="Copay" type="number" size="small"
+                label="Copay" type="number" size="small" sx={{ minWidth: 150 }}
                 slotProps={{ htmlInput: { step: '0.01', min: '0' } }}
                 {...register('copayAmount')} error={!!errors.copayAmount}
                 helperText={errors.copayAmount?.message}
               />
               <TextField
-                label="OOP max (optional)" type="number" size="small"
+                label="OOP max (optional)" type="number" size="small" sx={{ minWidth: 150 }}
                 slotProps={{ htmlInput: { step: '0.01', min: '0' } }}
                 {...register('outOfPocketMax')} error={!!errors.outOfPocketMax}
                 helperText={errors.outOfPocketMax?.message}

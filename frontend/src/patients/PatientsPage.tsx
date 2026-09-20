@@ -219,6 +219,7 @@ function AddPatientForm() {
               label="Date of birth"
               type="date"
               size="small"
+              sx={{ minWidth: 175 }}
               slotProps={{ inputLabel: { shrink: true } }}
               {...register('dateOfBirth')}
               error={!!errors.dateOfBirth}

@@ -414,6 +414,7 @@ function AssignmentGroup({
                 label="From"
                 type="date"
                 size="small"
+                sx={{ minWidth: 160 }}
                 slotProps={{ inputLabel: { shrink: true } }}
                 value={effectiveFrom}
                 onChange={(e) => setEffectiveFrom(e.target.value)}
@@ -422,6 +423,7 @@ function AssignmentGroup({
                 label="To"
                 type="date"
                 size="small"
+                sx={{ minWidth: 160 }}
                 slotProps={{ inputLabel: { shrink: true } }}
                 value={effectiveTo}
                 onChange={(e) => setEffectiveTo(e.target.value)}
@@ -571,13 +573,13 @@ function EnrollEligibilityForm({ patientId }: { patientId: string }) {
               {...register('memberId')} error={!!errors.memberId} helperText={errors.memberId?.message}
             />
             <TextField
-              label="Coverage start" type="date" size="small"
+              label="Coverage start" type="date" size="small" sx={{ minWidth: 190 }}
               slotProps={{ inputLabel: { shrink: true } }}
               {...register('effectiveFrom')} error={!!errors.effectiveFrom}
               helperText={errors.effectiveFrom?.message}
             />
             <TextField
-              label="Coverage end (optional)" type="date" size="small"
+              label="Coverage end (optional)" type="date" size="small" sx={{ minWidth: 190 }}
               slotProps={{ inputLabel: { shrink: true } }}
               {...register('effectiveTo')} error={!!errors.effectiveTo}
               helperText={errors.effectiveTo?.message}
@@ -671,14 +673,25 @@ function DocumentsCard({ patientId, canWrite }: { patientId: string; canWrite: b
       {canWrite && (
         <Card sx={{ mb: 2 }}>
           <CardContent>
-            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ alignItems: 'center' }}>
-              <input
-                key={inputKey}
-                type="file"
-                aria-label="Choose a document"
-                onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-              />
-              <Button variant="contained" onClick={onUpload} disabled={!file || upload.isPending}>
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ alignItems: { sm: 'center' } }}>
+              <Button variant="outlined" component="label" sx={{ flexShrink: 0 }}>
+                Choose file
+                <input
+                  key={inputKey}
+                  type="file"
+                  hidden
+                  aria-label="Choose a document"
+                  onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+                />
+              </Button>
+              <Typography
+                variant="body2"
+                color={file ? 'text.primary' : 'text.secondary'}
+                sx={{ flexGrow: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+              >
+                {file ? file.name : 'No file chosen'}
+              </Typography>
+              <Button variant="contained" onClick={onUpload} disabled={!file || upload.isPending} sx={{ flexShrink: 0 }}>
                 {upload.isPending ? 'Uploading…' : 'Upload'}
               </Button>
             </Stack>

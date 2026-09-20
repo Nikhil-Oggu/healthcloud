@@ -1106,10 +1106,27 @@ to the AWS deployment, Alertmanager routing, RDS PITR/snapshot DR — all on-dem
     to its (empty) content and truncate its label to "S.." — every queue's status filter uses
     `sx={{ minWidth: 200 }}` and the search boxes `sx={{ minWidth: 220, maxWidth: 340 }}`. Any new filter select
     MUST set a minWidth.
+  - **Date / number fields in a `direction="row"` form need a `minWidth` too** (UI polish round 2). Same collapse
+    trap as filter selects, but worse for `<TextField type="date">`: with no width the native control clips its
+    `mm/dd/yyyy` placeholder to "mm/dd/" and (for a long label like "Coinsurance (0–1)") truncates the label. A
+    native date input needs ~170–190px. Fixed by `sx={{ minWidth: … }}` on the enroll "Coverage start/end" (190),
+    care-team "From/To" (160), add-patient "Date of birth" (175), and the coverage-plan money fields (150). Any new
+    date/number field in a row form MUST set a minWidth (the row already stacks full-width on `xs`, so it only bites
+    on `sm+`).
+  - **File upload = a styled MUI button, never a bare `<input type="file">`** (UI polish round 2). A raw file input
+    renders with default browser chrome — tolerable in light mode, clearly broken in dark (a light-grey "Choose
+    File" button on the dark card). Use `<Button variant="outlined" component="label">Choose file<input type="file"
+    hidden aria-label="…" …/></Button>` + a themed `Typography` showing the chosen filename (or "No file chosen").
+    Keep the `aria-label` on the **hidden** input so `getByLabelText(...)` / `userEvent.upload(...)` tests are
+    unchanged. The reference is `DocumentsCard` in `PatientDetailPage.tsx`.
   - **Former UI follow-ups — now DONE:** the native-select label overlap (slice 7), the depth/color pass (slice 8),
-    Light/Dark/System theme mode (slice 9), and the surface/chip/input polish (the "pale/generic" fix) are all
-    complete. Remaining (documented, lower priority): the durable `NativeSelectField` wrapper so a native select
-    can't forget the shrink flag; a full page-by-page dark-mode sweep of the less-trafficked screens.
+    Light/Dark/System theme mode (slice 9), the surface/chip/input polish (the "pale/generic" fix), and — after a
+    **full pixel pass of every screen in light AND dark** — the styled file-upload control + the date/number-field
+    `minWidth` fixes (UI polish round 2). Remaining (documented, lower priority): the durable `NativeSelectField`
+    wrapper so a native select can't forget the shrink flag; adding a loading skeleton to the patient-detail cards /
+    name-resolving queues (they briefly show empty/"—" before a secondary query resolves); making every empty table
+    use the centered `EmptyState` (a few still use plain left-aligned text); and giving the Phase-2 **Requests**
+    queue the same search + pagination the eight newer queues have.
 
 ## Infrastructure & deployment conventions (Phase 10; learned)
 - **⚠️ AWS cost/approval boundary (hard rule).** Never create, modify, or destroy AWS resources — no

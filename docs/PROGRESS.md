@@ -456,6 +456,28 @@
 
 ## Log (newest first)
 
+### 2026-09-20 — UI polish round 2 ✅ (full pixel pass in light + dark → styled upload + un-cramped fields)
+- Did a **full pixel pass of every screen in both light and dark mode** (Dashboard, Patients list + detail, Requests,
+  Claims list + detail, Coverage list + detail, Prior auth, Referrals, Appeals, Reviews, Reprocessing, Audit, Access
+  review, Dead letters). Verdict: the design system holds up well in both themes — no console errors anywhere; the
+  cards / tinted chips / adjudication + audit tables / dashboard all read cleanly. Two things genuinely looked like
+  defects, fixed this slice:
+  1. **Document upload was a bare native `<input type="file">`** — default browser chrome, tolerable in light but
+     clearly wrong in dark (light-grey "Choose File" button on the dark card). Replaced with a styled
+     `<Button variant="outlined" component="label">Choose file</Button>` wrapping a **hidden** input (keeps the
+     `aria-label="Choose a document"` on the hidden input, so the existing upload test needed no change) + a themed
+     filename / "No file chosen" line. `DocumentsCard` in `frontend/src/patients/PatientDetailPage.tsx`.
+  2. **Native date / number fields collapsed in row forms**, clipping `mm/dd/yyyy` → "mm/dd/" and truncating long
+     labels ("Coinsurance (0–1)" → "Coinsuranc…", "Coverage start" → "Cove…"). Added `sx={{ minWidth: … }}`: enroll
+     Coverage start/end (190), care-team From/To (160) + add-patient DOB (175) in `PatientDetailPage.tsx` /
+     `PatientsPage.tsx`, and the four coverage-plan money fields (150) in `coverage/CoveragePlansPage.tsx`.
+- **Verified:** `npm run typecheck` clean; the three affected suites green (26 tests — the upload test unchanged); and
+  re-shot the Documents card + all four form rows **in light and dark** — file control now themed, all date/number
+  fields show their full value + label. Backend untouched (no `mvnw` run needed).
+- **Deferred (documented in CLAUDE.md):** loading skeletons for the name-resolving queues / patient-detail cards
+  (brief empty/"—" flash before a secondary query resolves); make every empty table use the centered `EmptyState`;
+  give the Phase-2 **Requests** queue the same search + pagination the eight newer queues have.
+
 ### 2026-09-20 — Phase 11 review fixes ✅ (code-reviewer + security-reviewer follow-ups)
 - Ran the `code-reviewer` and `security-reviewer` subagents in parallel over the Phase 11 diff (`a8febde..HEAD`).
   **Security: clean** (no exploitable findings). **Code review:** no correctness bugs; one Major hardening item +
