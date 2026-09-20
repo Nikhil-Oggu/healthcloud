@@ -67,6 +67,9 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
 ```
 - **Infra up:** `docker compose up -d postgres kafka` (Kafka in KRaft mode, Phase 8)  ·  **DB reset (reseed):**
   `./scripts/db-reset.sh` · Tests use Testcontainers, not this compose stack, so it need not be running for `verify`.
+- **DB backup / restore drill (Phase 11 slice 6):** `./scripts/db-backup.sh` dumps to `var/backups/` (git-ignored);
+  `./scripts/db-restore-drill.sh` rehearses recovery (backup → restore into a scratch DB → verify row counts →
+  PASS/FAIL) against the running compose postgres. See `docs/runbooks/backup-and-restore.md`.
 - **Run app (seeds demo data):** `cd backend && ./mvnw spring-boot:run -Dspring-boot.run.profiles=local`
 - **Run app with real Cognito login (Phase 10 slice 12):** `export COGNITO_CLIENT_SECRET=$(cd infrastructure/terraform
   && terraform output -raw cognito_client_secret)` then `cd backend && SPRING_PROFILES_ACTIVE=local,cognito ./mvnw
@@ -127,7 +130,11 @@ slice 5 done: **alert rules** (Prometheus alerting rules in `infrastructure/obse
 `BackendTargetDown`/`OutboxBacklogHigh`/`HighHttp5xxRate`/`HighRequestLatencyP95`/`JvmHeapHigh`, each over a
 real exported metric; a Micrometer gauge `healthcloud.outbox.pending` makes the outbox backlog alertable; no
 Alertmanager locally — routing is a documented follow-up).
-See the Observability conventions section. Remaining Phase 11: backup/restore drill, runbooks. See docs/PROGRESS.md for status)
+slice 6 done: **backup & restore drill** (`scripts/db-backup.sh` + `scripts/db-restore-drill.sh` — a
+non-destructive rehearsal that backs up, restores into a scratch DB, and verifies every table's row count
+matches; runbook `docs/runbooks/backup-and-restore.md`; the RDS PITR/snapshot equivalent is an on-demand
+follow-up).
+See the Observability conventions section. Remaining Phase 11: runbooks. See docs/PROGRESS.md for status)
 - **Backend packages** under `com.healthcloud`: `organization` (Organization, Facility, FacilityMembership),
   `identity` (AppUser, Role, OrganizationMembership, UserRole; plus the **provider directory** read
   `GET /api/v1/providers` — `ProviderController`/`ProviderDirectoryService` list the caller's tenant's active
@@ -1250,6 +1257,16 @@ See the Observability conventions section. Remaining Phase 11: backup/restore dr
   count at scrape time). Validate rule changes with `promtool check rules`/`check config` (run via the
   `prom/prometheus` image); a rule genuinely fires end-to-end (e.g. stop the backend → `BackendTargetDown`
   pending→firing).
+- **Backup & restore (slice 6).** "A backup you have never restored is not a backup" — so we ship an automated
+  **restore drill**, not just a dump. `scripts/db-backup.sh` writes a custom-format `pg_dump -Fc` archive to
+  `var/backups/` (git-ignored) via `docker compose exec` (pg tools run **inside** the postgres container — no host
+  psql needed). `scripts/db-restore-drill.sh` rehearses recovery end to end **without touching the live DB**:
+  backup → restore into a scratch DB → **verify `count(*)` of every public table matches source vs restored** →
+  drop scratch → PASS/FAIL. The dump includes `flyway_schema_history`, so a restored DB passes `ddl-auto:
+  validate`. **Bash gotcha (fixed & documented):** any `docker compose exec` inside a `while read` loop must
+  detach stdin (`</dev/null`) or it swallows the loop's input (only the first item is processed). The runbook is
+  `docs/runbooks/backup-and-restore.md`; the production RDS equivalent (automated backups + PITR + snapshot
+  restore) is an on-demand, approval-gated follow-up (RDS `backup_retention_period` is 0 for cheap teardown).
 - **Deploy:** no OTLP collector / Prometheus scrape is wired on AWS yet (export no-ops there) — an on-demand
   documented follow-up, consistent with the Phase-10 AWS-cost boundary.
 
