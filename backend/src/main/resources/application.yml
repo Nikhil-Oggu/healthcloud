@@ -86,6 +86,12 @@ healthcloud:
       poll-interval-ms: ${HEALTHCLOUD_OUTBOX_RELAY_POLL_INTERVAL_MS:2000}
       batch-size: ${HEALTHCLOUD_OUTBOX_RELAY_BATCH_SIZE:100}
       send-timeout-ms: ${HEALTHCLOUD_OUTBOX_RELAY_SEND_TIMEOUT_MS:5000}
+    health:
+      # The OutboxHealthIndicator (Phase 11 slice 4) reports OUT_OF_SERVICE on the root /actuator/health when more
+      # than this many events are pending (the relay is stuck/behind) — an operator/alert signal only; it does NOT
+      # affect the readiness probe, so a backlog never pulls the pod from the load balancer. When the relay is
+      # disabled a backlog is expected, so the indicator stays UP regardless of this threshold.
+      max-pending: ${HEALTHCLOUD_OUTBOX_HEALTH_MAX_PENDING:500}
   deadletter:
     replay:
       # How long an ORG_ADMIN's dead-letter replay (§Phase 8 slice 6) waits for the synchronous re-publish to the
@@ -122,7 +128,15 @@ management:
     health:
       show-details: always     # dev: show component health (db, etc.). Tightened later for prod.
       probes:
-        enabled: true
+        enabled: true          # expose /actuator/health/liveness + /actuator/health/readiness (Phase 11 slice 4)
+      group:
+        # Readiness ("can I serve traffic?") = the app's own readiness state PLUS the database, so the pod is taken
+        # out of the load balancer when Postgres is unreachable (Phase 11 slice 4). Liveness keeps its default
+        # (livenessState only) — an external dependency blip must NEVER restart the process. The outbox indicator is
+        # deliberately left OUT of both probes (a relay backlog doesn't stop serving requests); it shows on the root
+        # /actuator/health aggregate only.
+        readiness:
+          include: readinessState,db
   health:
     db:
       enabled: true

@@ -55,9 +55,12 @@ EXPOSE 8080
 # definition) without rebuilding the image. Modern JVMs are container-memory-aware by default.
 ENV JAVA_OPTS=""
 
-# Report container health from the app's own actuator endpoint — the same signal ECS/ALB use.
+# Container health = the LIVENESS probe (Phase 11 slice 4), not the full /actuator/health aggregate:
+# liveness reflects only "is the process alive?", so a restart is triggered only by a genuine process
+# failure. An external-dependency blip (Postgres down) or a relay backlog must NOT kill the container —
+# those belong to the readiness probe (traffic gating) and the root health aggregate (monitoring) instead.
 HEALTHCHECK --interval=15s --timeout=5s --start-period=60s --retries=5 \
-    CMD curl -fsS http://localhost:8080/actuator/health || exit 1
+    CMD curl -fsS http://localhost:8080/actuator/health/liveness || exit 1
 
 # Shell form so ${JAVA_OPTS} is expanded; exec so the JVM is PID 1 and receives stop signals.
 ENTRYPOINT ["sh", "-c", "exec java ${JAVA_OPTS} -jar app.jar"]
