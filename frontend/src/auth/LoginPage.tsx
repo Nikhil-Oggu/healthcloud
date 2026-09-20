@@ -28,14 +28,18 @@ import { constellation } from '../theme'
 const DEMO_USERS = [
   'patient@northcare.example.org',
   'provider@northcare.example.org',
+  'provider2@northcare.example.org',
   'coordinator@northcare.example.org',
   'reviewer@northcare.example.org',
   'admin@northcare.example.org',
+  'auditor@northcare.example.org',
   'patient@greenvalley.example.org',
   'provider@greenvalley.example.org',
+  'provider2@greenvalley.example.org',
   'coordinator@greenvalley.example.org',
   'reviewer@greenvalley.example.org',
   'admin@greenvalley.example.org',
+  'auditor@greenvalley.example.org',
 ]
 
 // The BFF endpoint that begins the OIDC authorization-code flow. A full-page navigation (not fetch) —
