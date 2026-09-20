@@ -1,0 +1,17 @@
+# Prometheus scrape config for the local HealthCloud dev stack (Phase 11 slice 2).
+# Runs as a container behind the `observability` compose profile and scrapes the Spring Boot app's
+# Micrometer metrics from /actuator/prometheus. The app may run either on the host (via `mvnw
+# spring-boot:run`, the everyday path) or as the `backend` container — `host.docker.internal`
+# reaches the host from inside the container in both cases (see the extra_hosts mapping in compose).
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: healthcloud-backend
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["host.docker.internal:8080"]
+        labels:
+          service: healthcloud-backend

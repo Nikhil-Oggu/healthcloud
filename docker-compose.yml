@@ -101,5 +101,44 @@ services:
     ports:
       - "8081:8080"
 
+  # --- Observability stack (Phase 11 slice 2) ------------------------------------------------------
+  # Local Prometheus + Grafana that scrape the app's /actuator/prometheus and visualise its metrics.
+  # Opt-in behind the `observability` profile so everyday `up -d postgres kafka` is unchanged.
+  #   docker compose --profile observability up -d prometheus grafana
+  # Prometheus scrapes host.docker.internal:8080 — works whether the app runs on the host (mvnw) or as
+  # the `backend` container. Grafana auto-provisions the datasource + the "HealthCloud Overview" dashboard.
+  #   Prometheus UI: http://localhost:9090      Grafana: http://localhost:3000 (anonymous Viewer)
+  prometheus:
+    image: prom/prometheus:v3.1.0
+    container_name: healthcloud-prometheus
+    profiles: ["observability"]
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./infrastructure/observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - healthcloud-prometheus-data:/prometheus
+    ports:
+      - "9090:9090"
+
+  grafana:
+    image: grafana/grafana:11.4.0
+    container_name: healthcloud-grafana
+    profiles: ["observability"]
+    depends_on:
+      - prometheus
+    environment:
+      # Local-only convenience: open the dashboards without a login (Viewer); admin/admin can still edit.
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: "Viewer"
+      GF_SECURITY_ADMIN_PASSWORD: "admin"
+    volumes:
+      - ./infrastructure/observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./infrastructure/observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - healthcloud-grafana-data:/var/lib/grafana
+    ports:
+      - "3000:3000"
+
 volumes:
   healthcloud-pgdata:
+  healthcloud-prometheus-data:
+  healthcloud-grafana-data:

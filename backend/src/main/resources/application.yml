@@ -122,3 +122,8 @@ management:
   metrics:
     tags:
       application: healthcloud     # a common label on every metric (Phase 11 slice 1)
+    distribution:
+      percentiles-histogram:
+        # Publish latency histogram buckets for HTTP requests so Prometheus/Grafana can compute
+        # percentiles (e.g. p95 via histogram_quantile). Phase 11 slice 2.
+        http.server.requests: true

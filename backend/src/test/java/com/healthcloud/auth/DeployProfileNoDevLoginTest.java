@@ -76,4 +76,20 @@ class DeployProfileNoDevLoginTest {
         assertFalse(response.headers().allValues("set-cookie").stream().anyMatch(c -> c.startsWith("SESSION=")),
                 "no authenticated session cookie should be set");
     }
+
+    @Test
+    void prometheus_endpoint_requires_auth_off_local() throws Exception {
+        // Phase 11 slice 2 permits /actuator/prometheus WITHOUT a session only under the `local` profile (so a
+        // local scraper works). On the deployed `demo` profile it must stay authenticated — an anonymous scrape
+        // is denied. (health/info remain the only public actuator paths.)
+        HttpResponse<String> response = http.send(
+                HttpRequest.newBuilder()
+                        .uri(URI.create("http://localhost:" + port + "/actuator/prometheus"))
+                        .GET()
+                        .build(),
+                HttpResponse.BodyHandlers.ofString());
+
+        assertTrue(response.statusCode() == 401 || response.statusCode() == 403,
+                "prometheus must require auth off local, was " + response.statusCode());
+    }
 }

@@ -1,0 +1,15 @@
+# Auto-load dashboards from the mounted folder so the HealthCloud Overview appears with no manual
+# import (Phase 11 slice 2).
+apiVersion: 1
+
+providers:
+  - name: HealthCloud
+    orgId: 1
+    folder: ""
+    type: file
+    disableDeletion: false
+    editable: true
+    updateIntervalSeconds: 15
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: false

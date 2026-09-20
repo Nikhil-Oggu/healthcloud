@@ -54,6 +54,9 @@ public class SecurityConfig {
                             .requestMatchers("/actuator/health", "/actuator/health/**", "/actuator/info").permitAll();
                     if (devLoginEnabled) {
                         auth.requestMatchers("/api/v1/dev-login").permitAll();
+                        // Local-only: let a local Prometheus scrape /actuator/prometheus without a session
+                        // (Phase 11 slice 2). The deployed `demo,cognito` app keeps this endpoint authenticated.
+                        auth.requestMatchers("/actuator/prometheus").permitAll();
                     }
                     // The OIDC authorization request + Cognito callback must be reachable pre-auth.
                     auth.requestMatchers("/oauth2/**", "/login/oauth2/**").permitAll()

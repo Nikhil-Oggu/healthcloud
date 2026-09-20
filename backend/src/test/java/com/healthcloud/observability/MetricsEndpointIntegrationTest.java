@@ -21,10 +21,11 @@ import org.springframework.context.annotation.Import;
 import org.springframework.test.context.ActiveProfiles;
 
 /**
- * Phase 11 slice 1 — the Prometheus metrics endpoint. Proves {@code /actuator/prometheus} is exposed but
- * still requires authentication (we did not loosen the security boundary — only health/info are public),
- * that it emits Micrometer's auto-instrumented metrics, and that a <b>committed</b> adjudication increments
- * the custom domain counter {@code healthcloud_adjudications_total}.
+ * Phase 11 — the Prometheus metrics endpoint (under the {@code local} profile). Proves the endpoint emits
+ * Micrometer's auto-instrumented metrics and that a <b>committed</b> adjudication increments the custom domain
+ * counter {@code healthcloud_adjudications_total}. Slice 2 makes {@code /actuator/prometheus} scrapable WITHOUT
+ * a session under {@code local} (so a local Prometheus works); that it stays authenticated on the deployed
+ * {@code demo} profile is proven by {@code DeployProfileNoDevLoginTest}.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @Import(TestcontainersConfiguration.class)
@@ -48,10 +49,11 @@ class MetricsEndpointIntegrationTest {
     }
 
     @Test
-    void prometheus_endpoint_requires_authentication() throws Exception {
+    void prometheus_endpoint_is_scrapable_without_a_session_under_local() throws Exception {
+        // Slice 2: under `local`, a local Prometheus scrapes /actuator/prometheus without logging in.
         HttpResponse<String> anon = get(null, "/actuator/prometheus");
-        assertTrue(anon.statusCode() == 401 || anon.statusCode() == 403,
-                "prometheus must not be public (only health/info are); got " + anon.statusCode());
+        assertEquals(200, anon.statusCode(), "prometheus is public under local for scraping; got " + anon.statusCode());
+        assertTrue(anon.body().contains("application=\"healthcloud\""), "expected the common application tag");
     }
 
     @Test
