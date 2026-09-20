@@ -1013,7 +1013,7 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   is disabled in the helper), so contrast is a **browser** check; we verify it in the preview on the core screens
   and rely on our AA-designed MUI theme. So this is AA-*aligned*, not certified — a full page-by-page audit +
   a Playwright+axe E2E gate (per the §29 test stack) are the documented follow-ups.
-- **Design system — "Care Constellation" (UI/Design track, slices 1–6 COMPLETE ✅).** The app's visual identity;
+- **Design system — "Care Constellation" (UI/Design track, slices 1–9 COMPLETE ✅).** The app's visual identity;
   the durable token spec is **`docs/design/design-system.md`** (read it before any UI styling work). Conventions:
   - **The MUI theme is the single styling source** — `frontend/src/theme/index.ts` (`createTheme`). Teal primary
     `#0d9488` (dark `#0f766e`) + indigo accent `#4f46e5`, soft `#f6f8fb` background, AA status colors; **Space
@@ -1021,8 +1021,24 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
     elevation. Component defaults live here (light `AppBar`, bordered cards, no-uppercase buttons, tinted uppercase
     table heads, **soft tinted status chips** — filled colored `Chip`s render light-bg+strong-text via a global
     `MuiChip` override, so every status chip restyles at once). **Style via theme tokens/overrides, not per-page CSS.**
+  - **Light + Dark color schemes (slice 9)** — the theme is built with MUI **CSS variables + `colorSchemes`
+    (`{ light, dark }`)** and `cssVariables: { colorSchemeSelector: 'class' }`. `main.tsx` sets
+    `defaultMode="system"` (follows `prefers-color-scheme`), a **Light/Dark/System toggle** (`components/ThemeToggle`,
+    via `useColorScheme`) in the sidebar footer lets the viewer override, and the choice persists in localStorage.
+    `index.html` has a tiny pre-hydration script that sets the `<html>` color-scheme class from stored mode / device
+    so a dark viewer sees **no light flash**. The **dark scheme echoes the Constellation hero** (deep navy `#070b18`
+    surfaces, brighter teal `#2dd4bf` / indigo `#818cf8`) so the whole app feels like the hero world. Scheme-varying
+    component overrides use **theme vars** + **`theme.applyStyles('dark', …)`** (AppBar, Card, TableCell, the canvas
+    wash, the zebra, the soft chips — the chip tint uses the CSS-var `--mui-palette-<color>-mainChannel` so it follows
+    the active scheme). **New scheme-aware styling MUST go through theme vars / `applyStyles`, never a hardcoded hex.**
+    `useColorScheme` returns `undefined` mode without a CSS-vars provider, so `ThemeToggle` renders nothing in unit
+    tests (they don't wrap in `ThemeProvider`) — keep that guard.
+  - **Depth & color pass (slice 8)** — a subtle fixed radial **canvas wash** (`MuiCssBaseline` body), a soft layered
+    **card shadow**, and a faint **zebra** on even table rows (head row untinted) so the app isn't flat white; the
+    dashboard stat cards carry a brand-gradient top accent + teal number + hover lift, tiles get a hover lift.
   - **Dark-hero tokens** are exported as `constellation` from the theme (bg `#070b18`, teal `#5eead4`, indigo
-    `#7c9cff`, gradient) for the bespoke dark surfaces — they are NOT the global app palette (the deep app is light).
+    `#7c9cff`, gradient) for the bespoke **always-dark** surfaces (login hero, dashboard hero band) — they use these
+    literal tokens directly, so they render identically in both schemes (mode-independent by design).
   - **Shared UI components** (`src/components/`): `Brand` (gradient glyph + Space-Grotesk wordmark, `compact`/`onDark`),
     `ConstellationBackground` (the animated network `<canvas>` — `aria-hidden`, resize-aware, **static under
     `prefers-reduced-motion`**, bails cleanly in jsdom; reused by the login hero + dashboard hero band), `PageHeading`
@@ -1035,10 +1051,13 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
     chips) with a white sign-in card; it's the deployed URL's first impression (`/` → `/login` when unauthenticated).
   - **Dashboard** (`HomePage`) = a constellation hero band + an "At a glance" stat row of **real, role-gated counts**
     (from the paged endpoints' `totalElements` via `useQueries` — never fabricated, rule 2) + a role-aware launchpad.
-  - **Known UI follow-ups (not yet done — see docs/PROGRESS.md):** (1) the "Select a patient/plan/claim" **native
-    `<select>` label overlaps its option** (needs the input label pinned to shrink on native selects — affects the
-    11 `native: true` forms); (2) a **depth/color pass** (the light theme reads a bit flat); (3) **theme mode** —
-    system default (`prefers-color-scheme`) + a Light/Dark/System toggle + a full dark palette.
+  - **Native `<select>` forms (slice 7)** — every `<TextField select slotProps={{ select: { native: true } }}>`
+    also passes **`inputLabel: { shrink: true }`** so the floating label never overlaps the option text (a native
+    select always shows text). Any new native select MUST include the shrink flag.
+  - **Former UI follow-ups — now DONE:** the native-select label overlap (slice 7), the depth/color pass (slice 8),
+    and Light/Dark/System theme mode (slice 9) are all complete. Remaining (documented, lower priority): the durable
+    `NativeSelectField` wrapper so a native select can't forget the shrink flag; a full page-by-page dark-mode sweep
+    of the less-trafficked screens.
 
 ## Infrastructure & deployment conventions (Phase 10; learned)
 - **⚠️ AWS cost/approval boundary (hard rule).** Never create, modify, or destroy AWS resources — no
