@@ -3508,3 +3508,254 @@ A: The suite-wide `application-local.yml` that stops the outbox relay and Kafka 
 under the `local` profile. A `demo` test doesn't inherit it, so without overriding
 `healthcloud.outbox.relay.enabled=false` and `healthcloud.kafka.consumers.enabled=false` the app would
 try to connect to a broker at startup and the test context would fail to load.
+
+---
+
+## UI/Design track — the "Care Constellation" redesign (slices 1–9) — 2026-09-19
+
+### What we built
+Up to this point the app was **plain default Material UI** — `main.tsx` called `createTheme()` with
+zero customization, so every page was stock-blue MUI. The goal for this track was a **distinctive,
+cohesive, memorable design** a recruiter would pause on, while staying simple and highly readable
+(data-dense healthcare screens). We designed an original identity — **"Care Constellation"** (a
+network/constellation motif, teal + indigo, a dark bespoke "hero" surface on entry pages and a clean
+light app underneath) — and rolled it out in nine small verified slices:
+
+1. **Design-system foundation** — the theme, fonts, brand mark, and the animated constellation canvas.
+2. **App shell** — a grouped, role-gated sidebar (permanent on desktop, drawer on mobile).
+3. **Login hero** — a dark, animated Constellation hero (the deployed URL's first impression).
+4. **Dashboard** — a hero band + real role-gated "at a glance" counts + a role-aware launchpad.
+5. **Work-queue & table polish** — soft tinted status chips + refined tables + a shared empty state.
+6. **Detail-page finish** — a unified back-link across all detail pages.
+7. **Native-select fix** — the garbled "Select a patient" dropdown label overlap.
+8. **Depth & color pass** — a subtle canvas wash, richer card shadows, a live dashboard.
+9. **Light / Dark / System theme mode** — device-default + a toggle + a full dark scheme.
+
+Slices 1–6 established the identity; slices 7–9 were driven by **direct user feedback** on screenshots
+(a real dropdown bug, "too plain white," and "give viewers light/dark/system").
+
+### How it works
+
+**The single styling source is the MUI theme** (`frontend/src/theme/index.ts`). Nothing is styled with
+per-page CSS; instead we set palette tokens, typography, and **global component overrides**, so one
+edit restyles every page at once. Identity tokens: teal primary `#0d9488`, indigo accent `#4f46e5`,
+soft `#f6f8fb` background, **Space Grotesk** headings / **Inter** body / **IBM Plex Mono** for
+codes·IDs·money (exported as `MONO`), radius 12.
+
+**The hybrid light/dark idea.** The app itself is light and readable, but the *entry surfaces* (login,
+dashboard hero band) are a bespoke **dark** "Constellation" world. Those dark tokens are exported
+separately as `constellation` (bg `#070b18`, teal `#5eead4`, indigo `#7c9cff`, a gradient) and used
+directly by the hero components — they are **not** the global palette. This is why, when we later added
+full dark mode (slice 9), the hero surfaces needed no change: they were always dark by design.
+
+**The animated background** (`components/ConstellationBackground.tsx`) is a `<canvas>` that draws nodes
++ connecting lines. It is `aria-hidden`, resize-aware, renders **static under
+`prefers-reduced-motion`**, and **bails cleanly in jsdom** (`if (!canvas || !parent || !ctx) return`)
+so tests don't crash on the unimplemented canvas API.
+
+**The shell** (`layout/AppLayout.tsx`) is a grouped sidebar (Care / Claims & coverage / Governance),
+permanent on desktop and a temporary drawer + hamburger on mobile. The desktop/mobile decision uses:
+```tsx
+const isDesktop = useMediaQuery(theme.breakpoints.up('md'), { defaultMatches: true })
+```
+`defaultMatches: true` is important: jsdom has no `matchMedia`, so without it the permanent sidebar
+wouldn't render in tests and the accessibility test's single `<nav aria-label="Primary">` landmark
+assertion would fail.
+
+**The dashboard** (`pages/HomePage.tsx`) shows **real, role-gated counts** — never fabricated numbers
+(project rule 2). It fans out over the paged endpoints with `useQueries`, asking each for `size: 1` and
+reading `totalElements`:
+```tsx
+count: () => api.listClaimsPage({ size: 1 }).then((p) => p.totalElements)
+```
+A dash (`—`) is shown while loading or on error, so we never invent a value.
+
+**Soft status chips (slice 5, global).** A single `MuiChip` override turns every filled colored chip
+across all eight queues *and* every detail page into a soft-tinted chip (light-tint background + strong
+text) instead of a solid fill.
+
+**Depth pass (slice 8).** All theme-level so the whole app lifts at once: a fixed radial **canvas
+wash** on the `body` (`MuiCssBaseline`), a soft layered **card shadow**, and a faint **zebra** on even
+table rows (the `<thead>` row is the sole child of its section → `nth-of-type(1)` → stays untinted).
+The dashboard stat cards additionally got a brand-gradient top accent, a teal number, and a hover lift.
+
+**Theme mode (slice 9) — the big one.** We used MUI 9's built-in multi-scheme support rather than a
+hand-rolled context:
+```ts
+createTheme({
+  cssVariables: { colorSchemeSelector: 'class' },
+  colorSchemes: { light: { palette: {…} }, dark: { palette: {…} } },
+  …
+})
+```
+- `main.tsx` sets `<ThemeProvider theme={theme} defaultMode="system">` — **System follows the device's
+  `prefers-color-scheme`** automatically, and an explicit choice is persisted in `localStorage`
+  (`mui-mode`) by MUI.
+- `components/ThemeToggle.tsx` is a Light/Dark/System `ToggleButtonGroup` backed by `useColorScheme()`
+  in the sidebar footer. It switches instantly (CSS variables, no reload).
+- The **dark scheme echoes the hero** (deep navy `#070b18` surfaces, brighter teal `#2dd4bf` / indigo
+  `#818cf8`) so the whole app feels like the Constellation world in dark.
+- Scheme-varying overrides use **theme vars** + **`theme.applyStyles('dark', …)`** so they adapt per
+  scheme. The soft chip tint uses the CSS-variable channel token so it follows the active scheme without
+  running `alpha()` on a variable string:
+  ```ts
+  backgroundColor: `rgba(var(--mui-palette-${color}-mainChannel) / 0.14)`,
+  color: `var(--mui-palette-${color}-dark)`,
+  ...theme.applyStyles('dark', {
+    backgroundColor: `rgba(var(--mui-palette-${color}-mainChannel) / 0.22)`,
+    color: `var(--mui-palette-${color}-light)`,
+  }),
+  ```
+- **No light-flash:** a tiny inline script in `index.html` runs *before* React mounts and sets the
+  `<html>` color-scheme class from stored mode / device, matching MUI's `class` selector:
+  ```html
+  <script>(function(){try{var m=localStorage.getItem('mui-mode')||'system';
+    var d=m==='dark'||(m==='system'&&matchMedia('(prefers-color-scheme: dark)').matches);
+    document.documentElement.classList.add(d?'dark':'light')}catch(e){}})()</script>
+  ```
+
+**The dropdown fix (slice 7).** The bug: `<TextField select slotProps={{ select: { native: true } }}>`
+left the floating label sitting mid-field, overlapping the option text (garbled letters), because a
+native `<select>` always shows text but MUI didn't shrink the label. The fix — the MUI-recommended
+pattern for native selects — is one flag on every such field:
+```tsx
+slotProps={{ select: { native: true }, inputLabel: { shrink: true } }}
+```
+
+### Key points to remember
+- **Style through the theme, never per-page CSS.** Global component overrides (`MuiChip`,
+  `MuiTableCell`, `MuiCard`, `MuiCssBaseline`, `MuiAppBar`) restyle the whole app from one file — this
+  is what made a large multi-page redesign safe and fast.
+- **Separate the always-dark hero tokens from the app palette.** Exporting `constellation` as its own
+  object (not the theme palette) meant the hero surfaces were mode-independent, so adding dark mode
+  later touched only the *app* surfaces.
+- **For dark mode in MUI 9, use `cssVariables` + `colorSchemes`, not a manual context.** You get
+  system-default, localStorage persistence, and instant (re-render-free) switching for free. Manual
+  `useState` + two `createTheme`s + `matchMedia` is more code and easy to get subtly wrong.
+- **Write scheme-aware overrides with `theme.applyStyles('dark', …)` and CSS-var channel tokens
+  (`--mui-palette-<color>-mainChannel`), never a hardcoded hex.** `alpha(theme.vars.palette.x.main, …)`
+  does **not** work under CSS variables because the value is a `var(...)` *string*; the `mainChannel`
+  token (space-separated RGB) exists precisely so you can do `rgba(var(--…-mainChannel) / 0.14)`.
+- **`useColorScheme()` returns `mode: undefined` without a CSS-vars provider** (e.g. in a unit test that
+  doesn't wrap in `ThemeProvider`). Guarding `if (!mode) return null` in `ThemeToggle` means the toggle
+  renders nothing in tests — so none of the 187 tests needed changing.
+- **Prevent the dark-mode flash with a pre-hydration inline script**, not a React effect (an effect runs
+  after first paint — too late).
+- **A native `<select>` always needs `inputLabel: { shrink: true }`** — its box is never empty, so the
+  label must always be shrunk.
+- **Real numbers only (rule 2).** The dashboard reads `totalElements` from `size:1` queries and shows a
+  dash while loading/erroring — no invented counts.
+- **jsdom gotchas to design around:** no `matchMedia` (→ `defaultMatches:true` for the sidebar; the
+  color-scheme hook returns `undefined`), and no canvas 2D context (→ the constellation canvas bails).
+- **Accessibility held throughout:** the axe-core gate (`expectNoAxeViolations`), one `<h1>` per page
+  (`PageHeading`), the skip link, and the `<nav aria-label="Primary">` landmark all stayed green across
+  every slice, and dark mode was checked for AA contrast in the browser (axe can't check contrast in
+  jsdom).
+
+### Failures and how we fixed them
+- **Slice 2 — `primaryTypographyProps` doesn't exist in MUI 9.** `ListItemText` moved to
+  `slotProps={{ primary: { sx: {…} } }}`; also a `fontSize` passed as a typography prop was invalid and
+  had to be nested under `sx`.
+- **Slice 2 — axe "list: `<ul>` must only directly contain `<li>`."** A bare `ListItemButton` renders a
+  `<div>` as a direct child of the nav `<ul>`. Fixed by wrapping each in
+  `<ListItem disablePadding><ListItemButton …/></ListItem>`.
+- **Slice 5/6 — unused imports after mechanical rollouts** (`Typography`, `Link`/`RouterLink`) broke the
+  `noUnusedLocals` typecheck; removed them.
+- **Slice 9 — `theme.vars` is possibly `undefined` in the `MuiCssBaseline` callback.** The base `Theme`
+  type marks `vars` optional (component-slot callbacks infer a non-optional theme, but CssBaseline's
+  didn't). Rather than a non-null assertion, we used a literal light value + `theme.applyStyles('dark',
+  {...})` for the dark background, avoiding `theme.vars` in that one spot. Also had to annotate the
+  callback param (`({ theme }: { theme: Theme })`) because it was otherwise implicitly `any`.
+- **Slice 7 — the fix was inconsistent to begin with.** 5 of 21 native selects (ones added in later
+  feature slices) already had the shrink flag; the mechanical `replace_all` of the exact string only
+  touched the 16 that lacked it, leaving the good ones alone.
+- **Depth-pass console noise (slice 8).** The browser console showed stale 401/500 errors, which for a
+  moment looked alarming — but the current page's API calls were all 200, and CSS changes can't cause a
+  500. They were leftovers from before login and from a mid-QA Postgres restart earlier in the session.
+  Lesson: check whether error logs are *current* (look at the latest network requests) before reacting.
+- **No test breakage overall.** Every slice kept typecheck + 187 tests + build green and CI green after
+  each push — the theme-first approach plus the `!mode` guard meant the big theme changes didn't ripple
+  into the test suite.
+
+### Interview Q&A
+
+#### 1. Beginner
+
+**Q: What is a design system, and where does it live in this app?**
+A: A single source of styling decisions (colors, fonts, spacing, component looks) so the UI is
+consistent and changeable from one place. Here it's the MUI theme in `frontend/src/theme/index.ts`,
+which sets palette tokens, typography, and global component overrides. Pages don't carry their own CSS.
+
+**Q: How does the app decide light vs dark on first visit?**
+A: `defaultMode="system"` makes it follow the visitor's device setting (`prefers-color-scheme`). If they
+later pick Light or Dark from the toggle, that choice is saved in `localStorage` and used next time.
+
+**Q: What was the "garbled dropdown" bug?**
+A: The native `<select>` fields showed the field label sitting on top of the option text. A native
+select always shows text in its box, but MUI left the label un-shrunk, so they overlapped. Adding
+`inputLabel: { shrink: true }` pins the label above the box.
+
+**Q: Why show a dash instead of a number on the dashboard sometimes?**
+A: The counts are real, fetched from the backend. While a request is loading or if it errors, we show
+`—` rather than guessing — the project forbids stating numbers we haven't actually measured.
+
+#### 2. Intermediate
+
+**Q: Why use MUI's `colorSchemes` + CSS variables instead of a custom dark-mode context?**
+A: MUI's built-in support gives system-default detection, localStorage persistence, and instant
+switching (it swaps CSS variables rather than re-rendering the tree with a new theme object) for very
+little code. A hand-rolled context would re-implement all of that and is easy to get subtly wrong
+(flash, persistence, missed surfaces).
+
+**Q: How do you write a component override that differs between light and dark?**
+A: With `theme.applyStyles('dark', { …dark styles… })`, which scopes those styles under the dark
+selector, and by referencing theme variables (`theme.vars.palette.…`) for values that already differ
+per scheme. You avoid hardcoded hexes so both schemes stay correct from one definition.
+
+**Q: Why can't you use `alpha(theme.vars.palette.primary.main, 0.12)` under CSS variables?**
+A: Because with CSS variables the palette value is a string like `var(--mui-palette-primary-main)`, not
+a color `alpha()` can parse. MUI generates a `mainChannel` token (space-separated RGB channels) for
+exactly this, so you write `rgba(var(--mui-palette-primary-mainChannel) / 0.12)`.
+
+**Q: How did you keep 187 tests passing through a full theme rewrite?**
+A: The changes were almost entirely at the theme/override level (behavior unchanged), and the one new
+interactive piece — `ThemeToggle` — guards `if (!mode) return null`. Tests don't wrap components in a
+CSS-vars provider, so `useColorScheme` returns `undefined` there and the toggle renders nothing,
+leaving existing assertions untouched.
+
+**Q: Why is the animated background safe for accessibility and tests?**
+A: It's `aria-hidden`, renders static under `prefers-reduced-motion`, and returns early if there's no
+canvas/parent/2D context — which is the case in jsdom — so it neither distracts users who opt out nor
+crashes the test environment.
+
+#### 3. Advanced
+
+**Q: How do you prevent a light-then-dark flash in a client-rendered SPA?**
+A: You must set the color scheme on `<html>` *before* the app's JS renders. A React effect runs after
+first paint, so it flashes. The fix is a tiny synchronous inline script in `index.html` that reads the
+stored mode (or the device preference) and adds the matching class to `<html>` immediately, mirroring
+MUI's storage key and `class` selector so MUI then agrees with it on mount.
+
+**Q: The dark scheme reuses the hero's colors. Why did that make the feature cheaper to build?**
+A: Because the entry surfaces (login, dashboard hero) were built from a *separate* `constellation`
+token object, not the theme palette — they were always dark. So adding dark mode only had to define a
+dark palette + adapt the *app* surfaces (sidebar, cards, tables, wash, chips); the hero surfaces
+needed zero changes and blend seamlessly into the dark app.
+
+**Q: You verified system-mode "follows the device." How, without changing your OS setting?**
+A: In the browser pane I set the toggle to System, then emulated `prefers-color-scheme` as light and as
+dark; the app switched each way. I also proved persistence (set Dark, reload, still dark, no flash) and
+that `localStorage['mui-mode']` and the `<html>` class matched. Contrast was eyeballed on core screens
+because axe can't evaluate contrast under jsdom.
+
+**Q: What's the risk of styling everything through global overrides, and how did it show up?**
+A: A global override can have unintended reach. The zebra stripe is a good example: `nth-of-type(even)`
+on `MuiTableRow` could have tinted a `<thead>` row — but the head row is the only child of its
+`<thead>`, so it's `nth-of-type(1)` (odd) and stays clean. You have to reason about selector scope
+across *every* table in the app, not just the queue you're looking at. The payoff is that one line
+improved all eight queues plus every detail-page table at once.
+
+**Q: If you revisited this, what would you refactor?**
+A: Extract a `NativeSelectField` wrapper so a native select can't forget the `shrink` flag (a recurring
+footgun), and do a full page-by-page dark-mode sweep of the less-trafficked screens to catch any stray
+hardcoded color that the global overrides didn't cover — both noted as follow-ups.
