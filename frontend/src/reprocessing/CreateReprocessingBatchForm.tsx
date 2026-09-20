@@ -73,7 +73,7 @@ export function CreateReprocessingBatchForm() {
               size="small"
               fullWidth
               defaultValue=""
-              slotProps={{ select: { native: true } }}
+              slotProps={{ select: { native: true }, inputLabel: { shrink: true } }}
               {...register('coveragePlanId')}
               error={!!errors.coveragePlanId}
               helperText={errors.coveragePlanId?.message ?? 'The plan whose claims should be reprocessed.'}

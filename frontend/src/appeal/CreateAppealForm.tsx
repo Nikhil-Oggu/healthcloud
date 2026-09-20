@@ -75,7 +75,7 @@ export function CreateAppealForm() {
               size="small"
               fullWidth
               defaultValue=""
-              slotProps={{ select: { native: true } }}
+              slotProps={{ select: { native: true }, inputLabel: { shrink: true } }}
               {...register('claimId')}
               error={!!errors.claimId}
               helperText={errors.claimId?.message ?? 'Only adjudicated or rejected claims can be appealed.'}

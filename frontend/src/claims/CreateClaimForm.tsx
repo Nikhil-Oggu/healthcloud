@@ -109,7 +109,7 @@ export function CreateClaimForm() {
                 size="small"
                 fullWidth
                 defaultValue=""
-                slotProps={{ select: { native: true } }}
+                slotProps={{ select: { native: true }, inputLabel: { shrink: true } }}
                 {...register('patientId')}
                 error={!!errors.patientId}
                 helperText={errors.patientId?.message}

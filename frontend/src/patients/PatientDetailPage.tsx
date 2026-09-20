@@ -880,18 +880,18 @@ function RecordDirectiveForm({ patientId }: { patientId: string }) {
         <Box component="form" onSubmit={handleSubmit(onSubmit)} noValidate>
           <Stack spacing={2}>
             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-              <TextField select label="Effect" size="small" fullWidth slotProps={{ select: { native: true } }} {...register('effect')}>
+              <TextField select label="Effect" size="small" fullWidth slotProps={{ select: { native: true }, inputLabel: { shrink: true } }} {...register('effect')}>
                 <option value="GRANT">GRANT</option>
                 <option value="DENY">DENY</option>
               </TextField>
-              <TextField select label="Purpose" size="small" fullWidth slotProps={{ select: { native: true } }} {...register('purpose')}>
+              <TextField select label="Purpose" size="small" fullWidth slotProps={{ select: { native: true }, inputLabel: { shrink: true } }} {...register('purpose')}>
                 {PURPOSES.map((x) => (
                   <option key={x} value={x}>
                     {x}
                   </option>
                 ))}
               </TextField>
-              <TextField select label="Data category" size="small" fullWidth slotProps={{ select: { native: true } }} {...register('dataCategory')}>
+              <TextField select label="Data category" size="small" fullWidth slotProps={{ select: { native: true }, inputLabel: { shrink: true } }} {...register('dataCategory')}>
                 {CATEGORIES.map((x) => (
                   <option key={x} value={x}>
                     {x}
@@ -901,7 +901,7 @@ function RecordDirectiveForm({ patientId }: { patientId: string }) {
             </Stack>
 
             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ alignItems: 'flex-start' }}>
-              <TextField select label="Scope" size="small" fullWidth slotProps={{ select: { native: true } }} {...register('scopeType')}>
+              <TextField select label="Scope" size="small" fullWidth slotProps={{ select: { native: true }, inputLabel: { shrink: true } }} {...register('scopeType')}>
                 <option value="ORGANIZATION">ORGANIZATION</option>
                 <option value="CARE_TEAM">CARE_TEAM</option>
                 <option value="PROVIDER">PROVIDER</option>

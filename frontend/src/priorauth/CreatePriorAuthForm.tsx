@@ -98,7 +98,7 @@ export function CreatePriorAuthForm() {
                 size="small"
                 fullWidth
                 defaultValue=""
-                slotProps={{ select: { native: true } }}
+                slotProps={{ select: { native: true }, inputLabel: { shrink: true } }}
                 {...register('patientId')}
                 error={!!errors.patientId}
                 helperText={errors.patientId?.message}
@@ -118,7 +118,7 @@ export function CreatePriorAuthForm() {
                 size="small"
                 fullWidth
                 defaultValue=""
-                slotProps={{ select: { native: true } }}
+                slotProps={{ select: { native: true }, inputLabel: { shrink: true } }}
                 {...register('coveragePlanId')}
                 error={!!errors.coveragePlanId}
                 helperText={errors.coveragePlanId?.message}

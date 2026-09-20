@@ -595,7 +595,7 @@ function NetworkProvidersCard({ planId, canAdmin }: { planId: string; canAdmin: 
                 fullWidth
                 value={providerUserId}
                 onChange={(e) => setProviderUserId(e.target.value)}
-                slotProps={{ select: { native: true } }}
+                slotProps={{ select: { native: true }, inputLabel: { shrink: true } }}
               >
                 <option value="">
                   {candidates.isPending ? 'Loading…' : 'Select a provider'}

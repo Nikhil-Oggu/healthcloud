@@ -145,7 +145,7 @@ function CreateRequestForm() {
                 size="small"
                 fullWidth
                 defaultValue=""
-                slotProps={{ select: { native: true } }}
+                slotProps={{ select: { native: true }, inputLabel: { shrink: true } }}
                 {...register('patientId')}
                 error={!!errors.patientId}
                 helperText={errors.patientId?.message}
@@ -159,14 +159,14 @@ function CreateRequestForm() {
                   </option>
                 ))}
               </TextField>
-              <TextField select label="Type" size="small" fullWidth slotProps={{ select: { native: true } }} {...register('type')}>
+              <TextField select label="Type" size="small" fullWidth slotProps={{ select: { native: true }, inputLabel: { shrink: true } }} {...register('type')}>
                 {TYPES.map((t) => (
                   <option key={t} value={t}>
                     {t}
                   </option>
                 ))}
               </TextField>
-              <TextField select label="Priority" size="small" fullWidth slotProps={{ select: { native: true } }} {...register('priority')}>
+              <TextField select label="Priority" size="small" fullWidth slotProps={{ select: { native: true }, inputLabel: { shrink: true } }} {...register('priority')}>
                 {PRIORITIES.map((p) => (
                   <option key={p} value={p}>
                     {p}

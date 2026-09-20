@@ -171,7 +171,7 @@ function CreateCoveragePlanForm() {
               />
               <TextField
                 select label="Type" size="small" sx={{ minWidth: 120 }}
-                slotProps={{ select: { native: true } }} {...register('planType')}
+                slotProps={{ select: { native: true }, inputLabel: { shrink: true } }} {...register('planType')}
               >
                 {PLAN_TYPES.map((t) => (
                   <option key={t} value={t}>{t}</option>

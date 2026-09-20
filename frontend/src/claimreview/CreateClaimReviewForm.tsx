@@ -73,7 +73,7 @@ export function CreateClaimReviewForm() {
               size="small"
               fullWidth
               defaultValue=""
-              slotProps={{ select: { native: true } }}
+              slotProps={{ select: { native: true }, inputLabel: { shrink: true } }}
               {...register('claimId')}
               error={!!errors.claimId}
               helperText={errors.claimId?.message ?? 'Any claim can be flagged for a manual review.'}
