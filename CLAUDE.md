@@ -144,7 +144,9 @@ to the AWS deployment, Alertmanager routing, RDS PITR/snapshot DR — all on-dem
   PROVIDERs as `ProviderDto{userId, fullName}`, gated to the claim-create roles PROVIDER/CARE_COORDINATOR/ORG_ADMIN
   so a PATIENT/CLAIMS_REVIEWER can't enumerate staff; read-only over existing tables, no migration — Phase 6
   slice 21, it backs the rendering-provider picker on claim create), `auth` (SecurityConfig, DevLoginController,
-  CurrentUserController/Service, CsrfCookieFilter), `context` (UserContext + UserContextAccessor/Filter),
+  CurrentUserController/Service, CsrfCookieFilter, CognitoOidcUserService; plus **AuthConfigController** — the
+  public `GET /api/v1/auth/config` sign-in-capability probe the login page uses to gate the Cognito button),
+  `context` (UserContext + UserContextAccessor/Filter),
   `error` (ApiError, ErrorCode, GlobalExceptionHandler, CorrelationId),
   `common` (Phase 9 — the reusable pagination + search foundation: `PageResponse<T>`, a stable page envelope
   `{content, page, size, totalElements, totalPages, first, last}` returned by every paged list endpoint (we own
@@ -783,6 +785,12 @@ to the AWS deployment, Alertmanager routing, RDS PITR/snapshot DR — all on-dem
   ACTIVE `AppUser`. **Never commit the Cognito client secret** — it's `${COGNITO_CLIENT_SECRET}` from env (locally:
   `terraform output -raw cognito_client_secret`; deploy: Secrets Manager). Frontend sign-in + HTTPS deploy are later
   slices. **MFA** is available in the pool (OPTIONAL/TOTP) but not enforced yet.
+  **Sign-in capability probe (UI-polish pass):** a **public** `GET /api/v1/auth/config` (`AuthConfigController`,
+  permit-all in `SecurityConfig`) returns `{ cognitoEnabled }` — true only when a `ClientRegistrationRepository`
+  with a `cognito` registration exists. It exposes only that boolean (no secrets/ids). The login page reads it
+  pre-auth and **disables the "Sign in with Cognito" button with an explanation when Cognito isn't configured**
+  (e.g. local dev without the `cognito` profile), instead of letting a click hit `/oauth2/authorization/cognito`
+  and its 500. The deployed `demo,cognito` app returns `cognitoEnabled: true`, so the button is live there.
 - **Testing pattern:** real PostgreSQL via `TestcontainersConfiguration` (`@ServiceConnection`), imported with
   `@Import(TestcontainersConfiguration.class)`; repository/logic tests use `@SpringBootTest`; full HTTP/session
   flows use a real server (`webEnvironment = RANDOM_PORT`) + JDK `HttpClient` (not MockMvc). No mocks for data access.
@@ -809,7 +817,10 @@ to the AWS deployment, Alertmanager routing, RDS PITR/snapshot DR — all on-dem
   302 to Cognito on another origin. The dev-login dropdown is kept but wrapped in `import.meta.env.DEV` (hidden in
   production builds). The Vite dev server proxies `/oauth2` + `/login/oauth2` to :8080 (scoped — NOT all of `/login`,
   which is the SPA's own route) so the OIDC flow works same-origin in dev; the deployed nginx must add the same two
-  proxy locations (slice 14).
+  proxy locations (slice 14). **The Cognito button is gated on `GET /api/v1/auth/config` (`{ cognitoEnabled }`,
+  via a react-query probe):** when Cognito isn't configured (local without the `cognito` profile) the button is
+  rendered **disabled with an explanatory note** so a click can't hit the BFF's 500 — it optimistically shows
+  enabled while the probe is loading, and only an explicit `false` disables it.
 
 ## Boot 4.1 notes (learned; avoid re-discovering)
 - Testcontainers is **2.0.x** here → artifacts are `testcontainers-junit-jupiter` / `testcontainers-postgresql`.
@@ -1078,10 +1089,27 @@ to the AWS deployment, Alertmanager routing, RDS PITR/snapshot DR — all on-dem
   - **Native `<select>` forms (slice 7)** — every `<TextField select slotProps={{ select: { native: true } }}>`
     also passes **`inputLabel: { shrink: true }`** so the floating label never overlaps the option text (a native
     select always shows text). Any new native select MUST include the shrink flag.
+  - **Surfaces are elevated cards — do NOT use `variant="outlined"` on `Card` / `TableContainer`** (UI-polish
+    pass). The outlined variant sets `box-shadow: none`, which strips the soft shadow the theme's `MuiCard` /
+    `MuiTableContainer` overrides add — that was the root cause of the "flat / pale" look. Use a plain `<Card>`
+    (defaultProps `elevation={0}` + the root override give it a bordered, softly-shadowed surface) and
+    `<TableContainer component={Paper} elevation={0}>` (the `MuiTableContainer` override owns the surface: paper
+    bg, radius 14, hairline border, soft shadow, clipped corners). So a **table reads as a contained, lifted card**,
+    not a flat sheet on the washed canvas.
+  - **Status chips have presence** (theme `MuiChip`): a filled palette chip renders as a tinted pill with a
+    **same-color ring** + label padding (a `default` filled chip gets a defined neutral) so short labels
+    (ACTIVE / REQUESTED / DRAFT) don't look cramped or washed out. Keep using `<Chip size="small" color={...}>`;
+    the look is global.
+  - **Form inputs** (theme `MuiOutlinedInput`) have a soft filled resting state + a clear **teal focus ring**, so
+    forms read as deliberate rather than bare fields on white. No per-field styling needed.
+  - **Filter selects need a `minWidth`.** A `<TextField select size="small">` in a flex filter row can collapse
+    to its (empty) content and truncate its label to "S.." — every queue's status filter uses
+    `sx={{ minWidth: 200 }}` and the search boxes `sx={{ minWidth: 220, maxWidth: 340 }}`. Any new filter select
+    MUST set a minWidth.
   - **Former UI follow-ups — now DONE:** the native-select label overlap (slice 7), the depth/color pass (slice 8),
-    and Light/Dark/System theme mode (slice 9) are all complete. Remaining (documented, lower priority): the durable
-    `NativeSelectField` wrapper so a native select can't forget the shrink flag; a full page-by-page dark-mode sweep
-    of the less-trafficked screens.
+    Light/Dark/System theme mode (slice 9), and the surface/chip/input polish (the "pale/generic" fix) are all
+    complete. Remaining (documented, lower priority): the durable `NativeSelectField` wrapper so a native select
+    can't forget the shrink flag; a full page-by-page dark-mode sweep of the less-trafficked screens.
 
 ## Infrastructure & deployment conventions (Phase 10; learned)
 - **⚠️ AWS cost/approval boundary (hard rule).** Never create, modify, or destroy AWS resources — no
