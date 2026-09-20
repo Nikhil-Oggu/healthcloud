@@ -30,6 +30,8 @@ import com.healthcloud.error.NotFoundException;
 import com.healthcloud.outbox.OutboxService;
 import com.healthcloud.patient.PatientAccessGuard;
 import com.healthcloud.priorauth.PriorAuthorizationRepository;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.ArrayList;
@@ -41,6 +43,8 @@ import java.util.Set;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 /**
  * The basic synthetic claims-adjudication engine (source-of-truth §Phase 5). It turns an ACCEPTED claim into a
@@ -80,6 +84,7 @@ public class AdjudicationService {
     private final UserContextAccessor userContext;
     private final AuditService audit;
     private final OutboxService outbox;
+    private final MeterRegistry meterRegistry;
 
     public AdjudicationService(ClaimRepository claims, ClaimLineRepository claimLines,
                                ClaimStatusHistoryRepository claimStatusHistory,
@@ -91,7 +96,7 @@ public class AdjudicationService {
                                PlanNetworkProviderRepository planNetwork,
                                PriorAuthorizationRepository priorAuths,
                                PatientAccessGuard accessGuard, UserContextAccessor userContext,
-                               AuditService audit, OutboxService outbox) {
+                               AuditService audit, OutboxService outbox, MeterRegistry meterRegistry) {
         this.claims = claims;
         this.claimLines = claimLines;
         this.claimStatusHistory = claimStatusHistory;
@@ -109,6 +114,7 @@ public class AdjudicationService {
         this.userContext = userContext;
         this.audit = audit;
         this.outbox = outbox;
+        this.meterRegistry = meterRegistry;
     }
 
     /**
@@ -263,6 +269,27 @@ public class AdjudicationService {
         // to Kafka after commit (a later slice). Minimum-necessary, PHI-free payload.
         outbox.record(OutboxService.AGGREGATE_CLAIM, claim.getId(), "claim.adjudicated",
                 ClaimAdjudicatedEvent.from(claim, savedHeader));
+
+        // Phase 11 slice 1: count a *committed* adjudication. Registering the increment on the transaction's
+        // afterCommit means a rolled-back adjudication is never counted (a Micrometer counter isn't transactional).
+        // Tagged by outcome + type (initial vs reprocess); PHI-free — counts and a coded outcome only (rule 5).
+        String outcomeTag = savedHeader.getOutcome().name();
+        String typeTag = firstAdjudication ? "initial" : "reprocess";
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    // Named without a ".total" suffix — the Prometheus registry appends "_total" for
+                    // counters, rendering this as `healthcloud_adjudications_total`.
+                    Counter.builder("healthcloud.adjudications")
+                            .description("Claims adjudicated by the engine (committed)")
+                            .tag("outcome", outcomeTag)
+                            .tag("type", typeTag)
+                            .register(meterRegistry)
+                            .increment();
+                }
+            });
+        }
 
         return AdjudicationDto.from(savedHeader, planName(organizationId, savedHeader.getCoveragePlanId()),
                 savedLines);

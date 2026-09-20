@@ -108,7 +108,9 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info
+        # health + info are public (see SecurityConfig); prometheus + metrics require auth (the
+        # default for non-health actuator paths) — a local scraper authenticates or scrapes internally.
+        include: health,info,prometheus,metrics
   endpoint:
     health:
       show-details: always     # dev: show component health (db, etc.). Tightened later for prod.
@@ -117,3 +119,6 @@ management:
   health:
     db:
       enabled: true
+  metrics:
+    tags:
+      application: healthcloud     # a common label on every metric (Phase 11 slice 1)
