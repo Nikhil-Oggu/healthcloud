@@ -1244,9 +1244,14 @@ to the AWS deployment, Alertmanager routing, RDS PITR/snapshot DR — all on-dem
   ages only, rule 5), map a domain problem to `OUT_OF_SERVICE` (degraded) not `DOWN`, and **keep it out of the
   readiness group** unless the app genuinely can't serve without it (a relay backlog can still serve requests, so
   it's root-health-only — never gates traffic). The **container HEALTHCHECK targets `/actuator/health/liveness`**
-  (`backend/Dockerfile`), so only a real process failure restarts the container. Follow-up: point the ECS/ALB
-  health check at `/actuator/health/readiness` (a Terraform change, AWS boundary), and tighten `show-details:
-  always` → `when-authorized` on deploy.
+  (`backend/Dockerfile`), so only a real process failure restarts the container. **Health detail is
+  `show-details: when-authorized`** (review fix) so an anonymous caller on the public `/actuator/health[/**]`
+  (reachable via nginx→CloudFront on deploy) sees only `{"status":"UP"}`, never the `db` component / exception
+  text; the `local` profile overrides it back to `always` (a profile document in `application.yml`) for dev
+  convenience, and `DeployProfileNoDevLoginTest` asserts the hardened behavior under `demo`. Follow-ups: point the
+  ECS/ALB health check at `/actuator/health/readiness` (a Terraform change, AWS boundary); and role-gate
+  `/actuator/prometheus`+`/actuator/metrics` (today authenticated but not restricted to ORG_ADMIN like the other
+  ops surfaces — PHI-free, so a consistency/hardening item, not a hole).
 - **Alerting (slice 5).** Prometheus alert rules live in `infrastructure/observability/alert-rules.yml` (loaded
   via `rule_files` in `prometheus.yml`, mounted into the prometheus container). Prometheus **evaluates** them and
   exposes their state (`/api/v1/rules`, `/api/v1/alerts`, the `ALERTS` metric) with **no Alertmanager** wired

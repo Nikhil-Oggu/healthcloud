@@ -143,6 +143,9 @@ services:
       - prometheus
     environment:
       # Local-only convenience: open the dashboards without a login (Viewer); admin/admin can still edit.
+      # These credentials + anonymous access are for the local `observability` compose profile ONLY and are
+      # never part of the AWS deployment. NEVER reuse this pattern for a real/hosted Grafana — set a strong
+      # admin password (secret) and disable anonymous access there.
       GF_AUTH_ANONYMOUS_ENABLED: "true"
       GF_AUTH_ANONYMOUS_ORG_ROLE: "Viewer"
       GF_SECURITY_ADMIN_PASSWORD: "admin"

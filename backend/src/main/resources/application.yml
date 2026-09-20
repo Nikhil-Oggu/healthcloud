@@ -126,7 +126,12 @@ management:
         include: health,info,prometheus,metrics
   endpoint:
     health:
-      show-details: always     # dev: show component health (db, etc.). Tightened later for prod.
+      # Component details (e.g. the `db` status + any connection exception text) are shown ONLY to an
+      # authorized caller (Phase 11 review fix). `/actuator/health` + `/actuator/health/**` are public
+      # (SecurityConfig) and, on the deployed app, reachable through nginx→CloudFront — so an anonymous
+      # caller must see `{"status":"UP"}` only, never internals. The `local` profile overrides this back
+      # to `always` (see the profile document at the end of this file) for dev convenience — local is not public.
+      show-details: when-authorized
       probes:
         enabled: true          # expose /actuator/health/liveness + /actuator/health/readiness (Phase 11 slice 4)
       group:
@@ -162,3 +167,15 @@ management:
           # Boot 4.1's OTLP tracing endpoint property (renamed from the Boot-3 `management.otlp.tracing.endpoint`).
           # Points at the local Jaeger OTLP/HTTP receiver; override with MANAGEMENT_OTLP_TRACING_ENDPOINT.
           endpoint: ${MANAGEMENT_OTLP_TRACING_ENDPOINT:http://localhost:4318/v1/traces}
+---
+# Local-profile overrides (Phase 11 review fix). The `local` profile is developer-only and never public, so
+# it restores full health-component detail for convenient debugging. The deployed `demo,cognito` app keeps the
+# hardened `when-authorized` default above, so an anonymous CloudFront visitor sees only `{"status":"UP"}`.
+spring:
+  config:
+    activate:
+      on-profile: local
+management:
+  endpoint:
+    health:
+      show-details: always

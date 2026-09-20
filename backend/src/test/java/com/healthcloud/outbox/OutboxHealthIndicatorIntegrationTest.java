@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import com.healthcloud.TestcontainersConfiguration;
 import com.healthcloud.organization.OrganizationRepository;
+import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -41,28 +42,33 @@ class OutboxHealthIndicatorIntegrationTest {
 
     @Test
     void backlog_within_threshold_is_up_over_threshold_is_out_of_service() {
-        // Deterministic: clear the (platform-wide, cross-tenant) backlog, then insert a known number of pending rows.
-        outboxEventRepository.deleteAll();
-        OutboxHealthIndicator indicator = new OutboxHealthIndicator(outboxEventRepository, true, 1L);
+        // Isolation-safe: never truncate the shared outbox_event table (the rest of the suite scopes to its own
+        // rows so tests can share one Testcontainers Postgres in any order). Instead work RELATIVE to the current
+        // backlog and clean up only the rows this test inserts.
+        long before = outboxEventRepository.countByPublishedAtIsNull();
 
-        // Empty backlog → UP, pending 0.
-        Health empty = indicator.health();
-        assertEquals(Status.UP, empty.getStatus());
-        assertEquals(0L, empty.getDetails().get("pending"));
+        // Threshold sits at the current backlog: `before` pending is not > before → UP; one more → over → degraded.
+        OutboxHealthIndicator indicator = new OutboxHealthIndicator(outboxEventRepository, true, before);
 
-        // Two pending events with maxPending=1 → over threshold → OUT_OF_SERVICE (degraded, not DOWN).
+        Health within = indicator.health();
+        assertEquals(Status.UP, within.getStatus(), "backlog at (not over) the threshold is UP");
+        assertEquals(before, within.getDetails().get("pending"));
+        assertEquals("enabled", within.getDetails().get("relay"));
+
+        // Insert three pending events (over threshold) → OUT_OF_SERVICE (degraded, not DOWN).
         // outbox_event FKs organization, so use a real seeded org id (the local profile seeds two orgs).
         UUID org = organizationRepository.findAll().get(0).getId();
-        outboxEventRepository.save(
-                new OutboxEvent(org, "claim", UUID.randomUUID(), "claim.adjudicated", "{}", "cid-1"));
-        outboxEventRepository.save(
-                new OutboxEvent(org, "claim", UUID.randomUUID(), "claim.adjudicated", "{}", "cid-2"));
-
-        Health over = indicator.health();
-        assertEquals(Status.OUT_OF_SERVICE, over.getStatus(), "a backlog over the threshold is degraded");
-        assertEquals(2L, over.getDetails().get("pending"));
-        assertEquals("enabled", over.getDetails().get("relay"));
-
-        outboxEventRepository.deleteAll();
+        List<OutboxEvent> inserted = outboxEventRepository.saveAll(List.of(
+                new OutboxEvent(org, "claim", UUID.randomUUID(), "claim.adjudicated", "{}", "cid-1"),
+                new OutboxEvent(org, "claim", UUID.randomUUID(), "claim.adjudicated", "{}", "cid-2"),
+                new OutboxEvent(org, "claim", UUID.randomUUID(), "claim.adjudicated", "{}", "cid-3")));
+        try {
+            Health over = indicator.health();
+            assertEquals(Status.OUT_OF_SERVICE, over.getStatus(), "a backlog over the threshold is degraded");
+            assertEquals(before + 3, over.getDetails().get("pending"));
+        } finally {
+            // Remove only the rows we added — leave any pre-existing backlog untouched.
+            outboxEventRepository.deleteAll(inserted);
+        }
     }
 }

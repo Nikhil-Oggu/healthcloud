@@ -456,6 +456,30 @@
 
 ## Log (newest first)
 
+### 2026-09-20 — Phase 11 review fixes ✅ (code-reviewer + security-reviewer follow-ups)
+- Ran the `code-reviewer` and `security-reviewer` subagents in parallel over the Phase 11 diff (`a8febde..HEAD`).
+  **Security: clean** (no exploitable findings). **Code review:** no correctness bugs; one Major hardening item +
+  a few minors. Fixed the ones worth fixing now:
+- **[Major] Public health endpoint leaked component detail.** `show-details: always` + the public
+  `/actuator/health[/**]` (reachable via nginx→CloudFront on deploy) meant an anonymous caller saw the `db`
+  component (incl. a connection exception message if Postgres was down). Fixed: `show-details: when-authorized`
+  in `application.yml`, with a `local`-profile document overriding it back to `always` (local isn't public).
+  Added a regression test — `DeployProfileNoDevLoginTest.health_endpoint_hides_component_details_from_anonymous_off_local`
+  (under `demo`: anonymous `/actuator/health` = status only, no `components`/`db`).
+- **[Minor] Restore drill could false-fail on a busy DB.** It compared live-source vs restored counts, so a write
+  between backup and verify (e.g. a `spring_session` row) printed "❌ do NOT trust this backup" on a good backup.
+  Fixed `scripts/db-restore-drill.sh`: exclude the volatile `spring_session`/`spring_session_attributes` tables,
+  reframe a mismatch as "possible concurrent writes — re-run against a quiescent DB," and document the quiescence
+  assumption (script header + `docs/runbooks/backup-and-restore.md`).
+- **[Minor] Test isolation.** `OutboxHealthIndicatorIntegrationTest` used `deleteAll()` on the shared
+  `outbox_event` table; reworked to be baseline-relative and to delete only the rows it inserts (matches the
+  suite's scope-to-your-own-rows convention).
+- **[Nit] Grafana creds** — added a comment in `docker-compose.yml` that the `admin`/anonymous access is local-only
+  and must never be reused for a real deployment.
+- **Documented follow-up (not fixed):** role-gate `/actuator/prometheus`+`/actuator/metrics` to ORG_ADMIN
+  (today authenticated but any role; PHI-free, so consistency not a hole) — noted in CLAUDE.md.
+- Verified: `./mvnw clean verify` green; restore drill re-run PASSED.
+
 ### 2026-09-20 — Phase 11, slice 7 ✅ (runbooks) — Phase 11 COMPLETE ✅
 - **What:** operational playbooks that tie together everything Phase 11 built (metrics, dashboards, tracing,
   health probes, alerts, backup/restore) into "when this happens, diagnose and recover like so." Docs + one

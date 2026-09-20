@@ -13,6 +13,13 @@
 #
 # The pg tools run inside the postgres container, so no host psql is needed. Local-only, $0.
 #
+# ASSUMES A QUIESCENT DATABASE. Step 1 dumps a consistent snapshot, but step 4 counts the LIVE source, so
+# writes between backup and verify (e.g. the running app inserting a spring_session row, or a demo action)
+# would make counts diverge and false-fail the drill. To avoid that: stop the app (or otherwise pause writes)
+# before running this. Volatile session tables are excluded from the comparison to reduce this window; for a
+# fully race-free check, dump + count within one snapshot (pg_dump --snapshot). See
+# docs/runbooks/backup-and-restore.md.
+#
 # Usage:  ./scripts/db-restore-drill.sh
 set -euo pipefail
 
@@ -50,8 +57,11 @@ docker compose exec -T postgres pg_restore --no-owner --no-privileges -U "${DB_U
   -d "${SCRATCH_DB}" < "${DUMP_FILE}"
 
 echo "==> [4/5] Verifying row counts (source vs restored) ..."
+# Exclude volatile session tables — they churn with logins independently of a backup's fidelity, so comparing
+# their live count against a snapshot is a false-failure source (see the header note on quiescence).
 TABLES="$(psql_q "${DB_NAME}" \
-  "SELECT tablename FROM pg_tables WHERE schemaname='public' ORDER BY tablename;")"
+  "SELECT tablename FROM pg_tables WHERE schemaname='public' \
+     AND tablename NOT IN ('spring_session','spring_session_attributes') ORDER BY tablename;")"
 
 if [ -z "${TABLES}" ]; then
   echo "ERROR: no public tables found in '${DB_NAME}' — nothing to verify. Is the DB seeded?" >&2
@@ -85,6 +95,8 @@ if [ "${fail}" -eq 0 ]; then
   echo "Backup verified usable: ${DUMP_FILE}"
   exit 0
 else
-  echo "RESTORE DRILL FAILED ❌  — one or more tables did not match. Do NOT trust this backup." >&2
+  echo "RESTORE DRILL FAILED ❌  — one or more tables did not match." >&2
+  echo "This may be concurrent writes (was the app running?), not a bad backup. Stop writes to the database" >&2
+  echo "and re-run against a quiescent DB to confirm before distrusting the backup: ${DUMP_FILE}" >&2
   exit 1
 fi

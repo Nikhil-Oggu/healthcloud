@@ -79,6 +79,27 @@ class DeployProfileNoDevLoginTest {
     }
 
     @Test
+    void health_endpoint_hides_component_details_from_anonymous_off_local() throws Exception {
+        // Phase 11 review fix: `show-details: when-authorized` off `local`. `/actuator/health` is public, and on
+        // the deployed app is reachable through nginx→CloudFront, so an anonymous caller must see only the overall
+        // status — never component internals (e.g. the `db` component, whose detail can include a connection
+        // exception message). Under `local` details are shown (dev convenience); under `demo` they must not be.
+        HttpResponse<String> response = http.send(
+                HttpRequest.newBuilder()
+                        .uri(URI.create("http://localhost:" + port + "/actuator/health"))
+                        .GET()
+                        .build(),
+                HttpResponse.BodyHandlers.ofString());
+
+        assertEquals(200, response.statusCode(), "health stays public (status only)");
+        assertTrue(response.body().contains("\"status\":\"UP\""), "overall status is still shown: " + response.body());
+        assertFalse(response.body().contains("\"components\""),
+                "anonymous health must not expose the components map off local: " + response.body());
+        assertFalse(response.body().contains("\"db\""),
+                "anonymous health must not expose the db component off local: " + response.body());
+    }
+
+    @Test
     void prometheus_endpoint_requires_auth_off_local() throws Exception {
         // Phase 11 slice 2 permits /actuator/prometheus WITHOUT a session only under the `local` profile (so a
         // local scraper works). On the deployed `demo` profile it must stay authenticated — an anonymous scrape

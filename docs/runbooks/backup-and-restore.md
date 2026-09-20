@@ -44,8 +44,17 @@ Non-destructive to the live database. It:
 4. **Verifies fidelity**: compares `count(*)` of every `public` table in the source vs the restored DB.
 5. Drops the scratch database and reports **PASS/FAIL** (non-zero exit on any mismatch).
 
+**Run against a quiescent database.** Step 1 dumps a consistent snapshot, but the verify step (step 4) counts the
+**live** source, so writes between backup and verify — most commonly the running app inserting a `spring_session`
+row, or a demo action creating a row — would make the counts diverge and **false-fail** the drill on a perfectly
+good backup. Stop the app (or otherwise pause writes) before running it. The drill already excludes the volatile
+`spring_session` / `spring_session_attributes` tables from the comparison to shrink this window; for a fully
+race-free check, dump and count within a single snapshot (`pg_dump --snapshot`). If the drill reports a mismatch,
+first re-run it against a quiescent DB before concluding the backup is bad.
+
 **Expected output (PASS):** a per-table `ok <table> <n> rows` list ending with
-`RESTORE DRILL PASSED ✅ — N tables, M rows restored identically.` (Last verified locally: 51 tables, 283 rows.)
+`RESTORE DRILL PASSED ✅ — N tables, M rows restored identically.` (Last verified locally: 49 tables, 283 rows —
+the two excluded session tables were empty.)
 
 **If it FAILS** (`RESTORE DRILL FAILED ❌`): a table's row count differed between source and restored. Do **not**
 trust that dump. Investigate: re-run the drill (transient container issue?), check `pg_restore` output for
