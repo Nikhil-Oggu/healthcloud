@@ -3759,3 +3759,265 @@ improved all eight queues plus every detail-page table at once.
 A: Extract a `NativeSelectField` wrapper so a native select can't forget the `shrink` flag (a recurring
 footgun), and do a full page-by-page dark-mode sweep of the less-trafficked screens to catch any stray
 hardcoded color that the global overrides didn't cover — both noted as follow-ups.
+
+---
+
+## Phase 11 — Observability & Recovery (slices 1–7) — 2026-09-20
+
+### What we built
+
+The instrumentation and recovery layer that makes HealthCloud *operable*: you can see what it's doing, get
+told when something's wrong, and recover the data if it's lost. Seven slices:
+
+1. **Metrics foundation** — Micrometer + a Prometheus registry expose `/actuator/prometheus`, plus the first
+   domain counter (`healthcloud_adjudications_total`).
+2. **Dashboards** — a local Prometheus + Grafana stack (docker-compose `observability` profile) with an
+   auto-provisioned "HealthCloud Overview" dashboard; HTTP latency histograms enabled so p95 is computable.
+3. **Distributed tracing** — Micrometer Tracing + OpenTelemetry export spans over OTLP to a local Jaeger; a
+   custom `adjudicate-claim` span nests under the HTTP span; trace ids appear in logs.
+4. **Health & readiness probes + a custom health indicator** — a liveness/readiness/root-health split, plus an
+   `OutboxHealthIndicator` that surfaces the relay backlog.
+5. **Alert rules** — five Prometheus alerting rules over real metrics, and a gauge that makes the outbox backlog
+   alertable.
+6. **Backup & restore drill** — a `pg_dump` script and an automated restore *drill* that proves a backup is
+   usable.
+7. **Runbooks** — operational playbooks (`docs/runbooks/`) tying it all together, with each alert linking to its
+   response section.
+
+Everything is local-first and **$0** — no AWS observability was wired (a documented follow-up), consistent with
+the project's AWS-cost boundary.
+
+### How it works
+
+**Slice 1 — metrics.** `spring-boot-starter-actuator` provides the metrics autoconfiguration; adding
+`io.micrometer:micrometer-registry-prometheus` (runtime scope) makes Boot expose `/actuator/prometheus` with
+auto-instrumented JVM / HTTP / HikariCP metrics. `application.yml` adds `prometheus,metrics` to the actuator
+exposure and a common label `management.metrics.tags.application: healthcloud`. The first *domain* metric lives in
+`AdjudicationService`: a counter incremented only when the transaction actually commits —
+
+```java
+TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+    @Override public void afterCommit() {
+        meterRegistry.counter("healthcloud.adjudications", "outcome", outcome, "type", type).increment();
+    }
+});
+```
+
+Naming is `healthcloud.adjudications` **without** `.total` — the Prometheus registry appends `_total` itself.
+`SecurityConfig` permits `/actuator/prometheus` without a session **only under the `local` profile** (so a local
+scraper works); the deployed `demo,cognito` app keeps it authenticated (asserted by `DeployProfileNoDevLoginTest`).
+
+**Slice 2 — dashboards.** A `docker compose --profile observability up -d prometheus grafana jaeger` stack.
+`infrastructure/observability/prometheus.yml` scrapes `host.docker.internal:8080/actuator/prometheus` (works
+whether the app runs on the host or as a container). Grafana is provisioned from files
+(`grafana/provisioning/datasources` + `dashboards`) with a pinned datasource uid `prometheus` and the
+`healthcloud-overview.json` dashboard. To make p95 latency computable we enabled request histograms:
+`management.metrics.distribution.percentiles-histogram.http.server.requests: true` (this publishes
+`http_server_requests_seconds_bucket`, which `histogram_quantile(0.95, …)` needs).
+
+**Slice 3 — tracing.** In Boot 4 tracing is **opt-in** and modularized. We depend on the Boot module
+`spring-boot-micrometer-tracing-opentelemetry` **plus an explicit `io.micrometer:micrometer-tracing-bridge-otel`**
+(compile scope) + `opentelemetry-exporter-otlp` + `org.aspectj:aspectjweaver` (for `@Observed`; Boot 4 dropped
+`spring-boot-starter-aop`). Config: `management.tracing.sampling.probability: 1.0` locally, the OTLP endpoint at
+`management.opentelemetry.tracing.export.otlp.endpoint`, and the log pattern carries the ids:
+`"%5p [cid=%X{correlationId:-} trace=%X{traceId:-}/%X{spanId:-}]"`. A custom span is one annotation plus the aspect
+bean:
+
+```java
+@Observed(name = "healthcloud.adjudicate", contextualName = "adjudicate-claim")
+public Adjudication adjudicate(...) { ... }
+// ObservabilityConfig registers: new ObservedAspect(observationRegistry)
+```
+
+Kafka `template`/`listener` `observation-enabled: true` propagates the trace context through Kafka headers.
+
+**Slice 4 — probes.** `management.endpoint.health.probes.enabled: true` exposes `/actuator/health/liveness` and
+`/actuator/health/readiness`. The key config is a health *group*:
+
+```yaml
+management.endpoint.health.group.readiness.include: readinessState,db
+```
+
+so readiness goes DOWN when Postgres is unreachable (the pod leaves the load balancer), while **liveness stays
+`livenessState` only** (a DB blip must never restart the process). The custom indicator implements the Boot-4
+interface (`org.springframework.boot.health.contributor.HealthIndicator`) and reports the outbox backlog as the
+`outbox` component on root health only — degraded, not dead:
+
+```java
+Status status = pending > maxPending ? Status.OUT_OF_SERVICE : Status.UP;   // never DOWN
+```
+
+It is deliberately **not** in the readiness group (a backlog doesn't stop serving requests). The container
+`HEALTHCHECK` moved to `/actuator/health/liveness` so only a real process failure restarts the container.
+
+**Slice 5 — alerts.** `infrastructure/observability/alert-rules.yml` defines five rules (`BackendTargetDown`,
+`OutboxBacklogHigh`, `HighHttp5xxRate`, `HighRequestLatencyP95`, `JvmHeapHigh`), loaded via `rule_files` in
+`prometheus.yml` and mounted into the container. To alert on the outbox backlog we promoted slice 4's health
+signal into a metric — a Micrometer **gauge**:
+
+```java
+Gauge.builder("healthcloud.outbox.pending", repo, r -> (double) r.countByPublishedAtIsNull())
+     .register(meterRegistry);   // renders healthcloud_outbox_pending
+```
+
+No Alertmanager locally: Prometheus evaluates rules and exposes their state (`/api/v1/rules`, `/api/v1/alerts`)
+without it — Alertmanager is only the routing/notification layer (a follow-up).
+
+**Slice 6 — backup & restore drill.** `scripts/db-backup.sh` runs `pg_dump -Fc` **inside** the postgres
+container (no host psql needed) to `var/backups/` (git-ignored). `scripts/db-restore-drill.sh` rehearses recovery
+without touching the live DB: back up → create a scratch DB → `pg_restore` into it → compare `count(*)` of every
+`public` table between source and restored → drop the scratch DB → PASS/FAIL. The dump includes
+`flyway_schema_history`, so a restored DB passes `ddl-auto: validate`.
+
+**Slice 7 — runbooks.** `docs/runbooks/README.md` (stack overview, the three-signals model, the triage workflow)
+and `docs/runbooks/alert-response.md` (one section per alert: meaning · confirm · causes · recovery). Each alert
+rule gained a `runbook` annotation pointing to its section, so a firing alert links to its playbook.
+
+### Key points to remember
+
+- **Count only committed work.** Domain metrics increment on `afterCommit`, not inline, so a rolled-back
+  transaction is never counted. This is the template for any future domain counter.
+- **Counter vs gauge.** Adjudications are a monotonic **counter** (`_total`, only ever goes up → rate()). The
+  outbox backlog is a **gauge** (goes up and down as the relay drains) — the gauge supplier runs a cheap COUNT at
+  each scrape.
+- **PHI-free metrics (rule 5).** Metrics/traces/alerts carry counts, coded outcomes, and ids only — never patient
+  data. Also watch **cardinality**: tag by low-cardinality dimensions (outcome/type), never by patient id.
+- **Liveness ≠ readiness ≠ root health.** Liveness = "restart me?" (process only). Readiness = "send me traffic?"
+  (includes the DB). Root `/actuator/health` = the monitoring aggregate (may go 503 to *signal* degradation
+  without killing anything). Put a dependency in readiness only if the app genuinely can't serve without it.
+- **Thresholds are targets, not measured SLOs (rule 2).** The alert numbers (5% 5xx, p95 > 1s, 90% heap) are
+  demo targets; we don't claim them as measured guarantees.
+- **The three signals join by id.** A response's `X-Correlation-Id` → `grep 'cid='` in logs → its `traceId` →
+  the trace in Jaeger. This is the whole triage workflow, and why the log pattern carries all three.
+- **Boot 4 moved/renamed things.** Health contributors are under `org.springframework.boot.health.contributor.*`;
+  tracing is opt-in via dedicated modules; the OTLP tracing property was renamed (see failures).
+- **A backup you have never restored is not a backup.** We ship the *drill*, not just the dump — the restore is
+  the thing that's actually verified.
+- **Honest scope:** AWS has no Prometheus/Jaeger scrape wired, Alertmanager routing is deferred, and RDS
+  PITR/snapshot DR is an on-demand, approval-gated follow-up. All documented, none pretended-done.
+
+### Failures and how we fixed them
+
+- **`/actuator/prometheus` returned 500 in tests** (`NoResourceFoundException`). Root cause: Spring Boot disables
+  metrics exporters in `@SpringBootTest` by default. Fix: add `@AutoConfigureMetrics` to the metrics endpoint
+  test. (Runtime was always fine — confirmed with a live `curl`.)
+- **p95 latency panel had no data.** `http_server_requests_seconds_bucket` isn't published by default. Fix: enable
+  `percentiles-histogram.http.server.requests: true`.
+- **Tracing produced no spans / didn't export (slice 3, the hard one).** A chain of Boot-4 changes:
+  `spring-boot-starter-aop` doesn't exist in Boot 4.1 (used `org.aspectj:aspectjweaver`); tracing autoconfig
+  wouldn't activate until we added the dedicated `spring-boot-micrometer-tracing-opentelemetry` module;
+  `@ConditionalOnClass(OtelTracer)` still failed because `micrometer-tracing-bridge-otel` was only a runtime
+  transitive → we declared it explicitly at compile scope; and the **root cause of "spans created but never
+  exported"** was Boot 4.1 renaming the property to `management.opentelemetry.tracing.export.otlp.endpoint` (the
+  old `management.otlp.tracing.endpoint` silently no-ops) — found via the `--debug` condition-evaluation report.
+  We also *removed* `spring-boot-starter-opentelemetry`: its full SDK autoconfigure built a competing tracer
+  provider (no exporter) and turned on an unwanted OTLP metrics registry.
+- **Health-indicator test hit a foreign-key violation.** Inserting an outbox row with a random `organizationId`
+  violated the FK to `organization`. Fix: use a **seeded** org id (`organizationRepository.findAll().get(0)`).
+- **The restore drill only checked ONE table.** Classic bash trap: `docker compose exec` inside a `while read`
+  loop consumes the loop's stdin (the table list), so the loop exited after the first iteration. Fix: detach
+  stdin on the in-container helpers (`</dev/null`) since they use `-c` and need no stdin. Documented in the script
+  and runbook so it can't recur.
+
+### Interview Q&A
+
+#### 1. Beginner
+
+**Q: What are the "three pillars" of observability?**
+A: Metrics (aggregate numbers over time — rates, latencies, gauges), logs (discrete event records), and traces
+(the path of a single request across components). HealthCloud has all three: Prometheus/Grafana for metrics,
+structured logs with correlation + trace ids, and Jaeger for traces.
+
+**Q: What is `/actuator/prometheus`?**
+A: A Spring Boot Actuator endpoint (enabled by the `micrometer-registry-prometheus` dependency) that exposes the
+app's metrics in Prometheus text format, so a Prometheus server can scrape them on a schedule.
+
+**Q: What's the difference between a counter and a gauge?**
+A: A counter only ever increases (e.g. total adjudications) — you look at its *rate*. A gauge goes up and down
+(e.g. the current number of unpublished outbox events) — you look at its *current value*.
+
+**Q: Liveness vs readiness probe — what's the difference?**
+A: Liveness answers "is the process alive?" — if it fails, restart it. Readiness answers "can it serve traffic
+right now?" — if it fails (e.g. the database is down), stop routing traffic to it but don't restart it.
+
+**Q: What's an alerting rule?**
+A: A Prometheus expression plus a duration (`for:`); when the expression is true for that long, the alert fires.
+Example: `up == 0 for 1m` means "the target has been unreachable for a minute."
+
+#### 2. Intermediate
+
+**Q: Why increment domain metrics in `afterCommit` instead of inline?**
+A: So we only count work that actually happened. If the transaction rolls back, an inline increment would have
+over-counted. `TransactionSynchronizationManager.registerSynchronization(...).afterCommit()` runs the increment
+only after a successful commit.
+
+**Q: Why does your custom outbox indicator report `OUT_OF_SERVICE` instead of `DOWN`, and why isn't it in the
+readiness group?**
+A: A relay backlog is a degraded async pipeline, not a dead app — the app still serves user requests fine.
+`OUT_OF_SERVICE` signals degradation on the root health aggregate (an operator/alert signal) without implying the
+process is dead. It's excluded from readiness because readiness gates *traffic*; pulling the pod out of the load
+balancer over a backlog would be wrong. And the container health check targets liveness, so it can't trigger a
+restart either.
+
+**Q: Why did you enable request histograms, and what do they let you do?**
+A: `percentiles-histogram.http.server.requests: true` publishes latency bucket counters. With buckets you can
+compute quantiles server-side across instances using `histogram_quantile(0.95, rate(..._bucket[5m]))` — that's how
+the p95 latency alert and dashboard work.
+
+**Q: Why alert rules but no Alertmanager?**
+A: Prometheus itself evaluates rules and exposes their state (firing/pending) via its API — that's enough to prove
+the rules are correct and to see them in the UI. Alertmanager is the *routing/notification* layer (email, Slack,
+PagerDuty), which needs external services and secrets — out of scope for a local, synthetic, verifiable slice, so
+it's a documented follow-up.
+
+**Q: What makes a "restore drill" different from just taking a backup?**
+A: A backup you've never restored might be corrupt, incomplete, or unrestorable — you don't actually know until
+you try. The drill restores the dump into a scratch database and verifies fidelity (every table's row count
+matches the source), so the backup is *proven* usable. "A backup you have never restored is not a backup."
+
+**Q: How do you connect a metric alert back to a specific failing request?**
+A: By id. Every log line carries `[cid=<correlationId> trace=<traceId>/<spanId>]`, and the API echoes
+`X-Correlation-Id`. From a failing response you grab the correlation id, grep the logs for it to get the trace id,
+and open that trace in Jaeger to see exactly where it failed or slowed down.
+
+#### 3. Advanced
+
+**Q: Walk through debugging "spans are created but never exported" in Spring Boot 4.**
+A: Several Boot-4 changes compounded. Tracing is opt-in via dedicated modules now, so actuator alone doesn't wire
+it — we added `spring-boot-micrometer-tracing-opentelemetry`. The OTel bridge (`OtelTracer`) was only a runtime
+transitive, so the autoconfig's `@ConditionalOnClass(OtelTracer)` didn't match — we declared
+`micrometer-tracing-bridge-otel` explicitly at compile scope. Even then nothing exported: the actual root cause
+was that Boot 4.1 **renamed** the OTLP tracing endpoint property to
+`management.opentelemetry.tracing.export.otlp.endpoint`; with the old Boot-3 name the exporter silently defaulted
+and no-op'd. We found it via the `--debug` condition-evaluation report. We also removed
+`spring-boot-starter-opentelemetry`, which was building a second, competing tracer provider (with no exporter)
+and an unwanted OTLP metrics registry.
+
+**Q: How does a trace follow a claim adjudication from the HTTP request into the Kafka consumer?**
+A: The HTTP request starts a trace; the `@Observed(contextualName="adjudicate-claim")` method becomes a child
+span (via the `ObservedAspect`). When the outbox relay publishes to Kafka, `observation-enabled: true` on the
+template injects the trace context into Kafka headers; on the consumer side `observation-enabled: true` on the
+listener extracts it and continues the same trace. So one trace can span the synchronous request and the
+asynchronous consumer.
+
+**Q: What are the cardinality and privacy risks in metrics, and how did you avoid them?**
+A: High-cardinality tags (e.g. patient id, claim id) explode the number of time series and can leak PHI into the
+monitoring system. We tag only low-cardinality, non-sensitive dimensions (outcome, type) and keep gauges/counters
+to counts and coded values — never identifiers or clinical data (rule 5). The same discipline applies to alert
+annotations and log lines.
+
+**Q: Explain the bash bug in the restore drill and why `</dev/null` fixes it.**
+A: The verify loop was `while read t; do ... done <<< "$TABLES"`, and inside it called
+`docker compose exec ... psql`. `docker compose exec` reads from stdin, and stdin inside the loop *is* the
+here-string feeding `read`. So the first `docker exec` consumed the rest of the table list, and the loop ended
+after one iteration (it "passed" checking a single table). Redirecting the in-container helpers' stdin from
+`/dev/null` detaches them from the loop's input (they use `psql -c`, so they need no stdin), and the loop reads
+all tables. It's a general gotcha for `ssh`/`docker`/`psql` inside `while read` loops.
+
+**Q: Why is putting the database in the readiness group (but not liveness) the correct design, and what's the
+failure mode if you got it backwards?**
+A: Readiness gates traffic; if the DB is unreachable the app can't usefully serve, so it should leave the load
+balancer — hence `db` in readiness. Liveness triggers restarts; a transient DB outage must not restart every app
+instance (that adds load and fixes nothing), so liveness stays process-only. If you put the DB in *liveness*, a
+brief DB blip would cascade into a restart storm of otherwise-healthy app instances; if you left the DB out of
+*readiness*, the load balancer would keep sending traffic to an instance that can only return errors.
