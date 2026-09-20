@@ -123,7 +123,11 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
 `/actuator/health/{liveness,readiness}` — liveness stays process-only, readiness = `readinessState`+`db` so the
 pod leaves the LB when Postgres is down; a custom `OutboxHealthIndicator` surfaces the relay backlog on root
 health only, never gating readiness; the container HEALTHCHECK moved to `/actuator/health/liveness`).
-See the Observability conventions section. Remaining Phase 11: alert rules, backup/restore drill, runbooks. See docs/PROGRESS.md for status)
+slice 5 done: **alert rules** (Prometheus alerting rules in `infrastructure/observability/alert-rules.yml` —
+`BackendTargetDown`/`OutboxBacklogHigh`/`HighHttp5xxRate`/`HighRequestLatencyP95`/`JvmHeapHigh`, each over a
+real exported metric; a Micrometer gauge `healthcloud.outbox.pending` makes the outbox backlog alertable; no
+Alertmanager locally — routing is a documented follow-up).
+See the Observability conventions section. Remaining Phase 11: backup/restore drill, runbooks. See docs/PROGRESS.md for status)
 - **Backend packages** under `com.healthcloud`: `organization` (Organization, Facility, FacilityMembership),
   `identity` (AppUser, Role, OrganizationMembership, UserRole; plus the **provider directory** read
   `GET /api/v1/providers` — `ProviderController`/`ProviderDirectoryService` list the caller's tenant's active
@@ -1233,6 +1237,19 @@ See the Observability conventions section. Remaining Phase 11: alert rules, back
   (`backend/Dockerfile`), so only a real process failure restarts the container. Follow-up: point the ECS/ALB
   health check at `/actuator/health/readiness` (a Terraform change, AWS boundary), and tighten `show-details:
   always` → `when-authorized` on deploy.
+- **Alerting (slice 5).** Prometheus alert rules live in `infrastructure/observability/alert-rules.yml` (loaded
+  via `rule_files` in `prometheus.yml`, mounted into the prometheus container). Prometheus **evaluates** them and
+  exposes their state (`/api/v1/rules`, `/api/v1/alerts`, the `ALERTS` metric) with **no Alertmanager** wired
+  locally — Alertmanager is only the routing/notification layer, and routing to a real destination needs external
+  services + secrets, so it's a documented follow-up (fits the runbooks slice). Rules: `BackendTargetDown`
+  (`up==0`, critical), `OutboxBacklogHigh`, `HighHttp5xxRate`, `HighRequestLatencyP95`, `JvmHeapHigh` (warning).
+  **Every expression is over a metric the app actually exports** (rule 2 — thresholds are demo *targets*, not
+  measured SLOs) and annotations are PHI-free. The outbox alert is backed by a Micrometer **gauge**
+  `healthcloud.outbox.pending` (`OutboxMetrics`, outbox package) that promotes slice 4's health signal into an
+  alertable metric — the pattern for making a domain signal alertable (a gauge, polled from a cheap repository
+  count at scrape time). Validate rule changes with `promtool check rules`/`check config` (run via the
+  `prom/prometheus` image); a rule genuinely fires end-to-end (e.g. stop the backend → `BackendTargetDown`
+  pending→firing).
 - **Deploy:** no OTLP collector / Prometheus scrape is wired on AWS yet (export no-ops there) — an on-demand
   documented follow-up, consistent with the Phase-10 AWS-cost boundary.
 

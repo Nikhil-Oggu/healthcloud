@@ -8,6 +8,11 @@ global:
   scrape_interval: 15s
   evaluation_interval: 15s
 
+# Alerting rules (Phase 11 slice 5). Prometheus evaluates these every evaluation_interval and exposes their
+# state via /api/v1/rules + /api/v1/alerts (no Alertmanager wired locally — routing is a documented follow-up).
+rule_files:
+  - /etc/prometheus/alert-rules.yml
+
 scrape_configs:
   - job_name: healthcloud-backend
     metrics_path: /actuator/prometheus

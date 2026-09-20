@@ -1,0 +1,71 @@
+# Prometheus alerting rules for the local HealthCloud dev stack (Phase 11 slice 5).
+#
+# Prometheus EVALUATES these rules and exposes their state (GET /api/v1/rules, /api/v1/alerts, the ALERTS
+# metric) with no Alertmanager needed — Alertmanager is only the routing/notification layer (a documented
+# follow-up: routing to a real destination needs external services + secrets, out of scope for a local,
+# synthetic, verifiable slice). Every expression is over a metric the app actually exports, so nothing here
+# is a fabricated number (rule 2); the thresholds are demo TARGETS, not measured SLOs. Annotations are
+# PHI-free (infrastructure metrics only, rule 5).
+#
+# Loaded via `rule_files` in prometheus.yml; mounted into the prometheus container by docker-compose.
+
+groups:
+  - name: healthcloud-alerts
+    rules:
+      # The keystone alert: the backend scrape target is unreachable (process down, crashed, or unresponsive).
+      - alert: BackendTargetDown
+        expr: up{job="healthcloud-backend"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "HealthCloud backend target is down"
+          description: "Prometheus cannot scrape the backend ({{ $labels.instance }}) for over 1 minute."
+
+      # The transactional-outbox relay is falling behind (events written but not published to Kafka). Warns at
+      # 100 — below the OutboxHealthIndicator's OUT_OF_SERVICE level (500) — so it fires before the pipeline is
+      # badly stuck. Backed by the healthcloud_outbox_pending gauge (OutboxMetrics, slice 5).
+      - alert: OutboxBacklogHigh
+        expr: healthcloud_outbox_pending > 100
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Outbox backlog is high"
+          description: "{{ $value }} outbox events are unpublished (>100 for 5m) — the relay may be stuck or Kafka unavailable."
+
+      # Elevated server error rate: more than 5% of HTTP responses are 5xx over the last 5 minutes. When there is
+      # no traffic the denominator is 0 → the ratio is NaN → the comparison is false, so it does not fire.
+      - alert: HighHttp5xxRate
+        expr: >
+          sum(rate(http_server_requests_seconds_count{status=~"5.."}[5m]))
+          / sum(rate(http_server_requests_seconds_count[5m])) > 0.05
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High HTTP 5xx error rate"
+          description: "More than 5% of HTTP responses have been 5xx for 10 minutes (current: {{ $value | humanizePercentage }})."
+
+      # Latency regression: the p95 of HTTP request duration exceeds 1s. Uses the request histogram enabled in
+      # slice 2 (management.metrics.distribution.percentiles-histogram.http.server.requests: true).
+      - alert: HighRequestLatencyP95
+        expr: histogram_quantile(0.95, sum by (le) (rate(http_server_requests_seconds_bucket[5m]))) > 1
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High request latency (p95)"
+          description: "The p95 HTTP request latency has been above 1s for 10 minutes (current: {{ $value }}s)."
+
+      # JVM heap pressure: heap used is above 90% of max for a sustained period (a leak or under-provisioning).
+      - alert: JvmHeapHigh
+        expr: >
+          sum(jvm_memory_used_bytes{area="heap"})
+          / sum(jvm_memory_max_bytes{area="heap"}) > 0.9
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "JVM heap usage is high"
+          description: "Heap usage has been above 90% of max for 10 minutes (current: {{ $value | humanizePercentage }})."

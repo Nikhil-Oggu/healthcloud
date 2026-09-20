@@ -116,6 +116,7 @@ services:
       - "host.docker.internal:host-gateway"
     volumes:
       - ./infrastructure/observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./infrastructure/observability/alert-rules.yml:/etc/prometheus/alert-rules.yml:ro
       - healthcloud-prometheus-data:/prometheus
     ports:
       - "9090:9090"
