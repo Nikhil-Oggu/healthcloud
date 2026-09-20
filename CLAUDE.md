@@ -71,11 +71,19 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   `./scripts/db-restore-drill.sh` rehearses recovery (backup → restore into a scratch DB → verify row counts →
   PASS/FAIL) against the running compose postgres. See `docs/runbooks/backup-and-restore.md`.
 - **Run app (seeds demo data):** `cd backend && ./mvnw spring-boot:run -Dspring-boot.run.profiles=local`
-- **Run app with real Cognito login (Phase 10 slice 12):** `export COGNITO_CLIENT_SECRET=$(cd infrastructure/terraform
-  && terraform output -raw cognito_client_secret)` then `cd backend && SPRING_PROFILES_ACTIVE=local,cognito ./mvnw
-  spring-boot:run`; open `http://localhost:8080/oauth2/authorization/cognito` (redirects to the Cognito hosted login).
-  Needs the demo users to have a password (`aws cognito-idp admin-set-user-password --user-pool-id <pool> --username
-  <email> --password '…' --permanent`). Without the `cognito` profile / `COGNITO_*` env, OIDC login is simply off.
+- **Run app with real Cognito login (Phase 10 slice 12):** run the backend with `SPRING_PROFILES_ACTIVE=local,cognito`
+  plus `COGNITO_CLIENT_ID` / `COGNITO_CLIENT_SECRET` / `COGNITO_ISSUER_URI` env (see `application-cognito.yml`), then
+  open `http://localhost:8080/oauth2/authorization/cognito` (or click "Sign in with Cognito" via the SPA at :5173).
+  Needs the demo users to have a Cognito password (`aws cognito-idp admin-set-user-password --user-pool-id <pool>
+  --username <email> --password '…' --permanent`; only `provider@`/`admin@northcare.example.org` exist in the pool).
+  Without the `cognito` profile / `COGNITO_*` env, OIDC login is off and the login page **disables** the Cognito button
+  (via `GET /api/v1/auth/config` — see the sign-in capability probe). **Local-dev caveat (2026-09):** the deploy was
+  torn down, so the *Terraform-managed* app client is gone (`terraform output -raw cognito_client_secret` no longer
+  works). Local Cognito currently uses a **hand-created app client** on pool `us-east-1_YA95ksq5k` (CLI, localhost
+  callbacks only, `$0`, not in TF state) whose id/secret feed the `COGNITO_*` env above; its hosted UI is branded
+  (dark + teal + HealthCloud logo) and **self-signup is disabled pool-wide** (`AllowAdminCreateUserOnly=true`). These
+  are documented AWS-drift the deployed `cognito.tf` doesn't yet encode — a future deploy re-creates the TF client and
+  would need the branding re-applied + `allow_admin_create_user_only` added to the pool resource.
 - **Container images (Phase 10 slices 1 + 3):** `docker build -t healthcloud-backend:local ./backend` and
   `docker build -t healthcloud-frontend:local ./frontend` build the production images. `docker compose
   --profile full up -d postgres backend frontend` runs the whole app as containers — browse at
@@ -815,7 +823,9 @@ to the AWS deployment, Alertmanager routing, RDS PITR/snapshot DR — all on-dem
   **Login (Phase 10 slice 13):** `LoginPage` offers a primary **"Sign in with Cognito"** button — a **full-page
   link** (`<Button component="a" href="/oauth2/authorization/cognito">`), NOT a `fetch`, because the response is a
   302 to Cognito on another origin. The dev-login dropdown is kept but wrapped in `import.meta.env.DEV` (hidden in
-  production builds). The Vite dev server proxies `/oauth2` + `/login/oauth2` to :8080 (scoped — NOT all of `/login`,
+  production builds); its `DEMO_USERS` list carries **all seven seeded roles per org** (patient, provider, provider2,
+  coordinator, reviewer, admin, auditor — for both NorthCare and Green Valley) so every role is one click away in dev.
+  The Vite dev server proxies `/oauth2` + `/login/oauth2` to :8080 (scoped — NOT all of `/login`,
   which is the SPA's own route) so the OIDC flow works same-origin in dev; the deployed nginx must add the same two
   proxy locations (slice 14). **The Cognito button is gated on `GET /api/v1/auth/config` (`{ cognitoEnabled }`,
   via a react-query probe):** when Cognito isn't configured (local without the `cognito` profile) the button is
@@ -1220,6 +1230,17 @@ to the AWS deployment, Alertmanager routing, RDS PITR/snapshot DR — all on-dem
   suppressed, and a permanent synthetic password is set out-of-band via `aws cognito-idp admin-set-user-password
   --permanent`. **$0** (free tier ≤ 50k MAU), safe to leave up. **Apply Cognito with `-target`** while the ALB/ECS
   are torn down, or a bare `apply` recreates them (they're still in config) and restarts the hourly meter.
+  **Local-dev drift (2026-09, `$0`, not in `cognito.tf`):** the deploy was torn down and the *TF-managed* app client
+  was deleted with it, so local Cognito uses a **hand-created app client** on the pool (via `aws cognito-idp
+  create-user-pool-client`, localhost callbacks only). Its **hosted UI is branded** (`set-ui-customization` — dark
+  navy card, teal button, HealthCloud logo; the classic hosted UI can't style the outer page margin), and
+  **self-signup is disabled pool-wide** (`update-user-pool` → `AdminCreateUserConfig.AllowAdminCreateUserOnly=true`,
+  so the "Sign up" link is gone — appropriate since users are admin-provisioned and `CognitoOidcUserService` rejects
+  any login with no ACTIVE AppUser anyway). **A future `terraform apply` reverts both** (recreates its own client
+  without the branding; resets self-signup to allowed) unless `cognito.tf` adds `admin_create_user_config {
+  allow_admin_create_user_only = true }` and the branding is re-applied to the new client. Beware: a bare `apply`
+  also recreates the ALB/ECS/CloudFront (cost) — the client's callback URLs reference the CloudFront domain, so a
+  `-target` recreate of just the client drags them in too.
 - **CloudFront HTTPS (Phase 10 slice 15, `cloudfront.tf`) — the public HTTPS entry.** A distribution in front of the
   ALB gives a free trusted `https://<id>.cloudfront.net` endpoint (ACM can't issue for the ALB's `*.elb.amazonaws.com`
   name, and Cognito requires HTTPS callbacks) — **no domain needed**. Origin = the ALB `http-only`;
