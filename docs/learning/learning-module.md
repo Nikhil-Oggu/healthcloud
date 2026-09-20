@@ -4021,3 +4021,141 @@ balancer — hence `db` in readiness. Liveness triggers restarts; a transient DB
 instance (that adds load and fixes nothing), so liveness stays process-only. If you put the DB in *liveness*, a
 brief DB blip would cascade into a restart storm of otherwise-healthy app instances; if you left the DB out of
 *readiness*, the load balancer would keep sending traffic to an instance that can only return errors.
+
+---
+
+## Local Cognito login, hosted-UI branding & self-signup removal (+ UI polish round 2) — 2026-09-20
+
+### What we built
+Three things this session: (1) made **real "Sign in with Cognito" work in local dev** — logging in as Dana
+Provider through genuine OIDC against the existing Cognito pool, not the dev-login stand-in; (2) **branded the
+Cognito hosted login page** (dark navy + teal + a HealthCloud logo) and **removed public self-signup**; and
+(3) a **second UI-polish pass** — a full pixel audit of every screen in light and dark, a styled document-upload
+control, un-cramped date/number form fields, live role→screen verification for all six roles, and adding the two
+missing roles to the dev-login dropdown.
+
+### How it works
+- **The Cognito login path (recap):** the backend is a **BFF** — with `SPRING_PROFILES_ACTIVE=local,cognito` and
+  the `COGNITO_CLIENT_ID/SECRET/ISSUER_URI` env, `SecurityConfig` enables `.oauth2Login`; the browser hits
+  `/oauth2/authorization/cognito` → 302 to Cognito's hosted UI → user authenticates → Cognito redirects back to
+  `/login/oauth2/code/cognito` with a code → Spring exchanges it → session established. `user-name-attribute: email`
+  makes the OIDC principal the email, so the DB-driven roles/tenant logic is unchanged.
+- **The blocker + the fix:** the pool existed but its Terraform-managed app client had been deleted with the last
+  `terraform destroy`. Recreating it via `terraform apply -target=aws_cognito_user_pool_client.app` planned to also
+  create `aws_cloudfront_distribution.main` and `aws_lb.main` (**cost**) — because the client's `callback_urls`
+  interpolate `aws_cloudfront_distribution.main.domain_name`, so Terraform pulls CloudFront (and its ALB origin) in
+  as dependencies. We caught this in the plan and did **not** apply. Instead we created a throwaway client by hand:
+
+  ```
+  aws cognito-idp create-user-pool-client --user-pool-id us-east-1_YA95ksq5k \
+    --client-name healthcloud-local-dev --generate-secret --allowed-o-auth-flows-user-pool-client \
+    --allowed-o-auth-flows code --allowed-o-auth-scopes openid email profile \
+    --supported-identity-providers COGNITO --explicit-auth-flows ALLOW_REFRESH_TOKEN_AUTH \
+    --callback-urls http://localhost:8080/login/oauth2/code/cognito http://localhost:5173/login/oauth2/code/cognito \
+    --logout-urls http://localhost:8080/ http://localhost:5173/ --prevent-user-existence-errors ENABLED
+  ```
+
+  localhost callbacks only → no CloudFront/ALB reference → **$0**, no cost infra. The returned id/secret feed the
+  backend env.
+- **Branding the hosted UI:** `aws cognito-idp set-ui-customization --client-id <id> --css file --image-file
+  fileb://logo.png`. The classic hosted UI accepts a restricted CSS allowlist keyed to fixed classes
+  (`.background-customizable`, `.banner-customizable`, `.submitButton-customizable`, `.inputField-customizable`,
+  `.label-customizable`, …) plus a logo image. We set a dark navy card, teal button (`#0d9488`), light on-dark
+  labels, and the logo. **Limitation:** the grey page margin *around* the card isn't a customizable class.
+- **Removing self-signup:** `update-user-pool` with `AdminCreateUserConfig.AllowAdminCreateUserOnly=true`. Because
+  that API **replaces** omitted fields with defaults, we first `describe-user-pool`, then rebuilt the full config
+  (password policy, MFA OPTIONAL, email/recovery, tags) into a `--cli-input-json` payload changing only that flag.
+- **The logo pipeline (no image libraries installed):** wrote the lockup as an HTML file → `qlmanage -t` (macOS
+  QuickLook via WebKit, which renders web fonts, unlike its SVG generator which dropped `<text>`) → a **pure-Python
+  PNG auto-cropper** (stdlib `zlib` + manual PNG decode/unfilter/re-encode) that bounding-boxes to non-white pixels.
+- **UI polish round 2 (repo code):** `DocumentsCard` swapped the bare `<input type="file">` for
+  `<Button component="label">Choose file<input hidden …/></Button>` + a themed filename line (kept the `aria-label`
+  on the hidden input so tests were unchanged); added `sx={{ minWidth: … }}` to date/number fields that were
+  collapsing in `direction="row"` forms (clipping `mm/dd/yyyy` and truncating labels).
+
+### Key points to remember
+- **Terraform drift is intentional here.** The hand-made client, the hosted-UI branding, and the no-signup flag are
+  all outside `cognito.tf`. A future `terraform apply` (deploy) reverts them — documented in CLAUDE.md + memory.
+- **`-target` still pulls dependencies.** Targeting one resource plans everything it references; an interpolated
+  attribute of another resource (CloudFront's domain in the callback list) forces that resource into the plan.
+- **The assistant never types a password to authenticate.** The user ran `admin-set-user-password` and entered the
+  credential in the hosted UI themselves — even though the demo password was visible in their command.
+- **Proof of a *real* OIDC session, not dev-login:** `/me` resolved to the user AND the backend log showed **zero**
+  `/dev-login` calls since the `local,cognito` restart. Absence-of-evidence made concrete.
+- **Hosted UI ≠ our app.** It's an AWS-rendered page; we can only theme it within AWS's allowlist, never match the
+  React design pixel-for-pixel. Fully custom modern login = Cognito "Managed Login," which can hit a paid tier.
+- **Self-signup was a dead-end anyway:** `CognitoOidcUserService` rejects any login with no ACTIVE `AppUser`, so a
+  self-registered user could authenticate to Cognito but never enter the app — removing the link is honest UX.
+
+### Failures and how we fixed them
+- **`terraform apply -target` would have cost money** (planned ALB + CloudFront). Root cause: callback URLs reference
+  the CloudFront domain. Fix: don't use Terraform for the local client — create it by hand with localhost callbacks.
+- **Canvas→base64→disk bridge failed:** the browser canvas produced a correct PNG data URL, but the ~20 KB base64
+  was too long to transcribe into a shell heredoc without truncating (got a 216-byte, empty PNG). Abandoned that
+  bridge.
+- **qlmanage dropped SVG `<text>`** (only the glyph rendered). Fix: render the lockup as **HTML** instead (WebKit
+  renders fonts).
+- **qlmanage top-left-anchors + pads to a square**, and **`sips` crops from the center** — so a naive crop grabbed
+  empty white. Fix: a pure-Python auto-cropper that finds the content bounding box regardless of placement.
+- **`update-user-pool` replaces omitted settings with defaults** — a naive call would have reset the password policy
+  / MFA. Fix: read the current config first and pass it all back via `--cli-input-json`, changing only the one flag.
+- **Stale local DB** was missing the AUDITOR user (added to the seeder in Phase 7; the seeder is skip-if-exists, so a
+  DB seeded earlier never got it). Fix: `db-reset.sh` → fresh canonical seed.
+
+### Interview Q&A
+
+#### 1. Beginner
+**Q: Why did the "Sign in with Cognito" button start out disabled locally?**
+A: A public endpoint, `GET /api/v1/auth/config`, returns `{cognitoEnabled}` — true only when the backend has a
+Cognito client registration configured. Local dev normally runs the `local` profile with no OIDC client, so the
+probe returns false and the login page renders the button disabled with a note, instead of letting a click hit a
+500. Once we ran `local,cognito` with real client credentials, the probe returned true and the button activated.
+
+**Q: What is the Cognito "hosted UI"?**
+A: A login page hosted and rendered by AWS Cognito (on the pool's `*.auth.<region>.amazoncognito.com` domain), not
+part of our React app. Our BFF redirects the browser there to authenticate; that's why our MUI theme doesn't reach
+it and we could only restyle it within AWS's limited customization.
+
+**Q: Why can't the assistant just log in for you?**
+A: Entering a password into a login form to authenticate is a prohibited action for the assistant, even when the
+password is known/visible. The user performs the actual sign-in; the assistant sets up everything around it.
+
+#### 2. Intermediate
+**Q: Why did recreating just the Cognito app client threaten to cost money, and how did you avoid it?**
+A: Terraform builds its dependency graph from references. The client's `callback_urls` interpolate the CloudFront
+distribution's domain name, so `apply -target` on the client also planned to create CloudFront — and CloudFront's
+origin is the ALB — both billable. We avoided it by creating the client out-of-band with the AWS CLI using only
+localhost callbacks (no CloudFront reference), keeping it $0 and leaving the deploy stack torn down.
+
+**Q: How do you disable self-registration on a Cognito pool without clobbering other settings?**
+A: Set `AdminCreateUserConfig.AllowAdminCreateUserOnly=true` via `update-user-pool`. But that API is a replace for
+many fields, so you must first `describe-user-pool`, capture the current config (password policy, MFA, email,
+recovery, tags), and resubmit it all with only that one field changed — best done with `--cli-input-json`.
+
+**Q: How did you prove the session was real Cognito OIDC and not the dev-login stand-in?**
+A: Two signals: `/me` resolved to the expected user with the right role, and the backend log showed **zero**
+`/dev-login` calls since the `local,cognito` restart. Since dev-login is the only other way to establish a session
+and it wasn't used, the session could only have come from the Cognito hosted-UI flow.
+
+#### 3. Advanced
+**Q: You generated a PNG logo with no PIL/ImageMagick/rsvg. Walk through it.**
+A: HTML lockup (glyph as CSS + wordmark text) → `qlmanage -t` renders it via WebKit to a PNG (WebKit renders web
+fonts; qlmanage's SVG path silently drops `<text>`). qlmanage top-left-anchors the content and pads to a square,
+and `sips` only center-crops, so I wrote a ~60-line pure-Python PNG tool (stdlib `zlib` + manual chunk parse,
+scanline unfiltering incl. Paeth, and re-encode with filter-0 rows) that computes the content bounding box
+(non-white pixels) and crops to it — deterministic regardless of where qlmanage placed the content.
+
+**Q: This whole setup is Terraform drift. Why is that acceptable, and what's the migration path?**
+A: It's acceptable because it's a **local-dev convenience** on a torn-down deploy, it's $0, and it's fully
+documented (CLAUDE.md + a memory note) with exact recreate/cleanup commands. The migration path when the app is
+next deployed: `cognito.tf` recreates its own client (the app reads that client's secret from Secrets Manager),
+so we'd add `admin_create_user_config { allow_admin_create_user_only = true }` to the pool resource and re-apply
+the hosted-UI branding to the new client (or, better, encode the branding as an `aws_cognito_user_pool_ui_customization`
+resource). The throwaway local client is deleted with `delete-user-pool-client` when no longer needed.
+
+**Q: What are the limits of Cognito classic hosted-UI branding, and when would you move past them?**
+A: The classic hosted UI only exposes a fixed set of CSS classes (background, banner, inputs, labels, submit
+button, links) plus a logo image — you can't restyle the outer page, restructure the layout, or match an external
+design system exactly. You'd move to Cognito **Managed Login** (the 2024 branding designer) for richer control, but
+it can push the pool into a paid pricing tier, so for a $0 portfolio project the classic CSS branding is the right
+trade-off.

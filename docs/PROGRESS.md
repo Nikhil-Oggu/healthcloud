@@ -456,6 +456,44 @@
 
 ## Log (newest first)
 
+### 2026-09-20 — Local Cognito login wired + hosted-UI branded + self-signup removed ✅ (AWS, $0)
+- The user wanted real "Sign in with Cognito" working in **local dev**. The Cognito pool (`us-east-1_YA95ksq5k`)
+  still exists, but the deploy had been torn down so the **Terraform-managed app client was gone** — and recreating
+  it via `terraform apply -target` would drag in CloudFront + the ALB (cost) because the client's callback URLs
+  reference the CloudFront domain. So (user-approved, after showing the plan) we created a **throwaway app client by
+  hand** (`aws cognito-idp create-user-pool-client`, localhost callbacks only, `$0`, not in TF state):
+  `healthcloud-local-dev`, id `2apbhhj0d4pn3pvc004nmkki6l`.
+- Restarted the backend with `SPRING_PROFILES_ACTIVE=local,cognito` + `COGNITO_CLIENT_ID`/`COGNITO_CLIENT_SECRET`/
+  `COGNITO_ISSUER_URI`. Verified: `/api/v1/auth/config` → `cognitoEnabled:true`, the login button activates, and
+  `/oauth2/authorization/cognito` → 302 to the Cognito hosted UI (PKCE, no 500). The user set a permanent password
+  (`admin-set-user-password`, they ran it themselves — the assistant never types a credential to authenticate) and
+  **logged in as Dana Provider through genuine OIDC** — proven by `/me` (PROVIDER) + **zero dev-login calls** in the
+  backend log since restart.
+- **Branded the hosted UI** (`set-ui-customization`, per client): dark navy card, teal `#0d9488` button, light
+  on-dark labels, and a **HealthCloud logo** (teal glyph + wordmark). The logo was built locally with no PIL/
+  ImageMagick — an HTML lockup → `qlmanage` (WebKit renders the font) → a **pure-Python PNG auto-cropper** (stdlib
+  zlib, bounding-box to content) in the scratchpad. Classic hosted UI can't style the outer grey page margin.
+- **Removed self-signup** pool-wide (`update-user-pool` → `AdminCreateUserConfig.AllowAdminCreateUserOnly=true`,
+  preserving MFA OPTIONAL + password policy + recovery): the "Sign up" link is gone. Appropriate — users are
+  admin-provisioned and `CognitoOidcUserService` rejects any login with no ACTIVE AppUser, so self-signup was a
+  dead-end anyway.
+- **All $0**, all verified in-browser. Documented as AWS drift in CLAUDE.md + a session memory note: a future
+  `terraform apply` reverts both (recreates its own client sans branding; re-allows signup) unless `cognito.tf` adds
+  `admin_create_user_config { allow_admin_create_user_only = true }` and the branding is re-applied. Throwaway client
+  kept for now (delete with `aws cognito-idp delete-user-pool-client …` when done). No repo code changed this entry.
+
+### 2026-09-20 — Live role→screen verification + DB reseed + dev-login dropdown ✅
+- **Verified the role-based UI live** by logging in as all six roles (via the CSRF-exempt dev-login) and screenshotting
+  each sidebar: PATIENT (Dashboard+Requests), PROVIDER (+Patients/Referrals/Emergency access + Claims/Coverage/Prior
+  auth/Appeals), CARE_COORDINATOR (+Reviews), CLAIMS_REVIEWER (Claims-side + Reprocessing), AUDITOR (Audit+Access
+  review), ORG_ADMIN (everything incl. Dead letters). **All matched** the nav gating in `AppLayout.tsx` — the role UI
+  is correct (backend still the real boundary).
+- **Found + fixed a stale local DB:** it was missing the AUDITOR user (seeded in Phase 7; the seeder is skip-if-exists,
+  so an older DB never picked it up) and carried leftover test data (Trace/Grafana patients, stray adjudications). Ran
+  `./scripts/db-reset.sh` → fresh canonical seed (7 users/org incl. auditor, 6 patients, 4 claims, 17 codes, ~138 rows).
+- **`LoginPage.tsx`**: the dev-login dropdown listed only 5 of 7 seeded roles per org — added **provider2 + auditor**
+  (both orgs, role order). Typecheck + LoginPage tests green; verified in-browser. Committed `3bd64b0`.
+
 ### 2026-09-20 — UI polish round 2 ✅ (full pixel pass in light + dark → styled upload + un-cramped fields)
 - Did a **full pixel pass of every screen in both light and dark mode** (Dashboard, Patients list + detail, Requests,
   Claims list + detail, Coverage list + detail, Prior auth, Referrals, Appeals, Reviews, Reprocessing, Audit, Access
