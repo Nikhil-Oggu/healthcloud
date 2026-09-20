@@ -42,6 +42,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { api } from '../api/client'
 import { useCurrentUser } from '../auth/useAuth'
 import { Brand } from '../components/Brand'
+import { ThemeToggle } from '../components/ThemeToggle'
 
 const DRAWER_WIDTH = 260
 
@@ -219,6 +220,9 @@ export function AppLayout() {
             >
               Log out
             </Button>
+            <Box sx={{ mt: 1.5 }}>
+              <ThemeToggle />
+            </Box>
           </Box>
         </>
       )}
