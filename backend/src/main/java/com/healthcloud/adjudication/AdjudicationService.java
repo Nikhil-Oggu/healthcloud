@@ -32,6 +32,7 @@ import com.healthcloud.patient.PatientAccessGuard;
 import com.healthcloud.priorauth.PriorAuthorizationRepository;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.observation.annotation.Observed;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.ArrayList;
@@ -126,6 +127,7 @@ public class AdjudicationService {
      * first adjudication only, advance the claim + append a status-history row), all in one transaction.
      */
     @Transactional
+    @Observed(name = "healthcloud.adjudicate", contextualName = "adjudicate-claim")
     public AdjudicationDto adjudicate(UUID claimId) {
         userContext.requireAnyRole(ADJUDICATE_ROLES);
         UserContext caller = userContext.requireUser();

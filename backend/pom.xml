@@ -41,6 +41,36 @@
 			<artifactId>micrometer-registry-prometheus</artifactId>
 			<scope>runtime</scope>
 		</dependency>
+		<!-- Phase 11 slice 3: distributed tracing via Micrometer Tracing + the OpenTelemetry bridge,
+		     exporting spans over OTLP to a local Jaeger. In Boot 4 the tracing auto-configuration is
+		     opt-in (actuator does not pull it), so we depend on the dedicated Boot module
+		     spring-boot-micrometer-tracing-opentelemetry (it brings the Micrometer→OTel bridge, the
+		     OpenTelemetryTracing + OtlpTracing autoconfig, and the OTel SDK) plus the OTLP span exporter.
+		     We deliberately do NOT add spring-boot-starter-opentelemetry — its full SDK auto-configure
+		     builds a competing tracer provider (spans created but never exported) and turns on an OTLP
+		     metrics registry we don't want (metrics go to Prometheus). Versions managed by the Boot BOM. -->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-micrometer-tracing-opentelemetry</artifactId>
+		</dependency>
+		<!-- The Micrometer→OTel bridge (OtelTracer). It is only a RUNTIME-scope transitive of the module
+		     above, so the tracing auto-configs' @ConditionalOnClass(OtelTracer) would not see it; declare it
+		     explicitly (compile) so tracing actually activates and spans get exported. -->
+		<dependency>
+			<groupId>io.micrometer</groupId>
+			<artifactId>micrometer-tracing-bridge-otel</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>io.opentelemetry</groupId>
+			<artifactId>opentelemetry-exporter-otlp</artifactId>
+		</dependency>
+		<!-- Phase 11 slice 3: AspectJ weaver so Spring's AOP auto-proxy activates and the Micrometer
+		     ObservedAspect can turn @Observed methods into spans. (Boot 4 dropped spring-boot-starter-aop;
+		     spring-aop itself is already transitive via spring-context.) Version managed by the Boot BOM. -->
+		<dependency>
+			<groupId>org.aspectj</groupId>
+			<artifactId>aspectjweaver</artifactId>
+		</dependency>
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-data-jpa</artifactId>

@@ -35,7 +35,8 @@ import org.springframework.test.context.ActiveProfiles;
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
         properties = {
             "healthcloud.outbox.relay.enabled=false",
-            "healthcloud.kafka.consumers.enabled=false"
+            "healthcloud.kafka.consumers.enabled=false",
+            "management.tracing.enabled=false"
         })
 @Import(TestcontainersConfiguration.class)
 @ActiveProfiles("demo")

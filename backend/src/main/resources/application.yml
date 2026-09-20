@@ -39,6 +39,12 @@ spring:
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
       value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
       auto-offset-reset: earliest
+    # Phase 11 slice 3: propagate the trace context through Kafka headers, so a trace started by an HTTP
+    # request continues into the @KafkaListener consumer (the outbox → relay → Kafka → consumer hop).
+    template:
+      observation-enabled: true
+    listener:
+      observation-enabled: true
 
 server:
   port: 8080
@@ -100,9 +106,10 @@ healthcloud:
 
 logging:
   pattern:
-    # Attach the per-request correlation id (from CorrelationIdFilter's MDC) to every log line,
-    # so a log entry can be tied to the X-Correlation-Id returned to the client.
-    level: "%5p [cid=%X{correlationId:-}]"
+    # Attach the per-request correlation id (from CorrelationIdFilter's MDC) plus the tracing ids
+    # (Phase 11 slice 3 — Micrometer Tracing populates traceId/spanId in the MDC), so a log line ties
+    # both to the X-Correlation-Id returned to the client AND to its distributed trace in Jaeger.
+    level: "%5p [cid=%X{correlationId:-} trace=%X{traceId:-}/%X{spanId:-}]"
 
 management:
   endpoints:
@@ -127,3 +134,17 @@ management:
         # Publish latency histogram buckets for HTTP requests so Prometheus/Grafana can compute
         # percentiles (e.g. p95 via histogram_quantile). Phase 11 slice 2.
         http.server.requests: true
+  # Phase 11 slice 3 — distributed tracing. Sample everything locally so every request shows up in
+  # Jaeger (a real production deployment would sample a small fraction). Spans are exported over OTLP;
+  # the default endpoint is a local Jaeger (override with MANAGEMENT_OTLP_TRACING_ENDPOINT). The
+  # deployed app has no collector wired yet, so export simply no-ops there (documented follow-up).
+  tracing:
+    sampling:
+      probability: 1.0
+  opentelemetry:
+    tracing:
+      export:
+        otlp:
+          # Boot 4.1's OTLP tracing endpoint property (renamed from the Boot-3 `management.otlp.tracing.endpoint`).
+          # Points at the local Jaeger OTLP/HTTP receiver; override with MANAGEMENT_OTLP_TRACING_ENDPOINT.
+          endpoint: ${MANAGEMENT_OTLP_TRACING_ENDPOINT:http://localhost:4318/v1/traces}

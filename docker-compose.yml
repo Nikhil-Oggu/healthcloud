@@ -120,6 +120,20 @@ services:
     ports:
       - "9090:9090"
 
+  # Jaeger all-in-one (Phase 11 slice 3) — the distributed-tracing UI. The app exports spans over OTLP
+  # (HTTP :4318 / gRPC :4317, which this image accepts natively); browse traces at http://localhost:16686.
+  # In-memory storage (fine for local dev). Opt-in with the same `observability` profile.
+  jaeger:
+    image: jaegertracing/all-in-one:1.62.0
+    container_name: healthcloud-jaeger
+    profiles: ["observability"]
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "16686:16686"   # Jaeger UI
+      - "4317:4317"     # OTLP gRPC
+      - "4318:4318"     # OTLP HTTP (the app's default export endpoint)
+
   grafana:
     image: grafana/grafana:11.4.0
     container_name: healthcloud-grafana

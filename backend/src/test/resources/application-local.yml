@@ -12,3 +12,9 @@ healthcloud:
       # Keep the @KafkaListener read-side consumers stopped in the broker-free suite; the consumer integration
       # test re-enables them (@SpringBootTest properties) against a Testcontainers broker.
       enabled: false
+
+# Phase 11 slice 3: disable distributed tracing in the test suite — there is no OTLP collector in CI, so
+# exporting spans would just log connection failures. Tracing is exercised manually against a local Jaeger.
+management:
+  tracing:
+    enabled: false
