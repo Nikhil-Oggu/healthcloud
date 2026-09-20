@@ -58,6 +58,20 @@ export const theme = createTheme({
     button: { textTransform: 'none', fontWeight: 600 },
   },
   components: {
+    // Subtle canvas wash (Slice 8 depth pass): a whisper of teal top-right + indigo bottom-left over
+    // the soft grey, fixed so it doesn't scroll — gives the whole app quiet depth instead of a flat
+    // white field, without touching text contrast. Kept very low-alpha so it reads as light, not tinted.
+    MuiCssBaseline: {
+      styleOverrides: {
+        body: {
+          backgroundColor: '#f6f8fb',
+          backgroundImage: `radial-gradient(1000px 620px at 100% -12%, rgba(13,148,136,0.06), transparent 60%),
+            radial-gradient(900px 600px at -12% 112%, rgba(79,70,229,0.05), transparent 55%)`,
+          backgroundAttachment: 'fixed',
+          backgroundRepeat: 'no-repeat',
+        },
+      },
+    },
     // Light shell instead of the loud default blue AppBar (the shell is redesigned in Slice 2).
     MuiAppBar: {
       defaultProps: { color: 'inherit', elevation: 0 },
@@ -75,7 +89,8 @@ export const theme = createTheme({
         root: {
           border: '1px solid #e6e9f0',
           borderRadius: 14,
-          boxShadow: '0 1px 2px rgba(15,23,41,.06)',
+          // Soft layered shadow (Slice 8) so cards lift gently off the washed canvas.
+          boxShadow: '0 1px 2px rgba(15,23,41,.04), 0 6px 20px -12px rgba(15,23,41,.14)',
         },
       },
     },
@@ -122,7 +137,13 @@ export const theme = createTheme({
     },
     MuiTableRow: {
       styleOverrides: {
-        root: { '&.MuiTableRow-hover:hover': { backgroundColor: 'rgba(13,148,136,0.04)' } },
+        // Faint zebra (Slice 8) so a big queue table doesn't read as one flat white sheet; the
+        // head row is the sole child of its <thead> (nth-of-type 1), so it stays untinted. Hover
+        // wins over the stripe.
+        root: {
+          '&:nth-of-type(even)': { backgroundColor: 'rgba(15,23,41,0.018)' },
+          '&.MuiTableRow-hover:hover': { backgroundColor: 'rgba(13,148,136,0.06)' },
+        },
       },
     },
     MuiLink: {

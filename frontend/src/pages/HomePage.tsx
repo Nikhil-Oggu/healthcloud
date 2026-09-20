@@ -31,6 +31,15 @@ function hasAnyRole(roles: string[], allowed: string[]): boolean {
   return roles.some((r) => allowed.includes(r))
 }
 
+// A gentle lift on hover so the dashboard cards feel interactive (Slice 8 depth pass).
+const HOVER_LIFT = {
+  transition: 'transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease',
+  '&:hover': {
+    transform: 'translateY(-3px)',
+    boxShadow: '0 2px 6px rgba(15,23,41,.06), 0 16px 32px -16px rgba(15,23,41,.28)',
+  },
+} as const
+
 // Real, role-gated "at a glance" counts pulled from the existing paged endpoints' totalElements
 // (a cheap size=1 query) — never fabricated numbers (project rule 2). Each links to its queue.
 type StatDef = {
@@ -159,13 +168,31 @@ export function HomePage() {
               const r = statResults[i]
               const value = r?.isLoading || r?.isError || r?.data == null ? '—' : String(r.data)
               return (
-                <Card key={s.key}>
+                <Card
+                  key={s.key}
+                  sx={{
+                    ...HOVER_LIFT,
+                    position: 'relative',
+                    overflow: 'hidden',
+                    // A thin brand-gradient accent along the top edge — a touch of color per tile.
+                    '&::before': {
+                      content: '""',
+                      position: 'absolute',
+                      insetInline: 0,
+                      top: 0,
+                      height: 3,
+                      background: constellation.gradient,
+                    },
+                  }}
+                >
                   <CardActionArea component={RouterLink} to={s.to} sx={{ p: 2, height: '100%' }}>
-                    <Stack direction="row" spacing={1} sx={{ alignItems: 'center', color: 'text.secondary' }}>
+                    <Stack direction="row" spacing={1} sx={{ alignItems: 'center', color: 'primary.main' }}>
                       <Icon fontSize="small" />
-                      <Typography variant="body2">{s.label}</Typography>
+                      <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+                        {s.label}
+                      </Typography>
                     </Stack>
-                    <Typography sx={{ fontFamily: MONO, fontSize: 30, fontWeight: 600, mt: 1, color: 'text.primary' }}>
+                    <Typography sx={{ fontFamily: MONO, fontSize: 30, fontWeight: 700, mt: 1, color: 'primary.dark' }}>
                       {value}
                     </Typography>
                   </CardActionArea>
@@ -192,7 +219,7 @@ export function HomePage() {
           {tiles.map((t) => {
             const Icon = t.icon
             return (
-              <Card key={t.to}>
+              <Card key={t.to} sx={{ ...HOVER_LIFT, '&:hover': { ...HOVER_LIFT['&:hover'], borderColor: 'primary.main' } }}>
                 <CardActionArea component={RouterLink} to={t.to} sx={{ p: 2.5, height: '100%' }}>
                   <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
                     <Box

@@ -127,6 +127,7 @@ export function CreateClaimForm() {
                 label="Service date"
                 type="date"
                 size="small"
+                sx={{ minWidth: 168 }}
                 slotProps={{ inputLabel: { shrink: true }, htmlInput: { max: today() } }}
                 {...register('serviceDate')}
                 error={!!errors.serviceDate}
