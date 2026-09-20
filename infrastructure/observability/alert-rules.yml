@@ -21,6 +21,7 @@ groups:
         annotations:
           summary: "HealthCloud backend target is down"
           description: "Prometheus cannot scrape the backend ({{ $labels.instance }}) for over 1 minute."
+          runbook: "docs/runbooks/alert-response.md#backendtargetdown"
 
       # The transactional-outbox relay is falling behind (events written but not published to Kafka). Warns at
       # 100 — below the OutboxHealthIndicator's OUT_OF_SERVICE level (500) — so it fires before the pipeline is
@@ -33,6 +34,7 @@ groups:
         annotations:
           summary: "Outbox backlog is high"
           description: "{{ $value }} outbox events are unpublished (>100 for 5m) — the relay may be stuck or Kafka unavailable."
+          runbook: "docs/runbooks/alert-response.md#outboxbackloghigh"
 
       # Elevated server error rate: more than 5% of HTTP responses are 5xx over the last 5 minutes. When there is
       # no traffic the denominator is 0 → the ratio is NaN → the comparison is false, so it does not fire.
@@ -46,6 +48,7 @@ groups:
         annotations:
           summary: "High HTTP 5xx error rate"
           description: "More than 5% of HTTP responses have been 5xx for 10 minutes (current: {{ $value | humanizePercentage }})."
+          runbook: "docs/runbooks/alert-response.md#highhttp5xxrate"
 
       # Latency regression: the p95 of HTTP request duration exceeds 1s. Uses the request histogram enabled in
       # slice 2 (management.metrics.distribution.percentiles-histogram.http.server.requests: true).
@@ -57,6 +60,7 @@ groups:
         annotations:
           summary: "High request latency (p95)"
           description: "The p95 HTTP request latency has been above 1s for 10 minutes (current: {{ $value }}s)."
+          runbook: "docs/runbooks/alert-response.md#highrequestlatencyp95"
 
       # JVM heap pressure: heap used is above 90% of max for a sustained period (a leak or under-provisioning).
       - alert: JvmHeapHigh
@@ -69,3 +73,4 @@ groups:
         annotations:
           summary: "JVM heap usage is high"
           description: "Heap usage has been above 90% of max for 10 minutes (current: {{ $value | humanizePercentage }})."
+          runbook: "docs/runbooks/alert-response.md#jvmheaphigh"
