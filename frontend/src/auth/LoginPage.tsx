@@ -19,7 +19,7 @@ import { api, ApiClientError } from '../api/client'
 import { ME_QUERY_KEY, useCurrentUser } from './useAuth'
 import { Brand } from '../components/Brand'
 import { ConstellationBackground } from '../components/ConstellationBackground'
-import { constellation } from '../theme'
+import { constellation, MONO } from '../theme'
 
 /**
  * The seeded demo users (local `dev-login` only — NO password/MFA). This developer sign-in is shown
@@ -47,6 +47,22 @@ const DEMO_USERS = [
 const COGNITO_LOGIN_URL = '/oauth2/authorization/cognito'
 
 const TRUST_POINTS = ['Tenant-isolated', 'Consent-aware', 'Tamper-evident audit']
+
+/**
+ * Public demo credentials shown on the login page so a reviewer/recruiter can sign in and explore.
+ * Synthetic data only — safe to publish. All demo accounts share ONE password.
+ * 👉 EDIT `DEMO_PASSWORD` below to match the password you set for the Cognito demo accounts.
+ */
+const DEMO_PASSWORD = 'REPLACE_WITH_YOUR_DEMO_PASSWORD'
+
+const DEMO_ACCOUNTS: { role: string; email: string; note: string }[] = [
+  { role: 'Org Admin', email: 'admin@northcare.example.org', note: 'Full tenant view — manage plans, users, everything' },
+  { role: 'Provider', email: 'provider@northcare.example.org', note: 'Sees only patients assigned to them' },
+  { role: 'Care Coordinator', email: 'coordinator@northcare.example.org', note: 'Assign care teams; manage requests & eligibility' },
+  { role: 'Claims Reviewer', email: 'reviewer@northcare.example.org', note: 'Accept & adjudicate claims' },
+  { role: 'Auditor', email: 'auditor@northcare.example.org', note: 'Read the tamper-evident audit trail' },
+  { role: 'Patient', email: 'patient@northcare.example.org', note: 'Sees only their own record & consent' },
+]
 
 export function LoginPage() {
   const [email, setEmail] = useState(DEMO_USERS[1])
@@ -242,6 +258,91 @@ export function LoginPage() {
             </CardContent>
           </Card>
         </Box>
+
+        {/* Demo credentials — shown whenever Cognito login is available (deployed app, or a local
+            `local,cognito` run). Lets a reviewer/recruiter sign in and explore. Synthetic data only. */}
+        {cognitoEnabled && (
+          <Card sx={{ mt: { xs: 5, md: 7 }, maxWidth: 940, mx: 'auto', width: '100%' }}>
+            <CardContent sx={{ p: { xs: 3, md: 4 } }}>
+              <Stack
+                direction="row"
+                spacing={1.5}
+                sx={{ flexWrap: 'wrap', gap: 1, alignItems: 'center', mb: 0.5 }}
+              >
+                <Typography variant="h6" component="h2" sx={{ fontWeight: 700 }}>
+                  👋 Reviewing this project? Explore the live demo
+                </Typography>
+                <Chip size="small" color="success" label="Synthetic data only" />
+              </Stack>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 2.5 }}>
+                Click <strong>Sign in with Cognito</strong> above, then use any account below. Every
+                account shares the same password.
+              </Typography>
+
+              <Stack
+                direction="row"
+                spacing={1}
+                sx={{ flexWrap: 'wrap', gap: 1, alignItems: 'center', mb: 3 }}
+              >
+                <Typography variant="body2" color="text.secondary">
+                  Password for all accounts:
+                </Typography>
+                <Box
+                  component="code"
+                  sx={{
+                    fontFamily: MONO,
+                    fontWeight: 600,
+                    px: 1,
+                    py: 0.5,
+                    borderRadius: 1,
+                    bgcolor: 'action.hover',
+                  }}
+                >
+                  {DEMO_PASSWORD}
+                </Box>
+              </Stack>
+
+              <Box
+                sx={{
+                  display: 'grid',
+                  gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' },
+                  gap: 2,
+                }}
+              >
+                {DEMO_ACCOUNTS.map((account) => (
+                  <Box
+                    key={account.email}
+                    sx={{ p: 2, border: '1px solid', borderColor: 'divider', borderRadius: 2 }}
+                  >
+                    <Chip size="small" label={account.role} sx={{ mb: 1 }} />
+                    <Typography sx={{ fontFamily: MONO, fontSize: '0.85rem', wordBreak: 'break-all' }}>
+                      {account.email}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                      {account.note}
+                    </Typography>
+                  </Box>
+                ))}
+              </Box>
+
+              <Divider sx={{ my: 3 }} />
+              <Stack spacing={1.25}>
+                <Typography variant="body2" color="text.secondary">
+                  🏥 <strong>See multi-tenant isolation:</strong> every role also exists for a second
+                  organization — swap <code>northcare</code> for <code>greenvalley</code> (e.g.{' '}
+                  <Box component="code" sx={{ fontFamily: MONO }}>
+                    provider@greenvalley.example.org
+                  </Box>
+                  ) and notice a NorthCare user can never see Green Valley’s data.
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  🔄 <strong>To switch roles:</strong> open a new Incognito window — Cognito remembers
+                  your last sign-in, so a fresh window lets you log in as someone else.
+                </Typography>
+              </Stack>
+            </CardContent>
+          </Card>
+        )}
       </Container>
     </Box>
   )
