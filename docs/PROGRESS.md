@@ -456,6 +456,34 @@
 
 ## Log (newest first)
 
+### 2026-09-21 — Cognito enabled for all 4 providers + both admins, verified live in-browser ✅ (AWS, $0)
+- The user wanted more of the seeded demo users usable via real "Sign in with Cognito" (previously only
+  `provider@northcare` fully worked; `admin@northcare` existed in the pool but had no permanent password). Enabled
+  **6 accounts** on pool `us-east-1_YA95ksq5k`: the 4 provider-role accounts (`provider@`/`provider2@` × NorthCare +
+  Green Valley) and both org admins (`admin@northcare`, `admin@greenvalley`).
+- **Split of work (respecting the password boundary):** the assistant ran `aws cognito-idp admin-create-user
+  --message-action SUPPRESS` for the 3 missing providers + `admin@greenvalley` (each per-action user-approved, $0),
+  then the **user** set every permanent password themselves via `admin-set-user-password --permanent`. The assistant
+  never saw or typed a password.
+- **Verified all 6 live in the browser** (local `local,cognito` backend + Vite :5173): logged out → cleared the
+  Cognito SSO session (hit the hosted-UI `/logout`) → clicked "Sign in with Cognito" → the **branded hosted UI**
+  (dark navy + teal + HealthCloud logo) → email + password → back into the app. `/api/v1/me` after each confirmed:
+  `admin@northcare`→Alex Admin/NorthCare/ORG_ADMIN, `admin@greenvalley`→Alex Admin/Green Valley/ORG_ADMIN,
+  `provider@northcare`→Dana/NorthCare/PROVIDER, `provider2@northcare`→Morgan/NorthCare/PROVIDER,
+  `provider@greenvalley`→Dana/Green Valley/PROVIDER, `provider2@greenvalley`→Morgan/Green Valley/PROVIDER. Same-named
+  users are distinct records (different `userId`/`organizationId`) — **proves identity vs. authorization (rule 4)**
+  (Cognito supplies only the email; role + tenant come from the DB) **and multi-tenant isolation** (Green Valley
+  logins land in Green Valley, NorthCare in NorthCare).
+- **Gotchas (documented in CLAUDE.md + memory):** the permanent-password `read -s` step needs a **real TTY** (macOS
+  Terminal) — the app's inline command runner can't feed stdin, so the prompt just hangs and an empty password is
+  rejected (`^[\S]+.*[\S]+$`); the shell is **zsh** (`read -s "PW?prompt"`, not bash's `read -p`); pool policy is
+  min 8 + upper/lower/number, no symbol. The assistant only ever filled the **email** field in the browser.
+- The user **reset several passwords** during testing (the shared-loop password for the 3 providers wasn't
+  remembered) to fresh values (e.g. `GreenValley123`). **No password values are stored** anywhere — only which
+  accounts are enabled + that they changed. Remaining 8 seeded users (patients/coordinators/reviewers/auditors ×
+  both orgs) are still **dev-login only**. AWS drift, not in Terraform. No repo code changed — CLAUDE.md updated
+  (commit `01a194f`).
+
 ### 2026-09-20 — Local Cognito login wired + hosted-UI branded + self-signup removed ✅ (AWS, $0)
 - The user wanted real "Sign in with Cognito" working in **local dev**. The Cognito pool (`us-east-1_YA95ksq5k`)
   still exists, but the deploy had been torn down so the **Terraform-managed app client was gone** — and recreating

@@ -4159,3 +4159,132 @@ button, links) plus a logo image — you can't restyle the outer page, restructu
 design system exactly. You'd move to Cognito **Managed Login** (the 2024 branding designer) for richer control, but
 it can push the pool into a paid pricing tier, so for a $0 portfolio project the classic CSS branding is the right
 trade-off.
+
+---
+
+## Enabling Cognito for more demo users + verifying every login live in the browser — 2026-09-21
+
+### What we built
+No new application code — this session **operationalized** the Cognito login for more of the seeded demo users and
+then **proved every login works** through the browser. We took the local Cognito pool from "only
+`provider@northcare` really works" to **6 fully working accounts**: the 4 provider-role users
+(`provider@`/`provider2@` in both NorthCare and Green Valley) and both org admins (`admin@northcare`,
+`admin@greenvalley`). Then we drove the real browser through the branded Cognito hosted UI for all six and confirmed,
+via `/api/v1/me`, that each resolved to the correct user, role, and tenant.
+
+### How it works
+Three things must line up for a Cognito login to succeed in this app:
+
+1. **The user exists in the Cognito pool** (`us-east-1_YA95ksq5k`) — created with
+   `aws cognito-idp admin-create-user --message-action SUPPRESS` (suppresses the invite email; no password in the
+   command). A fresh user lands in `FORCE_CHANGE_PASSWORD` status.
+2. **The pool user has a permanent password** — set with `aws cognito-idp admin-set-user-password --permanent`,
+   which flips the status to `CONFIRMED`. The **user ran this themselves** in a real terminal; the assistant never
+   types a credential.
+3. **A matching ACTIVE `AppUser` exists in the DB** (by email) — already true for all 14 seeded users;
+   `CognitoOidcUserService` rejects any Cognito login with no app user.
+
+The browser verification flow for each account:
+
+```
+log out of the app  →  clear the Cognito SSO session (hosted-UI /logout)
+  →  click "Sign in with Cognito"  →  branded hosted UI (dark navy + teal + logo)
+  →  type email + password  →  redirect back to the app  →  GET /api/v1/me confirms identity
+```
+
+The key proof is in the `/me` results: `admin@*`→ORG_ADMIN, `provider*@*`→PROVIDER, with NorthCare accounts on
+`organizationId 6a1a8a6b…` and Green Valley on `db43d7a2…`. The two "Alex Admin" and the Dana/Morgan pairs are
+**distinct rows** (different `userId`/`organizationId`) — Cognito authenticated the *email*; the *role and tenant*
+came from the database (rule 4).
+
+### Key points to remember
+- **Cognito supplies identity, the DB supplies authorization.** Because `user-name-attribute: email` makes the OIDC
+  principal name the email, `UserContextFilter.resolveByEmail` maps it to the DB user and all role/tenant logic is
+  unchanged. Never trust Cognito for roles.
+- **The Cognito pool is a separate account list from the app DB.** A user existing in the DB (so dev-login works)
+  does NOT mean it exists in Cognito. "Enabling Cognito for a user" = create it in the pool + set a password.
+- **The assistant's password boundary held the whole session:** it created pool users and filled *email* fields in
+  the browser, but the *user* set and typed every password. This is a hard rule even when a password is visible.
+- **Two login paths coexist:** dev-login (local dropdown, no password, all 14 users) and Cognito (real OIDC, only
+  pool-provisioned users). dev-login is `local`-profile only.
+- **SSO makes a second login look "instant."** After one Cognito login, the hosted UI keeps its own session cookie,
+  so clicking "Sign in with Cognito" again silently returns without a form. To force the login form (and to switch
+  users), clear the Cognito session via the hosted-UI `/logout?client_id=…&logout_uri=…` endpoint (the app's own
+  logout only clears the Spring session — RP-initiated Cognito logout is a documented follow-up).
+- **No passwords are stored anywhere** — repo, docs, or memory record only *which* accounts are enabled.
+
+### Failures and how we fixed them
+- **The permanent-password step kept "hanging" / rejecting an empty password.** Symptom: running the
+  `read -s "PW?…"; aws … admin-set-user-password …` one-liner showed the prompt then nothing, or Cognito returned
+  `Value at 'password' failed to satisfy constraint: Member must satisfy regular expression pattern ^[\S]+.*[\S]+$`.
+  Root cause: the command was being run through the desktop app's **inline command runner**, which executes
+  non-interactively — `read` gets no stdin, so `PW` stayed empty and Cognito rejected the empty value. Fix: run it
+  in the **real macOS Terminal app** (a genuine TTY). Once there, it worked immediately and the status flipped to
+  `CONFIRMED`.
+- **`read -s -p` errored with `read: -p: no coprocess`.** Root cause: the shell is **zsh**, where `read -p` means
+  "read from a coprocess," not "prompt." Fix: zsh's prompt syntax `read -s "PW?prompt"`.
+- **"Incorrect username or password" for the Green Valley / provider2 accounts.** Root cause: those three providers
+  were given a single shared password in one loop earlier, and the exact value wasn't remembered. Fix: reset the
+  password (`admin-set-user-password --permanent` again) to a value the user would retype exactly, then log in.
+- **Directly navigating the browser pane to the Cognito domain was blocked** ("navigation … denied or failed").
+  It didn't matter — the OAuth *redirect* (app → Cognito) works fine within the flow, and the hosted-UI `/logout`
+  navigation still cleared the SSO cookie enough that the next "Sign in with Cognito" showed the login form.
+- **A CI watcher reported a false "FAILED"** for the earlier docs commit; the authoritative `gh run view` showed all
+  four jobs green. Lesson: confirm a watcher's verdict against the real run status.
+
+### Interview Q&A
+
+#### 1. Beginner
+**Q: Why did only one user work with "Sign in with Cognito" at first?**
+A: Because only that user had been fully provisioned in the Cognito user pool (created *and* given a permanent
+password). The others existed in the app's database (so the local dev-login dropdown worked for them) but weren't in
+Cognito yet. Cognito is a separate list of accounts.
+
+**Q: What are the two ways to log into this app, and how do they differ?**
+A: dev-login — a local-only convenience that logs you in as any seeded user with no password (only under the `local`
+profile). And Cognito — the real OIDC login (email + password against AWS Cognito's hosted UI), which only works for
+users provisioned in the pool.
+
+**Q: How do you make a new user able to sign in with Cognito?**
+A: Create them in the pool (`admin-create-user`), set a permanent password (`admin-set-user-password --permanent`),
+and make sure an ACTIVE app user with the same email exists in the DB.
+
+#### 2. Intermediate
+**Q: The app showed two different "Alex Admin" and two "Dana Provider" users. How is that not a bug?**
+A: The seeder gives each organization's counterpart user the same display name, but they're distinct database rows
+with different `userId` and `organizationId`. Cognito only authenticated the email; the app looked that email up in
+the DB and scoped the session to that specific user and tenant. It's proof that identity (Cognito) and authorization
+(DB) are separate.
+
+**Q: Why did a second Cognito login skip the password form, and how did you force it to prompt?**
+A: Cognito's hosted UI keeps its own SSO session cookie, so after one login the authorization endpoint immediately
+returns a code without re-prompting. The app's logout only clears the local Spring session, not Cognito's. To force
+a fresh prompt we hit the hosted-UI `/logout` endpoint (with `client_id` + a registered `logout_uri`) to clear the
+Cognito cookie.
+
+**Q: Why couldn't the assistant just set the passwords itself to save time?**
+A: Handling or typing a password (even a synthetic one, even one visible in the chat) is a hard safety boundary. The
+assistant did the non-secret parts (creating pool users, filling email fields) and the user set/typed every password.
+
+#### 3. Advanced
+**Q: `admin-set-user-password` kept failing with an empty-password regex error in one environment but worked in
+another. Diagnose it.**
+A: The failing environment ran the command non-interactively (a runner with no TTY), so the interactive `read -s`
+captured nothing and passed an empty string, which Cognito rejects with the `^[\S]+.*[\S]+$` constraint. A real TTY
+(the Terminal app) let `read` capture input. A non-interactive alternative would be to pass the password another
+way — but that would expose it, so the interactive-TTY approach is preferred here.
+
+**Q: This browser-verified setup is AWS drift. What breaks on the next Terraform deploy, and how would you make it
+durable?**
+A: The enabled users, their passwords, the hand-made local app client, the hosted-UI branding, and the disabled
+self-signup are all outside `cognito.tf`. A deploy recreates the Terraform-managed client (without branding) and, if
+the pool is recreated/updated, could reset self-signup. To make it durable: encode
+`admin_create_user_config { allow_admin_create_user_only = true }` on the pool, add an
+`aws_cognito_user_pool_ui_customization` resource for the branding, and manage the demo users as
+`aws_cognito_user` resources (passwords still set out-of-band, never in state).
+
+**Q: What's the security significance of `CognitoOidcUserService` rejecting logins with no ACTIVE AppUser?**
+A: It means a valid Cognito identity is necessary but not sufficient — the app is the authority on *who is allowed
+in and with what role/tenant*. Even if someone authenticated at Cognito, without a provisioned ACTIVE app user they
+get no session. That's also why self-signup was safe to disable: a self-registered Cognito user would have no app
+user and would be rejected anyway.
