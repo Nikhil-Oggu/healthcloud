@@ -456,6 +456,26 @@
 
 ## Log (newest first)
 
+### 2026-09-21 — Cognito enabled for ALL 14 seeded users (every role × both orgs), verified live ✅ (AWS, $0)
+- **Why:** planning the LinkedIn/recruiter demo — a stranger on the deployed app can only log in via **Cognito**
+  (the `demo,cognito` profile removes the local dev-login bypass), and only 6 accounts had Cognito passwords. To let
+  a stranger log in as **any** role and walk the full cross-role workflow (e.g. provider files a claim → reviewer
+  adjudicates → auditor sees the audit trail; and switch tenants to see isolation), we enabled the remaining 8.
+- **What:** created the 8 missing pool users one by one via `aws cognito-idp admin-create-user … --message-action
+  SUPPRESS` (assistant, per-action go-ahead, $0 free-tier) — `patient@`/`coordinator@`/`reviewer@`/`auditor@` for
+  **both** `northcare.example.org` and `greenvalley.example.org`. The **user set every permanent password themselves**
+  in a real macOS Terminal (`admin-set-user-password --permanent`); the assistant never types/handles passwords.
+  All 14 now show `UserStatus: CONFIRMED`. Each was verified with a live browser login ("Welcome back <name> — <org>").
+- The user also **rotated several existing passwords** during the session (providers + both admins + an auditor) to
+  clean values they can retype. **No password values are stored** anywhere — only that they were set/changed.
+- **Login-path reminder proven in practice:** dev-login (one-click dropdown, no password) is **local-only** and gone
+  on the deploy; Cognito (email + password) is the only deployed path — hence all 14 needed Cognito provisioning.
+- **Gotcha (recurred):** handing the user an inline `--password 'PLACEHOLDER'` command failed repeatedly (they ran it
+  verbatim; the all-caps placeholder breaks the lowercase policy). The reliable path is the `read -s "PW?…"` prompt
+  form in the **real Terminal** (not the app's inline runner, which can't feed stdin → the prompt hangs).
+- **Drift note:** these 14 users are Cognito-only, not in Terraform (same intentional drift as the hand-made local
+  app client). A future `terraform apply` won't know about them. Docs updated: CLAUDE.md + memory `local-cognito-dev-client`.
+
 ### 2026-09-21 — Cognito enabled for all 4 providers + both admins, verified live in-browser ✅ (AWS, $0)
 - The user wanted more of the seeded demo users usable via real "Sign in with Cognito" (previously only
   `provider@northcare` fully worked; `admin@northcare` existed in the pool but had no permanent password). Enabled

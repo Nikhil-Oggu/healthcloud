@@ -75,10 +75,12 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   plus `COGNITO_CLIENT_ID` / `COGNITO_CLIENT_SECRET` / `COGNITO_ISSUER_URI` env (see `application-cognito.yml`), then
   open `http://localhost:8080/oauth2/authorization/cognito` (or click "Sign in with Cognito" via the SPA at :5173).
   Needs the demo users to have a Cognito password (`aws cognito-idp admin-set-user-password --user-pool-id <pool>
-  --username <email> --password '…' --permanent`). **6 accounts are Cognito-enabled (CONFIRMED) in the pool
-  (2026-09-21):** `provider@`/`provider2@`/`admin@` for **both** `northcare` and `greenvalley` (the 4 providers + 2
-  admins). The other 8 seeded users (patients, coordinators, reviewers, auditors × both orgs) are **dev-login only** —
-  add them the same way (`admin-create-user` then `admin-set-user-password`) if a Cognito login is needed. NB: setting
+  --username <email> --password '…' --permanent`). **ALL 14 seeded users are now Cognito-enabled (CONFIRMED) in the
+  pool (2026-09-21):** every role — `patient@`/`provider@`/`provider2@`/`coordinator@`/`reviewer@`/`admin@`/`auditor@`
+  — for **both** `northcare.example.org` and `greenvalley.example.org`. (Originally only the 4 providers + 2 admins;
+  the remaining 8 — patients, coordinators, reviewers, auditors × both orgs — were enabled the same way so a stranger
+  can log in as any role and walk the full cross-role workflow on the deployed demo.) Add any future user the same way
+  (`admin-create-user --message-action SUPPRESS` then `admin-set-user-password --permanent`). NB: setting
   a permanent password uses interactive `read -s` in a **real TTY** (macOS Terminal), not the app's inline runner,
   which can't feed stdin (the prompt just hangs); zsh's `read` prompt syntax is `read -s "PW?prompt"`, not `read -p`.
   Without the `cognito` profile / `COGNITO_*` env, OIDC login is off and the login page **disables** the Cognito button
