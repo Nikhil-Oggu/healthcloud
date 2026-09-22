@@ -838,29 +838,34 @@ to the AWS deployment, Alertmanager routing, RDS PITR/snapshot DR — all on-dem
   via a react-query probe):** when Cognito isn't configured (local without the `cognito` profile) the button is
   rendered **disabled with an explanatory note** so a click can't hit the BFF's 500 — it optimistically shows
   enabled while the probe is loading, and only an explicit `false` disables it.
-  **Front page (2026-09-22, landing page — theme-aware; supersedes the "Console" login below):** `LoginPage` was
-  rebuilt from a user-provided design into a proper **landing page** (commit `c764e11`). Layout: a **header** —
-  `<Brand size="lg" />` (logo glyph + wordmark) · **five clickable role personas** with `@mui/icons-material` icons
-  (Patient `PersonOutlined`, Care Coordinator `AccountTreeOutlined`, Reviewer `FactCheckOutlined`, Admin
-  `TuneOutlined`, Auditor `CenterFocusStrongOutlined`) · a rounded **"Sign in"** pill — over a `divider` hairline;
-  then the **hero**: the horizontal-flowing headline *"Care coordinated. Consent enforced. Decisions explained."*
-  (verbs `primary.main`-accented) + a one-line sub. **Theme-aware** (the durable requirement): **light = the
-  reference design** (soft mint→white wash: a teal radial glow + a light linear tint); **dark = a technical
-  deep-navy field** (teal top-glow + a faint 44px two-axis grid) — both via theme tokens + `theme.applyStyles('dark',
-  …)`, following the visitor's light/dark. **The header "Sign in" pill IS the sign-in action** (commit `38d94b7`) —
-  a full-page link to the Cognito BFF (`COGNITO_LOGIN_URL = /oauth2/authorization/cognito`), `disabled` only when
-  `cognitoEnabled` is false (local without the `cognito` profile). There is **no separate sign-in card** — the old
-  standalone "Sign in with Cognito" card below the hero was removed as redundant. **Dev login was removed from the
-  page** too — Cognito is the only sign-in path. ⚠️ Consequence: local login now needs the backend on the `cognito`
-  profile (no in-UI dev sign-in). **Interactive roles:** a role click calls `scrollToSignIn(key)` → smooth-scrolls to
-  the `#signin` anchor (now the **demo-credentials** card) and sets `highlight` so that role's account card gets a
-  `primary.main` ring. **Responsive role nav** (commit `d79bab0`): the five personas render via a `rolePersonas()`
-  helper in **two placements** — inline in the header on desktop (`display:{xs:'none', md:'flex'}`) and a centered,
-  **wrapped second row** below the brand+Sign in on tablet/phone (`display:{xs:'flex', md:'none'}`), so they're never
-  hidden (a `getAllByRole` test guards the two DOM copies). The **demo-credentials** card (shown when
-  `cognitoEnabled`) has a `DEMO_ACCOUNTS` list keyed by `RoleKey` + the **`DEMO_PASSWORD` placeholder**
-  (`REPLACE_WITH_YOUR_DEMO_PASSWORD`, never commit a real password) + the isolation/Incognito tips; its copy points
-  at the top-right "Sign in". A richer sign-in area is a pending user redesign.
+  **Front page (2026-09-22, technical-dark bento; commit `e2d86eb` — the current design):** `LoginPage` is a bespoke
+  **always-dark "technical" surface** (mode-independent by design, NOT the app's theme-aware light/dark — it uses a
+  local `DK` token set: `bg #05070e`, `surface`, `text`, `muted`, `teal`, `tealBright`, `indigo`). Background is an
+  **aurora glow** (layered radial teal/indigo gradients; the earlier engineering grid was removed). ⚠️ Do NOT use
+  `background-attachment: fixed` here — it caused a white-band scroll composite artifact (the light app `body` shows
+  through). Layout: a **header** — `<Brand size="lg" onDark />` · **six role personas** with `@mui/icons-material`
+  icons (Patient `PersonOutlined`, Provider `MedicalServicesOutlined`, Care Coordinator `AccountTreeOutlined`,
+  Reviewer `FactCheckOutlined`, Admin `TuneOutlined`, Auditor `CenterFocusStrongOutlined`) · a **"Sign in"** pill —
+  over a `divider`; then the **hero** (horizontal headline *"Care coordinated. Consent enforced. Decisions
+  explained."*, verbs teal, + sub); then the **bento feature grid** ("What HealthCloud brings together" — 8
+  color-tinted `FEATURES` tiles, Coordination hero + span-2 tiles, 4/2/1 cols) with a single
+  **"Explore HealthCloud in action │ Credentials"** button; then a footer strip. **The header "Sign in" pill IS the
+  sign-in action** — a full-page link to the Cognito BFF (`COGNITO_LOGIN_URL = /oauth2/authorization/cognito`),
+  `disabled` only when `cognitoEnabled` is false. Dev login is gone from the page (⚠️ local login needs the backend on
+  the `cognito` profile). **Role personas render via a `rolePersonas()` helper in two placements** — inline (md+) and
+  a wrapped centered row below md — so they're never hidden (a `getAllByRole` test guards the two DOM copies); natural
+  width + uniform gap (equal-width was tried and rejected as too sparse).
+  **Credentials popup — deliberately LIGHT** (a `Dialog` whose Paper uses a local `LT` light-token set, contrasting
+  the dark page to spotlight the demo — the differentiator). Opened by the Explore/Credentials button or a role
+  persona (`openCredentials(key?)` sets `highlight` + opens). Two org columns from **`ORGS`** (NorthCare / Green
+  Valley), each rendering **`ROLE_ROWS`** (7 rows: patient, provider, provider2, coordinator, reviewer, admin,
+  auditor). Each role has ONE `color` **matched across both orgs** (provider2 shares Provider's → 6 colors); email is
+  `${role.key}@${org.domain}` in **bold** mono; password is `ORGS[i].passwords[key]`; a `CopyButton` (ContentCopy →
+  Check feedback) sits by every email + password; plus isolation + switch-roles(Incognito) tips.
+  **⚠️ Demo passwords are published in source** (`ORGS[*].passwords`, real values like `Northcare123`) — the user's
+  explicit, informed decision so recruiters self-serve; these are synthetic, tenant-isolated Cognito accounts reaching
+  no real data. This **supersedes the old `DEMO_PASSWORD` placeholder rule** for this page. Anyone with the link can
+  sign in as any role on the deployed demo (intended).
   **Logo asset gotcha (FIXED):** `public/logo.png` had been committed **100% transparent** (the earlier
   browser-canvas flood-fill erased the whole image → the glyph rendered invisibly). Redo background removal **in one
   tool end-to-end** — a pure-Python `zlib` un-filter → border flood-fill of near-white (r,g,b all > 220), preserving
@@ -1139,14 +1144,14 @@ to the AWS deployment, Alertmanager routing, RDS PITR/snapshot DR — all on-dem
   - **The shell** (`AppLayout`): a grouped, role-gated **sidebar** (permanent on desktop via
     `useMediaQuery(up('md'), { defaultMatches: true })` so it renders in jsdom tests; temporary drawer + hamburger on
     mobile), groups **Care / Claims & coverage / Governance**, brand at top, user identity + Log out in the footer.
-  - **Login** (`LoginPage`) = the **theme-aware landing page** (2026-09-22 redesign — see the Front page note in the
-    Auth section above): a header (brand + logo · five clickable role personas with icons — inline on desktop, a
-    wrapped second row on tablet/phone · a **"Sign in" pill that IS the sign-in action**, a Cognito BFF link) over a
-    divider, then the hero (horizontal-flowing accented headline + sub), then the **demo-credentials** card (no
-    separate sign-in card). **Light = the reference design** (mint→white wash); **dark = a technical deep-navy field**
-    (teal glow + faint grid) — all theme tokens, follows the viewer's light/dark. It's the deployed URL's first
-    impression (`/` → `/login` when unauthenticated). (Superseded the earlier two-column "Console" login, which itself
-    superseded the bespoke dark Constellation-hero login.)
+  - **Login** (`LoginPage`) = a **bespoke always-dark "technical" landing page** (2026-09-22 — see the Front page note
+    in the Auth section above; NOT theme-aware, it uses its own `DK`/`LT` token sets): a header (brand + logo · six
+    role personas with icons, inline on desktop / wrapped row below md · a "Sign in" pill = the Cognito action) over a
+    divider, then the hero (horizontal accented headline + sub), then a **bento feature grid** with an
+    **"Explore HealthCloud in action │ Credentials"** button that opens a deliberately **LIGHT** credentials popup
+    (two org columns, color-matched roles, bold emails, copy buttons). Deep-navy **aurora** background (no grid). It's
+    the deployed URL's first impression (`/` → `/login` when unauthenticated). (Superseded the theme-aware landing
+    page, which superseded the two-column "Console" login, which superseded the dark Constellation-hero login.)
   - **Dashboard** (`HomePage`) = a constellation hero band + an "At a glance" stat row of **real, role-gated counts**
     (from the paged endpoints' `totalElements` via `useQueries` — never fabricated, rule 2) + a role-aware launchpad.
   - **Native `<select>` forms (slice 7)** — every `<TextField select slotProps={{ select: { native: true } }}>`

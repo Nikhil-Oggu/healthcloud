@@ -4548,3 +4548,90 @@ distinct accessible names you could also get duplicate-label confusion (here the
 identical controls). Alternatives: a single instance moved with CSS order/flex-wrap, or a JS breakpoint hook
 (`useMediaQuery`) that renders only the active placement — but that ties layout to JS and can flash on hydration.
 For a handful of buttons, the two-placement + CSS approach is the simplest robust choice.
+
+---
+
+## Technical-dark bento front page + a light "differentiator" credentials popup — 2026-09-22
+
+### What we built
+Iterated the landing page into a bespoke **always-dark "technical"** surface: a six-role header, an aurora-glow
+background, a **bento feature grid** ("What HealthCloud brings together"), and a single
+**"Explore HealthCloud in action │ Credentials"** button that opens a deliberately **light** demo-credentials popup.
+The popup shows both demo organizations side by side, each role color-matched across the two, with bold emails and
+one-click copy buttons — and the real demo passwords are now published so recruiters can self-serve.
+
+### How it works
+- **File:** `frontend/src/auth/LoginPage.tsx` (one file). Two local token sets: `DK` (dark page) and `LT` (light
+  popup) — the page is intentionally **mode-independent**, not the app's theme-aware light/dark.
+- **Aurora background** — layered `radial-gradient`s on the root `Box` (teal top-center, indigo top-right, faint teal
+  bottom-left). No `background-attachment: fixed` (see failures).
+- **Bento grid** — a `FEATURES` array (title/subtitle/icon/hue/span/hero) rendered into a CSS grid
+  (`repeat(4,1fr)` desktop / 2 tablet / 1 phone; wide tiles `gridColumn: {sm:'span 2'}`). Each tile tints with its
+  `hue` at low alpha.
+- **Credentials popup** — a MUI `Dialog` whose Paper is forced light via `slotProps.paper.sx` (`LT`). Data:
+  `ROLE_ROWS` (label/note/**color** per role — `provider2` reuses Provider's color → 6 colors) × `ORGS`
+  (name/domain/**passwords**). Email = `${role.key}@${org.domain}`; password = `org.passwords[role.key]`.
+- **CopyButton** — a small component using `navigator.clipboard.writeText(value)` and a 1.2s `copied` state that
+  swaps ContentCopy → Check for feedback. One per email and per password (28 total).
+- **Role personas** render via a `rolePersonas()` helper used in two placements (inline md+, wrapped row below md);
+  a click calls `openCredentials(key)` which highlights that role's cards and opens the popup.
+
+### Key points to remember
+- **A single component can host two "themes" via local token objects** (`DK`/`LT`) when the design calls for a fixed
+  look independent of the app's light/dark. Use this sparingly — the rest of the app stays theme-aware via MUI.
+- **Contrast as signal:** a light popup on a dark page draws the eye — we used it to spotlight the demo credentials
+  (the project's differentiator). Deliberate inversion beats "make it bigger".
+- **Color-coding needs light- AND dark-legible values.** The role colors were re-picked as darker, saturated hues
+  (`#0d9488`, `#4f46e5`, `#c026d3`, `#b45309`, `#2563eb`, `#e11d48`) so they read on the light popup surface.
+- **Publishing demo credentials is a legitimate pattern** for a synthetic, tenant-isolated portfolio demo — it
+  removes all friction for a reviewer. We consciously superseded the earlier `DEMO_PASSWORD` placeholder rule here,
+  with the user's explicit sign-off. (Never do this for real/privileged accounts.)
+- **Equal-width nav items look sparse** when labels vary a lot ("Care Coordinator" vs "Admin"); natural width + a
+  uniform flex `gap` reads more balanced. We tried equal width and reverted.
+
+### Failures and how we fixed them
+- **White band while scrolling.** Symptom: a light strip flashed at the top during scroll on the dark page. Root
+  cause: `background-attachment: fixed` on the root Box created a compositing layer that let the light app `body`
+  (`#f6f8fb`) show through. Fix: remove `fixed` (the full-height Box's `backgroundColor` covers everything). At rest
+  the page is clean; any residual flash is a preview-pane composite during programmatic scroll, not a real bug.
+- **"Blank page" a few times.** Not a code bug — either the dev server had been stopped, or the tab was parked on
+  `/oauth2/authorization/cognito` (the header Sign in navigates there; with no backend it 502s to a blank page).
+  Fix: restart the dev server / reload `/login`.
+- **Copy button placement.** The email copy button first floated to the far card edge (`flexGrow:1` on the email);
+  removing it made the button hug the email, matching the password row.
+
+### Interview Q&A
+
+#### 1. Beginner
+**Q: Why is the credentials popup light when the page is dark?**
+A: Deliberate contrast. The dark page sets a serious, technical tone; flipping the popup to light makes the demo
+credentials — the thing we most want a reviewer to use — jump out as the focal point.
+
+**Q: How does the copy button give feedback?**
+A: On click it writes the value to the clipboard and flips a local `copied` state true for ~1.2s, swapping the copy
+icon for a check, then resets. Pure local component state, no libraries.
+
+#### 2. Intermediate
+**Q: How do you keep a role's color identical across the two organization columns?**
+A: The color lives once per role in `ROLE_ROWS`; both org columns render the same `ROLE_ROWS`, so
+`role.color` is shared. Only the email domain and password differ per org (from `ORGS`).
+
+**Q: Why not use the app's theme for this page?**
+A: The design is a fixed "technical dark" identity plus a fixed light popup — it shouldn't follow the visitor's
+light/dark. Local `DK`/`LT` token objects express that intent clearly and keep the special-case styling out of the
+shared MUI theme, which stays theme-aware for the rest of the app.
+
+#### 3. Advanced
+**Q: Publishing passwords in a public repo usually trips a security rule. When is it acceptable, and what are the
+residual risks?**
+A: Acceptable when the accounts are throwaway, synthetic, low-privilege, and isolated — here they are demo Cognito
+users on synthetic, tenant-isolated data, and public access is the intended UX. Residual risks: a visitor could
+mutate the synthetic data (fixed by a reseed) or exercise the deployed backend (small, and it's a demo). It would be
+unacceptable for any account touching real data, money, or elevated privileges, or reused anywhere else.
+
+**Q: What caused the "valid PNG but transparent/blank" and the "white scroll band" — two different classes of bug?**
+A: Different layers. The blank logo was a *content* bug (a base64 round-trip corrupted the PNG's IDAT while the IHDR
+header stayed valid, so `file` was fooled) — fixed by generating the asset end-to-end in one tool. The white band was
+a *compositing* bug (`background-attachment: fixed` let the light body paint through during scroll) — fixed by
+dropping `fixed`. Lesson: validate generated binaries by decoding them, and be wary of `fixed` backgrounds over a
+differently-colored body.

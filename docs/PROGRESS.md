@@ -456,6 +456,29 @@
 
 ## Log (newest first)
 
+### 2026-09-22 — Front page → technical-dark bento + two-org credentials popup ✅ (frontend)
+- **Why:** iterate the landing page (below) toward the user's preferred "technical dark" look and a stronger,
+  self-serve demo entry point for recruiters. Commit `e2d86eb` (`frontend/src/auth/LoginPage.tsx` only).
+- **Six roles:** added **Provider** to the header nav → Patient · Provider · Care Coordinator · Reviewer · Admin ·
+  Auditor (natural-width items + uniform gap = compact, even spacing; equal-width was tried and rejected as too
+  sparse). Inline on desktop, wrapped centered row on tablet/phone.
+- **Fixed technical-dark theme:** the front page is now a bespoke **always-dark** surface (mode-independent, like the
+  old Constellation hero) via a local `DK` token set — not the app's theme-aware light/dark. Background is an
+  **aurora glow** (layered radial teal/indigo gradients); the earlier engineering-grid was removed on request.
+  Gotcha fixed: `background-attachment: fixed` caused a white-band scroll composite artifact → removed.
+- **Bento feature grid** ("What HealthCloud brings together"): 8 color-tinted tiles (Coordination hero + Adjudication
+  span-2; Consent/Isolation/Security/Traceability; Resilience/Observability span-2) — 4 cols desktop / 2 tablet / 1
+  phone. Each is a real backend-enforced capability (rule 2).
+- **Credentials popup — deliberately LIGHT** (contrast on the dark page = "this is the differentiator"): a single
+  **"Explore HealthCloud in action │ Credentials"** button opens it. Two org columns (**NorthCare** left · **Green
+  Valley** right); each of the 6 roles is **color-matched across both orgs** (provider2 shares the Provider color);
+  **bold emails**; one-click **copy buttons** on every email + password (✓ feedback); switch-roles (Incognito) tip.
+- **Demo passwords are now published** (the user's explicit, informed decision — synthetic, tenant-isolated accounts;
+  supersedes the old `DEMO_PASSWORD` placeholder). All 14 accounts (7 per org) with individual passwords are shown so
+  a reviewer can self-serve. ⚠️ Anyone with the link can sign into the deployed demo as any role (intended).
+- **Verified:** in-browser (light popup on dark page, both org columns, copy buttons); `typecheck` + **all 187 tests**
+  green. Login flow itself still needs the backend on the `cognito` profile (deferred — frontend design first).
+
 ### 2026-09-22 — Front page rebuilt as a landing page (header nav + hero) + logo asset FIXED ✅ (frontend)
 - **Why:** the user designed a specific landing-page layout (a reference image) and wanted the front page to match it
   **exactly**, then rendered in a "technical dark" style. Supersedes the earlier "Console" two-column login below.
