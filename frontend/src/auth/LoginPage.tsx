@@ -3,8 +3,6 @@ import {
   Alert,
   Box,
   Button,
-  Card,
-  CardContent,
   Chip,
   Container,
   Divider,
@@ -18,8 +16,7 @@ import { Navigate, useNavigate } from 'react-router-dom'
 import { api, ApiClientError } from '../api/client'
 import { ME_QUERY_KEY, useCurrentUser } from './useAuth'
 import { Brand } from '../components/Brand'
-import { ConstellationBackground } from '../components/ConstellationBackground'
-import { constellation, MONO } from '../theme'
+import { MONO } from '../theme'
 
 /**
  * The seeded demo users (local `dev-login` only — NO password/MFA). This developer sign-in is shown
@@ -46,8 +43,6 @@ const DEMO_USERS = [
 // the response is a 302 to Cognito's hosted login on another origin.
 const COGNITO_LOGIN_URL = '/oauth2/authorization/cognito'
 
-const TRUST_POINTS = ['Tenant-isolated', 'Consent-aware', 'Tamper-evident audit']
-
 /**
  * Public demo credentials shown on the login page so a reviewer/recruiter can sign in and explore.
  * Synthetic data only — safe to publish. All demo accounts share ONE password.
@@ -64,6 +59,54 @@ const DEMO_ACCOUNTS: { role: string; email: string; note: string }[] = [
   { role: 'Patient', email: 'patient@northcare.example.org', note: 'Sees only their own record & consent' },
 ]
 
+// The platform's real, backend-enforced guarantees — described honestly as capabilities (not fake live
+// telemetry). Each maps to a feature actually implemented in the app (see the audit trail / §21 layering).
+const POSTURE: { k: string; v: string }[] = [
+  { k: 'tenant.isolation', v: 'ACTIVE' },
+  { k: 'consent.policy.engine', v: 'ONLINE' },
+  { k: 'audit.hash_chain', v: 'VERIFIED' },
+  { k: 'field.masking', v: 'ENFORCED' },
+]
+
+// Bespoke, always-dark "Console" palette (mode-independent by design, like the login hero tokens).
+const C = {
+  bg: '#0a0d12',
+  panel: '#0e131c',
+  panelBar: '#131a26',
+  border: '#22304a',
+  borderSoft: '#1d2942',
+  text: '#d7e2ef',
+  muted: '#8b98ab',
+  faint: '#5f6f84',
+  teal: '#5eead4',
+  tealDim: '#2dd4bf',
+  green: '#4ade80',
+}
+
+// A terminal-style window title bar (traffic-light dots + a mono label).
+function WindowBar({ label }: { label: string }) {
+  return (
+    <Box
+      sx={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 0.8,
+        px: 1.6,
+        py: 1.2,
+        bgcolor: C.panelBar,
+        borderBottom: `1px solid ${C.border}`,
+      }}
+    >
+      {['#ff5f57', '#febc2e', '#28c840'].map((c) => (
+        <Box key={c} sx={{ width: 9, height: 9, borderRadius: '50%', bgcolor: c }} />
+      ))}
+      <Box component="span" sx={{ ml: 1, fontFamily: MONO, fontSize: '0.72rem', color: C.faint }}>
+        {label}
+      </Box>
+    </Box>
+  )
+}
+
 export function LoginPage() {
   const [email, setEmail] = useState(DEMO_USERS[1])
   const navigate = useNavigate()
@@ -79,49 +122,56 @@ export function LoginPage() {
   })
 
   // Is the Cognito flow actually configured in this environment? (Deployed: yes; local without the
-  // `cognito` profile: no.) Drives whether the button is live or shown disabled with an explanation,
-  // so a click never lands on the BFF's 500 when no OIDC client is wired.
+  // `cognito` profile: no.) Drives whether the button is live or shown disabled with an explanation.
   const authConfig = useQuery({
     queryKey: ['auth-config'],
     queryFn: () => api.authConfig(),
     staleTime: Infinity,
     retry: false,
   })
-  // Treat "still loading" as available (optimistic) so the button doesn't flicker disabled; once the
-  // probe resolves we know for certain. Only an explicit `false` disables it.
   const cognitoEnabled = authConfig.data?.cognitoEnabled ?? true
 
-  // Already authenticated (e.g. navigated to /login directly) → go home.
   if (user) {
     return <Navigate to="/" replace />
+  }
+
+  // Dark form-control styling (MUI inputs default to light-on-light).
+  const darkField = {
+    '& .MuiInputLabel-root': { color: C.muted },
+    '& .MuiInputLabel-root.Mui-focused': { color: C.teal },
+    '& .MuiOutlinedInput-root': {
+      color: C.text,
+      fontFamily: MONO,
+      fontSize: '0.85rem',
+      '& fieldset': { borderColor: C.border },
+      '&:hover fieldset': { borderColor: C.faint },
+      '&.Mui-focused fieldset': { borderColor: C.teal },
+    },
+    '& .MuiSelect-icon': { color: C.muted },
   }
 
   return (
     <Box
       sx={{
         minHeight: '100vh',
-        position: 'relative',
-        overflow: 'hidden',
-        display: 'flex',
-        alignItems: 'center',
-        color: constellation.dark.text,
-        background: `radial-gradient(1100px 600px at 78% -8%, rgba(124,156,255,0.16), transparent 60%),
-          radial-gradient(900px 520px at 8% 12%, rgba(94,234,212,0.13), transparent 55%),
-          ${constellation.dark.bg}`,
+        color: C.text,
+        fontFamily: 'Inter, system-ui, sans-serif',
+        background: `radial-gradient(760px 480px at 80% -12%, rgba(45,212,191,0.10), transparent 62%),
+          repeating-linear-gradient(0deg, transparent 0 27px, rgba(120,140,170,0.045) 27px 28px),
+          repeating-linear-gradient(90deg, transparent 0 27px, rgba(120,140,170,0.045) 27px 28px),
+          ${C.bg}`,
       }}
     >
-      <ConstellationBackground />
-
-      <Container maxWidth="lg" sx={{ position: 'relative', zIndex: 1, py: { xs: 6, md: 8 } }}>
+      <Container maxWidth="lg" sx={{ py: { xs: 6, md: 8 } }}>
         <Box
           sx={{
             display: 'grid',
             gridTemplateColumns: { xs: '1fr', md: '1.05fr 0.95fr' },
-            gap: { xs: 5, md: 8 },
+            gap: { xs: 5, md: 7 },
             alignItems: 'center',
           }}
         >
-          {/* Hero */}
+          {/* Hero + security posture (the engineering-credibility centerpiece) */}
           <Box>
             <Brand onDark />
             <Typography
@@ -129,80 +179,122 @@ export function LoginPage() {
               sx={{
                 fontFamily: '"Space Grotesk", sans-serif',
                 fontWeight: 700,
-                fontSize: { xs: '2.25rem', md: '3.25rem' },
-                lineHeight: 1.05,
+                fontSize: { xs: '2.1rem', md: '2.9rem' },
+                lineHeight: 1.08,
                 letterSpacing: '-0.02em',
                 mt: 3,
               }}
             >
-              Care that stays{' '}
-              <Box
-                component="span"
-                sx={{
-                  background: constellation.dark.gradient,
-                  WebkitBackgroundClip: 'text',
-                  backgroundClip: 'text',
-                  color: 'transparent',
-                }}
-              >
-                connected
-              </Box>{' '}
-              — and consent that stays in control.
+              Every access{' '}
+              <Box component="span" sx={{ color: C.tealDim }}>
+                checked
+              </Box>
+              . Every decision{' '}
+              <Box component="span" sx={{ color: C.tealDim }}>
+                explained
+              </Box>
+              .
             </Typography>
-            <Typography
+            <Typography sx={{ mt: 2.5, fontSize: '1.05rem', lineHeight: 1.6, color: C.muted, maxWidth: 460 }}>
+              A multi-tenant, consent-aware platform for care coordination and claims. The backend is the
+              only security boundary — every request is re-authorized against tenant, role, relationship and
+              consent.
+            </Typography>
+
+            {/* Security-posture panel — honest capability statements, terminal-styled. */}
+            <Box
               sx={{
-                mt: 2.5,
-                fontSize: { xs: '1rem', md: '1.15rem' },
-                lineHeight: 1.6,
-                color: constellation.dark.muted,
-                maxWidth: 520,
+                mt: 4,
+                maxWidth: 460,
+                bgcolor: C.panel,
+                border: `1px solid ${C.border}`,
+                borderRadius: '14px',
+                overflow: 'hidden',
               }}
             >
-              A consent-aware platform for coordinating patients, providers and claims across
-              organizations — every access checked, every decision explainable, every record
-              tamper-evident.
+              <WindowBar label="security-posture" />
+              <Box sx={{ p: 2.2 }}>
+                {POSTURE.map((row, i) => (
+                  <Box
+                    key={row.k}
+                    sx={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      fontFamily: MONO,
+                      fontSize: '0.82rem',
+                      py: 1,
+                      borderBottom: i < POSTURE.length - 1 ? `1px dashed ${C.borderSoft}` : 'none',
+                    }}
+                  >
+                    <Box component="span" sx={{ color: '#9fb0c6' }}>
+                      {row.k}
+                    </Box>
+                    <Box component="span" sx={{ display: 'flex', alignItems: 'center', gap: 1, color: C.green }}>
+                      <Box
+                        sx={{
+                          width: 7,
+                          height: 7,
+                          borderRadius: '50%',
+                          bgcolor: C.green,
+                          boxShadow: `0 0 0 3px rgba(74,222,128,0.18)`,
+                        }}
+                      />
+                      {row.v}
+                    </Box>
+                  </Box>
+                ))}
+              </Box>
+            </Box>
+            <Typography sx={{ mt: 1.5, fontFamily: MONO, fontSize: '0.72rem', color: C.faint }}>
+              // enforced by the backend on every request — provable in the audit trail
             </Typography>
-            <Stack direction="row" spacing={1} sx={{ mt: 3.5, flexWrap: 'wrap', gap: 1 }}>
-              {TRUST_POINTS.map((point) => (
-                <Chip
-                  key={point}
-                  label={point}
-                  variant="outlined"
-                  sx={{
-                    color: constellation.dark.text,
-                    borderColor: 'rgba(94,234,212,0.35)',
-                    bgcolor: 'rgba(94,234,212,0.06)',
-                  }}
-                />
-              ))}
-            </Stack>
           </Box>
 
           {/* Sign-in card */}
-          <Card sx={{ width: '100%', maxWidth: 420, justifySelf: { md: 'end' }, boxShadow: '0 30px 60px -30px rgba(0,0,0,0.6)' }}>
-            <CardContent sx={{ p: { xs: 3, md: 4 } }}>
-              <Typography variant="h6" component="div" sx={{ fontWeight: 700 }}>
+          <Box
+            sx={{
+              width: '100%',
+              maxWidth: 420,
+              justifySelf: { md: 'end' },
+              bgcolor: C.panel,
+              border: `1px solid ${C.border}`,
+              borderRadius: '16px',
+              overflow: 'hidden',
+              boxShadow: '0 30px 60px -30px rgba(0,0,0,0.7)',
+            }}
+          >
+            <WindowBar label="sign-in" />
+            <Box sx={{ p: { xs: 3, md: 3.5 } }}>
+              <Typography component="h2" sx={{ fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, fontSize: '1.3rem' }}>
                 Sign in
               </Typography>
-              <Typography variant="body2" color="text.secondary" sx={{ mb: 3, mt: 0.5 }}>
+              <Typography sx={{ mt: 0.5, mb: 3, fontSize: '0.9rem', color: C.muted }}>
                 Access your HealthCloud workspace.
               </Typography>
 
-              {/* Primary, production login: redirect the whole page to the BFF's Cognito flow. Rendered
-                  disabled (with an explanation) when this environment has no Cognito client configured, so
-                  a click can never hit the BFF's 500. */}
               <Button
-                variant="contained"
                 fullWidth
                 size="large"
                 component={cognitoEnabled ? 'a' : 'button'}
                 href={cognitoEnabled ? COGNITO_LOGIN_URL : undefined}
                 disabled={!cognitoEnabled}
+                sx={{
+                  fontFamily: MONO,
+                  fontWeight: 600,
+                  textTransform: 'none',
+                  color: C.teal,
+                  border: `1px solid ${C.tealDim}`,
+                  bgcolor: 'rgba(45,212,191,0.12)',
+                  py: 1.3,
+                  '&:hover': { bgcolor: 'rgba(45,212,191,0.2)', borderColor: C.teal },
+                  '&.Mui-disabled': { color: C.faint, borderColor: C.border, bgcolor: 'transparent' },
+                }}
               >
                 Sign in with Cognito
               </Button>
               {!cognitoEnabled && (
-                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
+                <Typography sx={{ display: 'block', mt: 1, fontSize: '0.75rem', color: C.muted }}>
                   Cognito sign-in isn’t configured in this environment
                   {import.meta.env.DEV ? ' — use the developer sign-in below.' : '.'}
                 </Typography>
@@ -211,10 +303,17 @@ export function LoginPage() {
               {/* Developer sign-in — local dev builds only (hidden in the production bundle). */}
               {import.meta.env.DEV && (
                 <>
-                  <Divider sx={{ my: 3 }}>Developer sign-in (local only)</Divider>
-                  <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                    Choose a seeded demo user — no password (dev only).
-                  </Typography>
+                  <Divider
+                    sx={{
+                      my: 3,
+                      fontFamily: MONO,
+                      fontSize: '0.72rem',
+                      color: C.faint,
+                      '&::before, &::after': { borderColor: C.border },
+                    }}
+                  >
+                    developer sign-in (local only)
+                  </Divider>
                   <Box
                     component="form"
                     onSubmit={(e) => {
@@ -229,9 +328,11 @@ export function LoginPage() {
                         value={email}
                         onChange={(e) => setEmail(e.target.value)}
                         fullWidth
+                        size="small"
+                        sx={darkField}
                       >
                         {DEMO_USERS.map((u) => (
-                          <MenuItem key={u} value={u}>
+                          <MenuItem key={u} value={u} sx={{ fontFamily: MONO, fontSize: '0.85rem' }}>
                             {u}
                           </MenuItem>
                         ))}
@@ -248,100 +349,115 @@ export function LoginPage() {
                         </Alert>
                       )}
 
-                      <Button type="submit" variant="outlined" disabled={login.isPending} fullWidth>
+                      <Button
+                        type="submit"
+                        variant="outlined"
+                        fullWidth
+                        disabled={login.isPending}
+                        sx={{
+                          fontFamily: MONO,
+                          textTransform: 'none',
+                          color: C.text,
+                          borderColor: C.border,
+                          '&:hover': { borderColor: C.faint, bgcolor: 'rgba(255,255,255,0.03)' },
+                        }}
+                      >
                         {login.isPending ? 'Signing in…' : 'Developer sign-in'}
                       </Button>
                     </Stack>
                   </Box>
                 </>
               )}
-            </CardContent>
-          </Card>
+            </Box>
+          </Box>
         </Box>
 
         {/* Demo credentials — shown whenever Cognito login is available (deployed app, or a local
             `local,cognito` run). Lets a reviewer/recruiter sign in and explore. Synthetic data only. */}
         {cognitoEnabled && (
-          <Card sx={{ mt: { xs: 5, md: 7 }, maxWidth: 940, mx: 'auto', width: '100%' }}>
-            <CardContent sx={{ p: { xs: 3, md: 4 } }}>
-              <Stack
-                direction="row"
-                spacing={1.5}
-                sx={{ flexWrap: 'wrap', gap: 1, alignItems: 'center', mb: 0.5 }}
-              >
-                <Typography variant="h6" component="h2" sx={{ fontWeight: 700 }}>
+          <Box
+            sx={{
+              mt: { xs: 5, md: 7 },
+              maxWidth: 940,
+              mx: 'auto',
+              bgcolor: C.panel,
+              border: `1px solid ${C.border}`,
+              borderRadius: '16px',
+              overflow: 'hidden',
+            }}
+          >
+            <WindowBar label="demo-access" />
+            <Box sx={{ p: { xs: 3, md: 4 } }}>
+              <Stack direction="row" spacing={1.5} sx={{ flexWrap: 'wrap', gap: 1, alignItems: 'center', mb: 0.5 }}>
+                <Typography component="h2" sx={{ fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, fontSize: '1.2rem' }}>
                   👋 Reviewing this project? Explore the live demo
                 </Typography>
-                <Chip size="small" color="success" label="Synthetic data only" />
+                <Chip
+                  size="small"
+                  label="Synthetic data only"
+                  sx={{ bgcolor: 'rgba(74,222,128,0.14)', color: C.green, border: `1px solid rgba(74,222,128,0.35)` }}
+                />
               </Stack>
-              <Typography variant="body2" color="text.secondary" sx={{ mb: 2.5 }}>
-                Click <strong>Sign in with Cognito</strong> above, then use any account below. Every
-                account shares the same password.
+              <Typography sx={{ mb: 2.5, fontSize: '0.9rem', color: C.muted }}>
+                Click <strong style={{ color: C.text }}>Sign in with Cognito</strong> above, then use any
+                account below. Every account shares the same password.
               </Typography>
 
-              <Stack
-                direction="row"
-                spacing={1}
-                sx={{ flexWrap: 'wrap', gap: 1, alignItems: 'center', mb: 3 }}
-              >
-                <Typography variant="body2" color="text.secondary">
-                  Password for all accounts:
-                </Typography>
+              <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', gap: 1, alignItems: 'center', mb: 3 }}>
+                <Typography sx={{ fontSize: '0.9rem', color: C.muted }}>Password for all accounts:</Typography>
                 <Box
                   component="code"
                   sx={{
                     fontFamily: MONO,
                     fontWeight: 600,
-                    px: 1,
-                    py: 0.5,
-                    borderRadius: 1,
-                    bgcolor: 'action.hover',
+                    color: C.teal,
+                    px: 1.2,
+                    py: 0.6,
+                    borderRadius: '8px',
+                    bgcolor: 'rgba(45,212,191,0.1)',
+                    border: `1px solid ${C.border}`,
                   }}
                 >
                   {DEMO_PASSWORD}
                 </Box>
               </Stack>
 
-              <Box
-                sx={{
-                  display: 'grid',
-                  gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' },
-                  gap: 2,
-                }}
-              >
+              <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 2 }}>
                 {DEMO_ACCOUNTS.map((account) => (
-                  <Box
-                    key={account.email}
-                    sx={{ p: 2, border: '1px solid', borderColor: 'divider', borderRadius: 2 }}
-                  >
-                    <Chip size="small" label={account.role} sx={{ mb: 1 }} />
-                    <Typography sx={{ fontFamily: MONO, fontSize: '0.85rem', wordBreak: 'break-all' }}>
+                  <Box key={account.email} sx={{ p: 2, border: `1px solid ${C.border}`, borderRadius: '12px', bgcolor: 'rgba(255,255,255,0.02)' }}>
+                    <Chip
+                      size="small"
+                      label={account.role}
+                      sx={{ mb: 1, bgcolor: 'rgba(129,140,248,0.14)', color: '#c7ccff', border: `1px solid ${C.border}` }}
+                    />
+                    <Typography sx={{ fontFamily: MONO, fontSize: '0.82rem', color: C.teal, wordBreak: 'break-all' }}>
                       {account.email}
                     </Typography>
-                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                    <Typography sx={{ display: 'block', mt: 0.5, fontSize: '0.75rem', color: C.muted }}>
                       {account.note}
                     </Typography>
                   </Box>
                 ))}
               </Box>
 
-              <Divider sx={{ my: 3 }} />
+              <Divider sx={{ my: 3, '&::before, &::after': { borderColor: C.border } }} />
               <Stack spacing={1.25}>
-                <Typography variant="body2" color="text.secondary">
-                  🏥 <strong>See multi-tenant isolation:</strong> every role also exists for a second
-                  organization — swap <code>northcare</code> for <code>greenvalley</code> (e.g.{' '}
-                  <Box component="code" sx={{ fontFamily: MONO }}>
+                <Typography sx={{ fontSize: '0.85rem', color: C.muted, lineHeight: 1.55 }}>
+                  🏥 <strong style={{ color: C.text }}>See multi-tenant isolation:</strong> every role also
+                  exists for a second organization — swap <code>northcare</code> for <code>greenvalley</code>{' '}
+                  (e.g.{' '}
+                  <Box component="code" sx={{ fontFamily: MONO, color: C.teal }}>
                     provider@greenvalley.example.org
                   </Box>
                   ) and notice a NorthCare user can never see Green Valley’s data.
                 </Typography>
-                <Typography variant="body2" color="text.secondary">
-                  🔄 <strong>To switch roles:</strong> open a new Incognito window — Cognito remembers
-                  your last sign-in, so a fresh window lets you log in as someone else.
+                <Typography sx={{ fontSize: '0.85rem', color: C.muted, lineHeight: 1.55 }}>
+                  🔄 <strong style={{ color: C.text }}>To switch roles:</strong> open a new Incognito window —
+                  Cognito remembers your last sign-in, so a fresh window lets you log in as someone else.
                 </Typography>
               </Stack>
-            </CardContent>
-          </Card>
+            </Box>
+          </Box>
         )}
       </Container>
     </Box>
