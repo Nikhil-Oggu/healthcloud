@@ -4491,3 +4491,60 @@ A: The browser produced the correct pixels — the failure was *exfiltrating* th
 copy-paste/shell boundary). Python reads the source, transforms, and writes the destination file in one process with
 no lossy hand-off, so what it computes is exactly what lands on disk. The general rule: keep binary-generation
 end-to-end in a single tool.
+
+---
+
+## Landing-page follow-ups: responsive role nav + one sign-in action — 2026-09-22
+
+### What we built
+Two refinements to the new landing page (same session): (1) the role personas now show on **every** screen size
+(they had been hidden on tablet/phone), and (2) the **top-right "Sign in" pill became the single sign-in action**,
+and the separate "Sign in with Cognito" card below the hero was removed.
+
+### How it works
+- **Responsive role nav.** Extracted a `rolePersonas()` function that returns the five persona buttons, and render
+  it twice: an inline row in the header for desktop (`display: { xs: 'none', md: 'flex' }`) and a centered, wrapped
+  row below the brand+Sign in for smaller screens (`display: { xs: 'flex', md: 'none' }`). Both copies live in the
+  DOM (CSS toggles which is visible), so the unit test switched from `getByRole` to `getAllByRole`.
+- **One sign-in action.** The header pill is now `component={cognitoEnabled ? 'a' : 'button'}` with
+  `href={COGNITO_LOGIN_URL}` (`/oauth2/authorization/cognito`) and `disabled={!cognitoEnabled}` — the same BFF
+  navigation the removed card's button used. The standalone `Card` with the "Sign in with Cognito" button was
+  deleted; the `#signin` anchor now sits on the demo-credentials container, so a role click still scrolls somewhere
+  meaningful (and highlights that role's account). The demo copy changed from "Click Sign in with Cognito above" to
+  "Click Sign in at the top right".
+
+### Key points to remember
+- **A `display:{xs:'none', md:'flex'}` element disappears on *both* phone and tablet** (everything below the `md`
+  ~900px breakpoint), not just phones. If content must survive small screens, give it a second placement rather than
+  only hiding it.
+- **When the same control renders in two responsive placements, tests must expect duplicates** (`getAllByRole`, not
+  `getByRole`) — both are in the DOM regardless of which CSS shows.
+- **Prefer one obvious primary action.** Two "sign in" affordances (header pill + a card button) is redundant;
+  collapsing to the header pill is clearer and matches the reference design.
+
+### Failures and how we fixed them
+- **Roles vanished on tablet & mobile.** Symptom: the user saw an empty header (just brand + Sign in) on both sizes.
+  Root cause: `display: { xs: 'none', md: 'flex' }` hid the nav for everything under `md`. Fix: the two-placement
+  `rolePersonas()` approach above.
+- No other breakage; typecheck + all 187 frontend tests stayed green.
+
+### Interview Q&A
+
+#### 1. Beginner
+**Q: Why did the nav disappear on tablet if it was only meant to hide on phones?**
+A: MUI's `xs`/`md` responsive values are min-width breakpoints. `{ xs: 'none', md: 'flex' }` means "none from 0px up,
+flex from ~900px up" — so a 768px tablet is still in the `xs` range and gets `none`. Tablet isn't a separate case
+unless you add an `sm`/`md` value that covers it.
+
+#### 2. Intermediate
+**Q: How do you show the same nav inline on desktop but stacked below on smaller screens without duplicating logic?**
+A: Factor the items into one render function and call it in both containers; let CSS (`display` per breakpoint)
+decide which container is visible. The logic (data, click handlers, active state) lives once in the function.
+
+#### 3. Advanced
+**Q: Rendering the nav twice puts duplicate interactive elements in the DOM. Any downsides, and alternatives?**
+A: Duplicates mean slightly more DOM and the need for tests/queries to expect more than one match; if they had
+distinct accessible names you could also get duplicate-label confusion (here they share names, which is fine for
+identical controls). Alternatives: a single instance moved with CSS order/flex-wrap, or a JS breakpoint hook
+(`useMediaQuery`) that renders only the active placement — but that ties layout to JS and can flash on hydration.
+For a handful of buttons, the two-placement + CSS approach is the simplest robust choice.

@@ -466,12 +466,20 @@
 - **Theme-aware** (the user chose light+dark): **light = the reference image** (soft mint→white wash); **dark = a
   technical deep-navy field** with a teal top-glow + a faint 44px engineering grid. All via theme tokens +
   `theme.applyStyles('dark', …)`, so it follows the visitor's light/dark preference. Verified in both schemes.
-- **Interactive roles vs. the pill** (the user's question — "if roles are clickable, what's the Sign in button for?"):
-  clicking a **role** = "explore as this persona" → smooth-scrolls to sign-in and **highlights that role's demo
-  account**; the **Sign in pill** = the primary CTA → scrolls to sign-in with none pre-picked. Different jobs.
-- **Dev login removed from the page** (per the user): Cognito is the sign-in path; a minimal **Sign in (Cognito) +
-  demo-credentials** section stays below the hero. ⚠️ Consequence: local login now needs the backend on the `cognito`
-  profile (no more one-click dev sign-in in the UI). The user has "another idea" for this section — TBD next session.
+- **Interactive roles** (the user's question — "if roles are clickable, what's the Sign in button for?"):
+  clicking a **role** = "explore as this persona" → smooth-scrolls to the demo-credentials card and **highlights that
+  role's account**. (The Sign in pill is the actual sign-in — see the follow-up below.)
+- **Dev login removed from the page** (per the user): Cognito is the sign-in path. ⚠️ Consequence: local login now
+  needs the backend on the `cognito` profile (no more one-click dev sign-in in the UI).
+- **Follow-ups later the same session** (commits `d79bab0`, `38d94b7`):
+  - **Responsive role nav** (`d79bab0`): the role personas were `display:{xs:'none', md:'flex'}`, so on **tablet and
+    phone** they vanished entirely. Fixed — a `rolePersonas()` renderer used in two placements: inline on desktop
+    (md+), and a **centered, wrapped second row** under the brand + Sign in below md. All five show at every width.
+  - **Header "Sign in" is now the sole sign-in action** (`38d94b7`): the top-right pill is a full-page link to the
+    Cognito BFF (`/oauth2/authorization/cognito`), disabled only when Cognito isn't configured. The **standalone
+    "Sign in with Cognito" card below the hero was removed** (redundant); the hero now flows straight into the
+    demo-credentials card, whose copy points at the top-right "Sign in". (The user has "another idea" for a richer
+    sign-in area — still TBD.)
 - **Logo asset FIXED** (`frontend/public/logo.png`): the previously-committed logo (from `5d19f4c`) was **100%
   transparent** — the earlier browser-canvas background-removal had flood-filled the *entire* image away (0 opaque
   pixels), so the glyph had been rendering **invisibly** all along. Redone **in pure Python** (zlib un-filter → border

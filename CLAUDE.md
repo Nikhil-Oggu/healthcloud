@@ -847,14 +847,20 @@ to the AWS deployment, Alertmanager routing, RDS PITR/snapshot DR — all on-dem
   (verbs `primary.main`-accented) + a one-line sub. **Theme-aware** (the durable requirement): **light = the
   reference design** (soft mint→white wash: a teal radial glow + a light linear tint); **dark = a technical
   deep-navy field** (teal top-glow + a faint 44px two-axis grid) — both via theme tokens + `theme.applyStyles('dark',
-  …)`, following the visitor's light/dark. **Interactive roles:** a role click calls `scrollToSignIn(key)` →
-  smooth-scrolls to the `#signin` anchor and sets `highlight` so that role's demo-account card gets a `primary.main`
-  ring; the Sign in pill scrolls there with no role pre-picked. **Dev login was removed from the page** — Cognito is
-  the sign-in path; a minimal **Sign in (Cognito) + demo-credentials** section sits below the hero (the role nav
-  hides on `xs`, where a horizontal bar doesn't fit). ⚠️ Consequence: local login now needs the backend on the
-  `cognito` profile (no in-UI dev sign-in). The demo card is unchanged in spirit — a `DEMO_ACCOUNTS` list keyed by
-  `RoleKey` + the **`DEMO_PASSWORD` placeholder** (`REPLACE_WITH_YOUR_DEMO_PASSWORD`, never commit a real password) +
-  the isolation/Incognito tips. The sign-in section is a placeholder pending a user redesign.
+  …)`, following the visitor's light/dark. **The header "Sign in" pill IS the sign-in action** (commit `38d94b7`) —
+  a full-page link to the Cognito BFF (`COGNITO_LOGIN_URL = /oauth2/authorization/cognito`), `disabled` only when
+  `cognitoEnabled` is false (local without the `cognito` profile). There is **no separate sign-in card** — the old
+  standalone "Sign in with Cognito" card below the hero was removed as redundant. **Dev login was removed from the
+  page** too — Cognito is the only sign-in path. ⚠️ Consequence: local login now needs the backend on the `cognito`
+  profile (no in-UI dev sign-in). **Interactive roles:** a role click calls `scrollToSignIn(key)` → smooth-scrolls to
+  the `#signin` anchor (now the **demo-credentials** card) and sets `highlight` so that role's account card gets a
+  `primary.main` ring. **Responsive role nav** (commit `d79bab0`): the five personas render via a `rolePersonas()`
+  helper in **two placements** — inline in the header on desktop (`display:{xs:'none', md:'flex'}`) and a centered,
+  **wrapped second row** below the brand+Sign in on tablet/phone (`display:{xs:'flex', md:'none'}`), so they're never
+  hidden (a `getAllByRole` test guards the two DOM copies). The **demo-credentials** card (shown when
+  `cognitoEnabled`) has a `DEMO_ACCOUNTS` list keyed by `RoleKey` + the **`DEMO_PASSWORD` placeholder**
+  (`REPLACE_WITH_YOUR_DEMO_PASSWORD`, never commit a real password) + the isolation/Incognito tips; its copy points
+  at the top-right "Sign in". A richer sign-in area is a pending user redesign.
   **Logo asset gotcha (FIXED):** `public/logo.png` had been committed **100% transparent** (the earlier
   browser-canvas flood-fill erased the whole image → the glyph rendered invisibly). Redo background removal **in one
   tool end-to-end** — a pure-Python `zlib` un-filter → border flood-fill of near-white (r,g,b all > 220), preserving
@@ -1134,12 +1140,13 @@ to the AWS deployment, Alertmanager routing, RDS PITR/snapshot DR — all on-dem
     `useMediaQuery(up('md'), { defaultMatches: true })` so it renders in jsdom tests; temporary drawer + hamburger on
     mobile), groups **Care / Claims & coverage / Governance**, brand at top, user identity + Log out in the footer.
   - **Login** (`LoginPage`) = the **theme-aware landing page** (2026-09-22 redesign — see the Front page note in the
-    Auth section above): a header (brand + logo · five clickable role personas with icons · a "Sign in" pill) over a
-    divider, then the hero (horizontal-flowing accented headline + sub), then a minimal Sign in (Cognito) +
-    demo-credentials section below. **Light = the reference design** (mint→white wash); **dark = a technical deep-navy
-    field** (teal glow + faint grid) — all theme tokens, follows the viewer's light/dark. It's the deployed URL's
-    first impression (`/` → `/login` when unauthenticated). (Superseded the earlier two-column "Console" login, which
-    itself superseded the bespoke dark Constellation-hero login.)
+    Auth section above): a header (brand + logo · five clickable role personas with icons — inline on desktop, a
+    wrapped second row on tablet/phone · a **"Sign in" pill that IS the sign-in action**, a Cognito BFF link) over a
+    divider, then the hero (horizontal-flowing accented headline + sub), then the **demo-credentials** card (no
+    separate sign-in card). **Light = the reference design** (mint→white wash); **dark = a technical deep-navy field**
+    (teal glow + faint grid) — all theme tokens, follows the viewer's light/dark. It's the deployed URL's first
+    impression (`/` → `/login` when unauthenticated). (Superseded the earlier two-column "Console" login, which itself
+    superseded the bespoke dark Constellation-hero login.)
   - **Dashboard** (`HomePage`) = a constellation hero band + an "At a glance" stat row of **real, role-gated counts**
     (from the paged endpoints' `totalElements` via `useQueries` — never fabricated, rule 2) + a role-aware launchpad.
   - **Native `<select>` forms (slice 7)** — every `<TextField select slotProps={{ select: { native: true } }}>`
