@@ -456,6 +456,33 @@
 
 ## Log (newest first)
 
+### 2026-09-22 — Login page redesign (theme-aware "Console") + demo-credentials card + real logo asset ✅ (frontend)
+- **Why:** prepping the LinkedIn/recruiter demo (Phase 12). The login page is the first thing a stranger sees, so it
+  needed a stronger, more distinctive first impression — and a way for a reviewer to actually get in and explore.
+- **Demo-credentials card** (`frontend/src/auth/LoginPage.tsx`, commit `c7c03e6`): shown whenever Cognito login is
+  available (deployed app, or a local `local,cognito` run). Lists key demo accounts (role · email · what-to-try hint) +
+  a shared `DEMO_PASSWORD`, a "Synthetic data only" chip, and tips for seeing multi-tenant isolation (swap
+  `northcare` ↔ `greenvalley`) and switching roles (open a fresh Incognito window — Cognito keeps its own SSO cookie).
+  ⚠️ `DEMO_PASSWORD` is a **placeholder** to fill with the real shared demo password before deploy — no password is
+  committed.
+- **Login redesign** — explored 8 directions as throwaway HTML artifacts, the user chose the **"Console"
+  engineering-credibility** look, then it was rebuilt **theme-aware**: brand + `CARE COORDINATION & CLAIMS` eyebrow, a
+  centered headline *"Care coordinated. Consent enforced. Decisions explained."* (verbs teal-accented), a one-line hook
+  sub, then balanced **Security posture** (monospace rows of honest **backend-enforced capabilities** — tenant
+  isolation / consent engine / audit hash-chain / field masking — described as guarantees, NOT fake live telemetry,
+  rule 2) ↔ **Sign in** columns, with the demo card below. Every color comes from the app **theme tokens**
+  (`primary`/`success`/`text`/`background` + `theme.applyStyles('dark', …)`), so the login **follows the visitor's
+  light/dark preference**. Verified live in both schemes. Commits: Console `3d948c8`, sharper headline `7a2ecfb`,
+  theme-aware `5ba73e2`.
+- **Real logo asset** (`frontend/src/components/Brand.tsx` + `frontend/public/logo.png`, commits `f79fd3e`…`5d19f4c`):
+  replaced the CSS-recreated glyph with the **actual provided logo** — a transparent PNG produced by flood-filling the
+  white background off the user's screenshot **in the browser canvas** (kept the enclosed white cross), cropped to
+  79×80. `Brand` gained a `size="lg"` option (used on the login header). **Lesson:** to match a *designed* logo, use
+  the real asset — a CSS gradient recreation never matches exactly (we burned several tries color-guessing before
+  switching to the file).
+- **Verified throughout:** `npm run typecheck` + the LoginPage tests (incl. the axe accessibility check) green;
+  in-browser in light and dark. No backend/API changes this session.
+
 ### 2026-09-21 — Cognito enabled for ALL 14 seeded users (every role × both orgs), verified live ✅ (AWS, $0)
 - **Why:** planning the LinkedIn/recruiter demo — a stranger on the deployed app can only log in via **Cognito**
   (the `demo,cognito` profile removes the local dev-login bypass), and only 6 accounts had Cognito passwords. To let

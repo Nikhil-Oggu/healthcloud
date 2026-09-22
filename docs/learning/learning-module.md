@@ -4288,3 +4288,95 @@ A: It means a valid Cognito identity is necessary but not sufficient — the app
 in and with what role/tenant*. Even if someone authenticated at Cognito, without a provisioned ACTIVE app user they
 get no session. That's also why self-signup was safe to disable: a self-registered Cognito user would have no app
 user and would be rejected anyway.
+
+---
+
+## Login page redesign (theme-aware "Console") + demo-credentials card + real logo asset — 2026-09-22
+
+### What we built
+A portfolio-grade redesign of the login page (the first thing a stranger sees when the project is shared on
+LinkedIn), plus a demo-credentials card so a recruiter can actually sign in and explore, and a switch to using the
+**real logo image** as the brand mark. Frontend-only; no backend/API changes.
+
+### How it works
+- **Demo-credentials card** (`frontend/src/auth/LoginPage.tsx`): rendered whenever `cognitoEnabled` is true. A
+  `DEMO_ACCOUNTS` array (role · email · one-line "what to try" hint) and a shared `DEMO_PASSWORD` constant, a
+  "Synthetic data only" chip, and two tips — swap `northcare`↔`greenvalley` to witness tenant isolation, and open a
+  fresh Incognito window to switch users (Cognito keeps its own SSO cookie the app's logout can't clear). The password
+  is a **placeholder** (`REPLACE_WITH_YOUR_DEMO_PASSWORD`) — the real shared demo password is filled in before deploy,
+  never committed.
+- **The redesign** — after exploring 8 directions as throwaway HTML artifacts, we settled on a **"Console"**
+  engineering-credibility look, then rebuilt it **theme-aware**. Structure: `<Brand size="lg" />` + a
+  `CARE COORDINATION & CLAIMS` eyebrow; a centered headline *"Care coordinated. Consent enforced. Decisions
+  explained."* with the verbs in `primary.main`; a one-line hook sub; then two balanced columns — a **Security
+  posture** panel (monospace rows stating backend-enforced capabilities) and the **Sign in** card — with the demo
+  card below.
+- **Theme-awareness** is the key engineering point: instead of a hardcoded dark palette, every color is a **theme
+  token** (`text.primary`, `text.secondary`, `background.default`, `primary.main`, `success.main`, `divider`) and
+  scheme-specific bits use `theme.applyStyles('dark', { … })`. Because the app's MUI theme already ships light + dark
+  color schemes (CSS variables), the login now **follows the visitor's light/dark preference automatically**.
+- **Real logo asset** (`frontend/src/components/Brand.tsx` + `frontend/public/logo.png`): `Brand` now renders
+  `<Box component="img" src="/logo.png" />` (with a `size` prop) instead of a CSS-drawn glyph. The PNG is the user's
+  actual logo with its white background removed.
+
+### Key points to remember
+- **To match a *designed* logo, use the real asset — not a CSS recreation.** We wasted several iterations
+  color-guessing a gradient before switching to the file. A CSS gradient can approximate but never equals a designed
+  image.
+- **Removing a background with no image tools:** the Mac had no PIL and no ImageMagick. We removed the white
+  background **in the browser canvas**: draw the image, **flood-fill from the four borders** clearing connected white
+  pixels to transparent (this deletes the outer background but *keeps the enclosed white cross*, since it isn't
+  border-connected), crop to the opaque bounding box, `canvas.toDataURL('image/png')`, then base64-decode to
+  `public/logo.png`. A naive "make all white transparent" would have deleted the cross too.
+- **Honest UI, rule 2:** the Security posture panel reads like live telemetry but is worded as *capabilities the
+  backend enforces* (which are all real, implemented features) — deliberately not faked "live" numbers/status.
+- **`public/` in Vite** serves files at the root path (`/logo.png`) in both dev and the production build; a newly
+  added file is served immediately (no server restart needed).
+- **Cognito SSO cookie:** app logout only clears the Spring session; Cognito remembers the last sign-in via its own
+  cookie, so re-clicking "Sign in with Cognito" silently returns the same user. Switching users = a fresh Incognito
+  window or the hosted-UI `/logout` endpoint. This is now called out on the demo card.
+
+### Failures and how we fixed them
+- **CSS gradient never matched the logo.** Symptom: user repeatedly said "completely different." Root cause: trying
+  to reproduce a designed logo with a guessed CSS gradient. Fix: sampled the real pixels, then abandoned CSS entirely
+  and used the actual image file with the background removed.
+- **Wrong file found.** A `logo.png` already sat in `~/Downloads` — but it was an unrelated red logo. Fix: verified
+  the image by viewing it before using it; found the correct one (a Desktop screenshot the user had renamed
+  `logo file.png`).
+- **Sign-in inputs on a dark bespoke surface** (in the first Console pass) needed manual dark styling. The
+  theme-aware rebuild removed that problem — theme components adapt to light/dark on their own.
+
+### Interview Q&A
+
+#### 1. Beginner
+**Q: Why use the app's theme tokens instead of hardcoded colors on the login page?**
+A: So the page automatically adapts to light and dark mode. Hardcoded hex values look right in one mode and broken in
+the other; theme tokens resolve to the correct color for whichever scheme is active.
+
+**Q: Why is the demo password a placeholder in the code?**
+A: The page is public and committed to a public repo, so a real password must never be in the source. The placeholder
+is swapped for the real shared demo password only in the deployed build.
+
+#### 2. Intermediate
+**Q: How do you remove a white background from an image with no image-processing libraries installed?**
+A: Use the browser canvas. Draw the image, read the pixel buffer, and flood-fill from the borders turning
+border-connected white pixels transparent, then re-export as PNG. Flood-fill (rather than "key out all white")
+preserves white regions enclosed by non-white — here, the logo's inner cross.
+
+**Q: How does `theme.applyStyles('dark', …)` work and why not just check a boolean?**
+A: With MUI CSS-variable color schemes, `applyStyles('dark', styles)` emits the given styles under the dark-scheme
+selector so the browser applies them when the dark scheme is active — no JS re-render, and it works with SSR/no-flash
+hydration. A runtime boolean would require knowing the mode at render time and wouldn't switch via pure CSS.
+
+#### 3. Advanced
+**Q: The security-posture panel could look like fake live monitoring. How do you keep it honest?**
+A: Word it as *capabilities the platform enforces* (tenant isolation, consent policy, audit hash-chain, field
+masking) — each maps to a real implemented feature — rather than as live metrics or uptime numbers. The project's
+"no unmeasured claims" rule forbids presenting unmeasured values as measured, so the panel states guarantees, not
+telemetry. If we wanted true live status we'd wire each row to a real health/probe signal.
+
+**Q: Trade-offs of shipping the logo as a raster PNG vs. inline SVG or CSS?**
+A: The PNG is an exact match to the designed asset and trivial to swap, but it's raster (fixed resolution, ~9 KB) and
+its colors don't adapt to theme. An SVG would be crisp at any size and themeable, and CSS would be the lightest but
+can't perfectly reproduce a designed mark. For a fixed brand logo, exactness won — a designed logo shouldn't be
+re-interpreted per theme anyway. If we needed multi-resolution crispness we'd export an SVG from the source art.

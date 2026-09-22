@@ -838,6 +838,19 @@ to the AWS deployment, Alertmanager routing, RDS PITR/snapshot DR — all on-dem
   via a react-query probe):** when Cognito isn't configured (local without the `cognito` profile) the button is
   rendered **disabled with an explanatory note** so a click can't hit the BFF's 500 — it optimistically shows
   enabled while the probe is loading, and only an explicit `false` disables it.
+  **Login redesign (2026-09-22, "Console" theme-aware — portfolio/demo polish):** `LoginPage` was rebuilt for the
+  LinkedIn/recruiter demo. Layout: brand (`<Brand size="lg" />`) + a `CARE COORDINATION & CLAIMS` eyebrow, a centered
+  headline *"Care coordinated. Consent enforced. Decisions explained."* (the verbs `primary.main`-accented), a one-line
+  hook sub, then two balanced columns — a **Security posture** panel (monospace rows: `tenant.isolation` ACTIVE /
+  `consent.policy.engine` ONLINE / `audit.hash_chain` VERIFIED / `field.masking` ENFORCED — worded as honest
+  **backend-enforced capabilities**, NOT fake live telemetry, rule 2) and the **Sign in** card (Cognito button +
+  dev-login). **Fully theme-aware:** every color is a theme token (`primary`/`success`/`text`/`background`/`divider`
+  + `theme.applyStyles('dark', …)`), so the login follows the visitor's light/dark preference (no bespoke always-dark
+  palette). A **demo-credentials card** renders whenever `cognitoEnabled` — a `DEMO_ACCOUNTS` list (role · email ·
+  hint) + a shared **`DEMO_PASSWORD` constant that is a placeholder** (`REPLACE_WITH_YOUR_DEMO_PASSWORD`) to fill with
+  the real shared demo password before deploy (never commit a real password) + tips (swap `northcare`↔`greenvalley`
+  for tenant isolation; use Incognito to switch users past Cognito's SSO cookie). The 8 design directions explored to
+  get here were throwaway HTML artifacts, not committed.
 
 ## Boot 4.1 notes (learned; avoid re-discovering)
 - Testcontainers is **2.0.x** here → artifacts are `testcontainers-junit-jupiter` / `testcontainers-postgresql`.
@@ -1091,7 +1104,10 @@ to the AWS deployment, Alertmanager routing, RDS PITR/snapshot DR — all on-dem
   - **Dark-hero tokens** are exported as `constellation` from the theme (bg `#070b18`, teal `#5eead4`, indigo
     `#7c9cff`, gradient) for the bespoke **always-dark** surfaces (login hero, dashboard hero band) — they use these
     literal tokens directly, so they render identically in both schemes (mode-independent by design).
-  - **Shared UI components** (`src/components/`): `Brand` (gradient glyph + Space-Grotesk wordmark, `compact`/`onDark`),
+  - **Shared UI components** (`src/components/`): `Brand` (the real logo image `frontend/public/logo.png` — a
+    transparent teal→blue→indigo rounded-square glyph with a white medical cross — + Space-Grotesk wordmark;
+    `compact` = glyph only, `onDark` = white wordmark, `size="lg"` = larger mark for the login header. NB: the glyph is
+    the actual asset, NOT a CSS recreation — replacing it means swapping `public/logo.png`),
     `ConstellationBackground` (the animated network `<canvas>` — `aria-hidden`, resize-aware, **static under
     `prefers-reduced-motion`**, bails cleanly in jsdom; reused by the login hero + dashboard hero band), `PageHeading`
     (the single `<h1>`), `EmptyState` (centered inbox-icon + message — use in every work-queue's empty table cell),
@@ -1099,8 +1115,11 @@ to the AWS deployment, Alertmanager routing, RDS PITR/snapshot DR — all on-dem
   - **The shell** (`AppLayout`): a grouped, role-gated **sidebar** (permanent on desktop via
     `useMediaQuery(up('md'), { defaultMatches: true })` so it renders in jsdom tests; temporary drawer + hamburger on
     mobile), groups **Care / Claims & coverage / Governance**, brand at top, user identity + Log out in the footer.
-  - **Login** (`LoginPage`) = the bespoke dark **Constellation hero** (animated network + gradient headline + trust
-    chips) with a white sign-in card; it's the deployed URL's first impression (`/` → `/login` when unauthenticated).
+  - **Login** (`LoginPage`) = the **theme-aware "Console" design** (2026-09-22 redesign — see the Login redesign note
+    in the Auth section above): brand + `CARE COORDINATION & CLAIMS` eyebrow, centered accented headline, a monospace
+    **Security posture** panel ↔ **Sign in** card, and a **demo-credentials card**. All theme tokens → follows the
+    viewer's light/dark. It's the deployed URL's first impression (`/` → `/login` when unauthenticated). (Superseded the
+    earlier bespoke dark Constellation-hero login.)
   - **Dashboard** (`HomePage`) = a constellation hero band + an "At a glance" stat row of **real, role-gated counts**
     (from the paged endpoints' `totalElements` via `useQueries` — never fabricated, rule 2) + a role-aware launchpad.
   - **Native `<select>` forms (slice 7)** — every `<TextField select slotProps={{ select: { native: true } }}>`
