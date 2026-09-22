@@ -1,11 +1,24 @@
 import { useState } from 'react'
-import { Box, Button, Card, CardContent, Chip, Container, Divider, Stack, Typography } from '@mui/material'
+import { Box, Button, Container, Dialog, DialogContent, Divider, IconButton, Stack, Typography } from '@mui/material'
 import type { SvgIconComponent } from '@mui/icons-material'
 import PersonOutlinedIcon from '@mui/icons-material/PersonOutlined'
+import MedicalServicesOutlinedIcon from '@mui/icons-material/MedicalServicesOutlined'
 import AccountTreeOutlinedIcon from '@mui/icons-material/AccountTreeOutlined'
 import FactCheckOutlinedIcon from '@mui/icons-material/FactCheckOutlined'
 import TuneOutlinedIcon from '@mui/icons-material/TuneOutlined'
 import CenterFocusStrongOutlinedIcon from '@mui/icons-material/CenterFocusStrongOutlined'
+import HubOutlinedIcon from '@mui/icons-material/HubOutlined'
+import AssignmentTurnedInOutlinedIcon from '@mui/icons-material/AssignmentTurnedInOutlined'
+import HandshakeOutlinedIcon from '@mui/icons-material/HandshakeOutlined'
+import ApartmentOutlinedIcon from '@mui/icons-material/ApartmentOutlined'
+import ShieldOutlinedIcon from '@mui/icons-material/ShieldOutlined'
+import HistoryOutlinedIcon from '@mui/icons-material/HistoryOutlined'
+import AutorenewOutlinedIcon from '@mui/icons-material/AutorenewOutlined'
+import MonitorHeartOutlinedIcon from '@mui/icons-material/MonitorHeartOutlined'
+import VpnKeyOutlinedIcon from '@mui/icons-material/VpnKeyOutlined'
+import CloseIcon from '@mui/icons-material/Close'
+import ContentCopyIcon from '@mui/icons-material/ContentCopy'
+import CheckIcon from '@mui/icons-material/Check'
 import { useQuery } from '@tanstack/react-query'
 import { Navigate } from 'react-router-dom'
 import { api } from '../api/client'
@@ -18,20 +31,34 @@ import { MONO } from '../theme'
 const COGNITO_LOGIN_URL = '/oauth2/authorization/cognito'
 
 /**
- * Public demo password shown on the login page so a reviewer/recruiter can sign in and explore.
- * Synthetic data only — safe to publish. All demo accounts share ONE password.
- * 👉 EDIT this to match the password you set for the Cognito demo accounts before deploying.
+ * The front page is a bespoke, ALWAYS-DARK "technical" surface (mode-independent by design, like the
+ * old Constellation hero) — deep near-black navy + a faint engineering grid + teal/indigo accents.
+ * These explicit tokens are used throughout so the page renders identically regardless of the app's
+ * light/dark setting. (The rest of the app stays theme-aware.)
  */
-const DEMO_PASSWORD = 'REPLACE_WITH_YOUR_DEMO_PASSWORD'
+const DK = {
+  bg: '#05070e',
+  surface: '#0b1120',
+  border: 'rgba(148,163,214,0.14)',
+  borderStrong: 'rgba(148,163,214,0.22)',
+  text: '#eaf0ff',
+  muted: '#8a97b8',
+  teal: '#2dd4bf',
+  tealBright: '#5eead4',
+  indigo: '#818cf8',
+} as const
 
-type RoleKey = 'patient' | 'provider' | 'coordinator' | 'reviewer' | 'admin' | 'auditor'
+const HEADING_FONT = '"Space Grotesk", sans-serif'
+
+type RoleKey = 'patient' | 'provider' | 'provider2' | 'coordinator' | 'reviewer' | 'admin' | 'auditor'
 
 /**
- * The role personas shown in the landing header (icon + label), clickable to jump to sign-in with that
- * role's demo account highlighted. Mirrors the reference design (5 roles across the top nav).
+ * The six role personas shown in the landing header (icon + label), clickable to open the Credentials
+ * dialog with that role's demo account highlighted.
  */
 const ROLE_NAV: { key: RoleKey; label: string; icon: SvgIconComponent }[] = [
   { key: 'patient', label: 'Patient', icon: PersonOutlinedIcon },
+  { key: 'provider', label: 'Provider', icon: MedicalServicesOutlinedIcon },
   { key: 'coordinator', label: 'Care Coordinator', icon: AccountTreeOutlinedIcon },
   { key: 'reviewer', label: 'Reviewer', icon: FactCheckOutlinedIcon },
   { key: 'admin', label: 'Admin', icon: TuneOutlinedIcon },
@@ -39,25 +66,116 @@ const ROLE_NAV: { key: RoleKey; label: string; icon: SvgIconComponent }[] = [
 ]
 
 /**
- * The seeded synthetic demo accounts (all NorthCare — swap the org for Green Valley to see isolation).
- * Keyed by RoleKey so a header role click can highlight the matching card. Provider is included here
- * (relationship-gating demo) even though the top nav mirrors the reference's five roles.
+ * The "What HealthCloud brings together" bento grid — each tile is a real, backend-enforced capability
+ * (honest capabilities, not fake telemetry — rule 2). `span` = a wide (2-col) tile on desktop; `hero`
+ * = the featured Coordination tile. `hue` tints the tile bg/border/icon on the dark surface.
  */
-const DEMO_ACCOUNTS: { key: RoleKey; role: string; email: string; note: string }[] = [
-  { key: 'patient', role: 'Patient', email: 'patient@northcare.example.org', note: 'Sees only their own record & consent' },
-  { key: 'provider', role: 'Provider', email: 'provider@northcare.example.org', note: 'Sees only patients assigned to them' },
-  { key: 'coordinator', role: 'Care Coordinator', email: 'coordinator@northcare.example.org', note: 'Assign care teams; manage requests & eligibility' },
-  { key: 'reviewer', role: 'Claims Reviewer', email: 'reviewer@northcare.example.org', note: 'Accept & adjudicate claims' },
-  { key: 'admin', role: 'Org Admin', email: 'admin@northcare.example.org', note: 'Full tenant view — manage plans, users, everything' },
-  { key: 'auditor', role: 'Auditor', email: 'auditor@northcare.example.org', note: 'Read the tamper-evident audit trail' },
+const FEATURES: {
+  key: string
+  title: string
+  subtitle: string
+  icon: SvgIconComponent
+  hue: string
+  span: boolean
+  hero?: boolean
+}[] = [
+  { key: 'coordination', title: 'Coordination', subtitle: 'Connected care workflows', icon: HubOutlinedIcon, hue: '#2dd4bf', span: true, hero: true },
+  { key: 'adjudication', title: 'Adjudication', subtitle: 'Explainable claims decisions', icon: AssignmentTurnedInOutlinedIcon, hue: '#34d399', span: true },
+  { key: 'consent', title: 'Consent', subtitle: 'Patient-controlled permissions', icon: HandshakeOutlinedIcon, hue: '#a78bfa', span: false },
+  { key: 'isolation', title: 'Isolation', subtitle: 'Separate organizational data', icon: ApartmentOutlinedIcon, hue: '#60a5fa', span: false },
+  { key: 'security', title: 'Security', subtitle: 'Layered access protection', icon: ShieldOutlinedIcon, hue: '#2dd4bf', span: false },
+  { key: 'traceability', title: 'Traceability', subtitle: 'Accountable decision history', icon: HistoryOutlinedIcon, hue: '#fbbf24', span: false },
+  { key: 'resilience', title: 'Resilience', subtitle: 'Failure handling and recovery', icon: AutorenewOutlinedIcon, hue: '#f87171', span: true },
+  { key: 'observability', title: 'Observability', subtitle: 'Logs, metrics, and traces', icon: MonitorHeartOutlinedIcon, hue: '#818cf8', span: true },
+]
+
+/**
+ * The role rows shown in each org column of the Credentials dialog. Each role has ONE color, reused
+ * across both organizations (so "Patient" is the same color for NorthCare and Green Valley, etc.).
+ * `provider2` is a second provider account and deliberately shares the Provider color → 6 colors total.
+ */
+const ROLE_ROWS: { key: RoleKey; label: string; note: string; color: string }[] = [
+  { key: 'patient', label: 'Patient', note: 'Sees only their own record & consent', color: '#0d9488' },
+  { key: 'provider', label: 'Provider', note: 'Sees only patients assigned to them', color: '#4f46e5' },
+  { key: 'provider2', label: 'Provider (2nd)', note: 'A second provider — unassigned by default', color: '#4f46e5' },
+  { key: 'coordinator', label: 'Care Coordinator', note: 'Assign care teams; manage requests & eligibility', color: '#c026d3' },
+  { key: 'reviewer', label: 'Claims Reviewer', note: 'Accept & adjudicate claims', color: '#b45309' },
+  { key: 'admin', label: 'Org Admin', note: 'Full tenant view — manage plans, users, everything', color: '#2563eb' },
+  { key: 'auditor', label: 'Auditor', note: 'Read the tamper-evident audit trail', color: '#e11d48' },
+]
+
+// The Credentials popup is deliberately LIGHT (on the dark page) so the demo credentials — the project's
+// differentiator — stand out. These are its light-surface tokens; the role colors above are chosen to read
+// on this light surface.
+const LT = {
+  paper: '#ffffff',
+  surface: '#f8fafc',
+  border: '#e6e9f0',
+  text: '#0f1729',
+  muted: '#5b6576',
+  chipBg: '#eef2f7',
+} as const
+
+/** A one-click copy-to-clipboard icon button (email / password), with a brief "copied" check state. */
+function CopyButton({ value, label }: { value: string; label: string }) {
+  const [copied, setCopied] = useState(false)
+  return (
+    <IconButton
+      size="small"
+      aria-label={`Copy ${label}`}
+      onClick={() => {
+        navigator.clipboard?.writeText(value)
+        setCopied(true)
+        setTimeout(() => setCopied(false), 1200)
+      }}
+      sx={{ p: 0.4, color: copied ? '#0d9488' : '#94a3b8', '&:hover': { color: '#0d9488', bgcolor: 'rgba(13,148,136,0.08)' } }}
+    >
+      {copied ? <CheckIcon sx={{ fontSize: 15 }} /> : <ContentCopyIcon sx={{ fontSize: 15 }} />}
+    </IconButton>
+  )
+}
+
+/**
+ * The two synthetic demo organizations. Each account's email is `${role.key}@${domain}`; passwords are
+ * the shared synthetic demo passwords (intentionally public so reviewers can self-serve). Synthetic data
+ * only — these accounts reach no real data and are tenant-isolated from each other.
+ */
+const ORGS: { name: string; domain: string; passwords: Record<RoleKey, string> }[] = [
+  {
+    name: 'NorthCare Clinic',
+    domain: 'northcare.example.org',
+    passwords: {
+      patient: 'Samnorthcare123',
+      provider: 'Northcare123',
+      provider2: 'Providernc123',
+      coordinator: 'Coordinatornc123',
+      reviewer: 'Reviewernc123',
+      admin: 'Adminnc123',
+      auditor: 'Auditornc123',
+    },
+  },
+  {
+    name: 'Green Valley Clinic',
+    domain: 'greenvalley.example.org',
+    passwords: {
+      patient: 'Samgv123',
+      provider: 'Greenvalley123',
+      provider2: 'Providergv123',
+      coordinator: 'Coordinatorgv123',
+      reviewer: 'Reviewergv123',
+      admin: 'Admingc123',
+      auditor: 'Auditorgv123',
+    },
+  },
 ]
 
 export function LoginPage() {
   const { data: user } = useCurrentUser()
   const [highlight, setHighlight] = useState<RoleKey | null>(null)
+  const [credentialsOpen, setCredentialsOpen] = useState(false)
 
   // Is the Cognito flow actually configured in this environment? (Deployed: yes; local without the
-  // `cognito` profile: no.) Drives whether the button is live or shown disabled with an explanation.
+  // `cognito` profile: no.) Drives whether the "Sign in" button is live or disabled.
   const authConfig = useQuery({
     queryKey: ['auth-config'],
     queryFn: () => api.authConfig(),
@@ -70,9 +188,11 @@ export function LoginPage() {
     return <Navigate to="/" replace />
   }
 
-  const scrollToSignIn = (role?: RoleKey) => {
-    if (role) setHighlight(role)
-    document.getElementById('signin')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  // Open the demo-credentials dialog — from the "Credentials" button (no role) or a role persona
+  // (which highlights that role's account).
+  const openCredentials = (role?: RoleKey) => {
+    setHighlight(role ?? null)
+    setCredentialsOpen(true)
   }
 
   // The clickable role personas — rendered inline on desktop, and on a wrapped second row on
@@ -86,7 +206,7 @@ export function LoginPage() {
           key={r.key}
           component="button"
           type="button"
-          onClick={() => scrollToSignIn(r.key)}
+          onClick={() => openCredentials(r.key)}
           sx={{
             display: 'flex',
             flexDirection: 'column',
@@ -96,9 +216,9 @@ export function LoginPage() {
             border: 0,
             p: 0,
             cursor: 'pointer',
-            color: active ? 'primary.main' : 'text.secondary',
+            color: active ? DK.tealBright : DK.muted,
             transition: 'color .15s',
-            '&:hover': { color: 'primary.main' },
+            '&:hover': { color: DK.tealBright },
           }}
         >
           <Icon sx={{ fontSize: 24 }} />
@@ -111,35 +231,30 @@ export function LoginPage() {
 
   return (
     <Box
-      sx={(theme) => ({
+      sx={{
         minHeight: '100vh',
-        // Light = the reference's soft mint→white wash. Dark = a technical deep-navy field: a teal glow
-        // up top + a faint engineering grid.
-        backgroundColor: '#f7faf9',
-        backgroundImage: `radial-gradient(1200px 520px at 50% -12%, rgba(13,148,136,0.12), transparent 62%),
-          linear-gradient(180deg, rgba(214,240,235,0.55), transparent 42%)`,
+        color: DK.text,
+        backgroundColor: DK.bg,
+        // Soft "aurora" glow wash (no grid): a teal glow up top, an indigo glow off the top-right, and a
+        // faint teal pool bottom-left — layered radial gradients for depth on the deep-navy field.
+        backgroundImage: `radial-gradient(1100px 620px at 50% -14%, rgba(45,212,191,0.20), transparent 58%),
+          radial-gradient(900px 520px at 100% 4%, rgba(129,140,248,0.16), transparent 55%),
+          radial-gradient(820px 560px at 2% 100%, rgba(45,212,191,0.08), transparent 55%)`,
         backgroundRepeat: 'no-repeat',
-        ...theme.applyStyles('dark', {
-          backgroundColor: '#070b18',
-          backgroundImage: `radial-gradient(1200px 540px at 50% -12%, rgba(45,212,191,0.14), transparent 60%),
-            linear-gradient(rgba(148,163,214,0.05) 1px, transparent 1px),
-            linear-gradient(90deg, rgba(148,163,214,0.05) 1px, transparent 1px)`,
-          backgroundSize: 'auto, 44px 44px, 44px 44px',
-          backgroundPosition: 'center top, center, center',
-        }),
-      })}
+      }}
     >
       {/* ── Header: brand · role nav · Sign in ─────────────────────────────────────────── */}
-      <Box component="header" sx={{ borderBottom: 1, borderColor: 'divider' }}>
+      <Box component="header" sx={{ borderBottom: 1, borderColor: DK.border }}>
         <Container maxWidth="lg" sx={{ py: { xs: 2, md: 2.75 } }}>
           {/* Top row: brand · (roles inline on desktop) · Sign in */}
           <Stack direction="row" sx={{ alignItems: 'center', justifyContent: 'space-between', gap: 2 }}>
-            <Brand size="lg" />
+            <Brand size="lg" onDark />
 
-            {/* Role personas inline — desktop only (md+). On smaller screens they move to the row below. */}
+            {/* Role personas inline — desktop (md+). On smaller screens they move to the row below.
+                Natural width + a uniform gap keeps the whitespace between every pair equal and compact. */}
             <Stack
               direction="row"
-              sx={{ display: { xs: 'none', md: 'flex' }, alignItems: 'flex-start', gap: { md: 3.5, lg: 5 } }}
+              sx={{ display: { xs: 'none', md: 'flex' }, alignItems: 'flex-start', gap: { md: 2.5, lg: 4 } }}
             >
               {rolePersonas()}
             </Stack>
@@ -157,24 +272,25 @@ export function LoginPage() {
                 py: 1,
                 fontSize: '1rem',
                 flexShrink: 0,
-                color: 'text.primary',
-                borderColor: 'primary.main',
+                color: DK.text,
+                borderColor: 'rgba(45,212,191,0.55)',
                 borderWidth: 1.5,
-                '&:hover': { borderColor: 'primary.main', borderWidth: 1.5, backgroundColor: 'action.hover' },
+                '&:hover': { borderColor: DK.teal, borderWidth: 1.5, backgroundColor: 'rgba(45,212,191,0.10)' },
+                '&.Mui-disabled': { color: DK.muted, borderColor: DK.border },
               }}
             >
               Sign in
             </Button>
           </Stack>
 
-          {/* Role personas — second row on tablet/phone (below md), centered + wrapped so all five show. */}
+          {/* Role personas — second row on tablet/phone (below md), centered + wrapped so all six show. */}
           <Box
             sx={{
               display: { xs: 'flex', md: 'none' },
               justifyContent: 'center',
               flexWrap: 'wrap',
               rowGap: 2,
-              columnGap: { xs: 3, sm: 4.5 },
+              columnGap: { xs: 2.5, sm: 4 },
               mt: 2.25,
             }}
           >
@@ -188,26 +304,26 @@ export function LoginPage() {
         <Typography
           component="h1"
           sx={{
-            fontFamily: '"Space Grotesk", sans-serif',
+            fontFamily: HEADING_FONT,
             fontWeight: 700,
             fontSize: { xs: '2.1rem', sm: '2.9rem', md: '3.7rem' },
             lineHeight: 1.1,
             letterSpacing: '-0.02em',
             textAlign: 'center',
-            color: 'text.primary',
+            color: DK.text,
             maxWidth: 1060,
             mx: 'auto',
           }}
         >
-          Care <Box component="span" sx={{ color: 'primary.main' }}>coordinated.</Box>{' '}
-          Consent <Box component="span" sx={{ color: 'primary.main' }}>enforced.</Box>{' '}
-          Decisions <Box component="span" sx={{ color: 'primary.main' }}>explained.</Box>
+          Care <Box component="span" sx={{ color: DK.teal }}>coordinated.</Box>{' '}
+          Consent <Box component="span" sx={{ color: DK.teal }}>enforced.</Box>{' '}
+          Decisions <Box component="span" sx={{ color: DK.teal }}>explained.</Box>
         </Typography>
 
         <Typography
           sx={{
             textAlign: 'center',
-            color: 'text.secondary',
+            color: DK.muted,
             fontSize: { xs: '1.05rem', md: '1.32rem' },
             lineHeight: 1.6,
             maxWidth: 1100,
@@ -220,99 +336,288 @@ export function LoginPage() {
         </Typography>
       </Container>
 
-      {/* ── Demo credentials (below the hero) ───────────────────────────────────────────── */}
-      <Container id="signin" maxWidth="md" sx={{ pb: { xs: 8, md: 12 }, scrollMarginTop: 24 }}>
-        {/* Shown whenever Cognito login is available. Synthetic data only. */}
-        {cognitoEnabled && (
-          <Card>
-            <CardContent sx={{ p: { xs: 3, md: 4 } }}>
-              <Stack direction="row" spacing={1.5} sx={{ flexWrap: 'wrap', gap: 1, alignItems: 'center', mb: 0.5 }}>
-                <Typography component="h2" sx={{ fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, fontSize: '1.2rem' }}>
-                  👋 Reviewing this project? Explore the live demo
-                </Typography>
-                <Chip size="small" color="success" label="Synthetic data only" />
-              </Stack>
-              <Typography sx={{ mb: 2.5, fontSize: '0.9rem', color: 'text.secondary' }}>
-                Click{' '}
-                <Box component="strong" sx={{ color: 'text.primary' }}>
-                  Sign in
-                </Box>{' '}
-                at the top right, then use any account below. Every account shares the same password.
-              </Typography>
+      {/* ── "What HealthCloud brings together" — the bento feature grid ──────────────────── */}
+      <Container maxWidth="lg" sx={{ pb: { xs: 8, md: 12 } }}>
+        {/* Section header: eyebrow + Credentials button */}
+        <Stack
+          direction="row"
+          sx={{ alignItems: 'center', justifyContent: 'space-between', gap: 2, flexWrap: 'wrap', mb: { xs: 2.5, md: 3.5 } }}
+        >
+          <Typography
+            sx={{
+              fontSize: '0.8rem',
+              fontWeight: 600,
+              letterSpacing: '0.18em',
+              textTransform: 'uppercase',
+              color: DK.muted,
+            }}
+          >
+            What HealthCloud brings together.
+          </Typography>
 
-              <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', gap: 1, alignItems: 'center', mb: 3 }}>
-                <Typography sx={{ fontSize: '0.9rem', color: 'text.secondary' }}>Password for all accounts:</Typography>
-                <Box
-                  component="code"
+          {/* Single invitation button — reads "Explore HealthCloud in action  🔑 Credentials"; opens the dialog. */}
+          <Button
+            variant="outlined"
+            onClick={() => openCredentials()}
+            sx={{
+              borderRadius: 999,
+              px: 2.75,
+              py: 0.9,
+              fontSize: '0.95rem',
+              flexShrink: 0,
+              color: DK.text,
+              borderColor: DK.borderStrong,
+              '&:hover': { borderColor: DK.teal, backgroundColor: 'rgba(45,212,191,0.10)' },
+            }}
+          >
+            Explore HealthCloud in action
+            <Box
+              component="span"
+              sx={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 0.6,
+                ml: 1.5,
+                pl: 1.5,
+                borderLeft: `1px solid ${DK.borderStrong}`,
+                color: DK.tealBright,
+                fontWeight: 700,
+              }}
+            >
+              <VpnKeyOutlinedIcon sx={{ fontSize: 18 }} />
+              Credentials
+            </Box>
+          </Button>
+        </Stack>
+
+        {/* Bento grid: 4 cols on desktop (wide tiles span 2), 2 on tablet, 1 on phone. */}
+        <Box
+          sx={{
+            display: 'grid',
+            gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)', md: 'repeat(4, 1fr)' },
+            gap: { xs: 1.75, md: 2.25 },
+          }}
+        >
+          {FEATURES.map((f) => {
+            const Icon = f.icon
+            return (
+              <Box
+                key={f.key}
+                sx={{
+                  gridColumn: f.span ? { sm: 'span 2' } : 'auto',
+                  minHeight: f.span ? { xs: 150, md: 210 } : { xs: 130, md: 156 },
+                  p: { xs: 2.5, md: 3 },
+                  borderRadius: 4,
+                  border: 1,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  ...(f.hero
+                    ? {
+                        borderColor: 'rgba(45,212,191,0.32)',
+                        backgroundColor: DK.surface,
+                        backgroundImage:
+                          'linear-gradient(135deg, rgba(45,212,191,0.16), transparent 55%), radial-gradient(120% 120% at 0% 0%, rgba(129,140,248,0.12), transparent 60%)',
+                      }
+                    : {
+                        borderColor: `${f.hue}3d`,
+                        backgroundColor: `${f.hue}1f`,
+                      }),
+                }}
+              >
+                <Icon sx={{ fontSize: 26, color: f.hue }} />
+                <Typography
                   sx={{
-                    fontFamily: MONO,
+                    fontFamily: HEADING_FONT,
                     fontWeight: 600,
-                    color: 'primary.main',
-                    px: 1.2,
-                    py: 0.6,
-                    borderRadius: '8px',
-                    bgcolor: 'action.hover',
-                    border: 1,
-                    borderColor: 'divider',
+                    fontSize: { xs: '1.3rem', md: '1.6rem' },
+                    letterSpacing: '-0.01em',
+                    mt: { xs: 1.5, md: 2 },
+                    color: DK.text,
                   }}
                 >
-                  {DEMO_PASSWORD}
-                </Box>
-              </Stack>
-
-              <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 2 }}>
-                {DEMO_ACCOUNTS.map((account) => {
-                  const active = highlight === account.key
-                  return (
-                    <Box
-                      key={account.email}
-                      sx={{
-                        p: 2,
-                        border: active ? 2 : 1,
-                        borderColor: active ? 'primary.main' : 'divider',
-                        borderRadius: '12px',
-                        transition: 'border-color .15s',
-                      }}
-                    >
-                      <Chip size="small" color={active ? 'primary' : 'default'} label={account.role} sx={{ mb: 1 }} />
-                      <Typography sx={{ fontFamily: MONO, fontSize: '0.82rem', color: 'primary.main', wordBreak: 'break-all' }}>
-                        {account.email}
-                      </Typography>
-                      <Typography sx={{ display: 'block', mt: 0.5, fontSize: '0.75rem', color: 'text.secondary' }}>
-                        {account.note}
-                      </Typography>
-                    </Box>
-                  )
-                })}
+                  {f.title}
+                </Typography>
+                <Typography sx={{ mt: 0.5, fontSize: '0.95rem', lineHeight: 1.45, color: DK.muted }}>
+                  {f.subtitle}
+                </Typography>
               </Box>
+            )
+          })}
+        </Box>
 
-              <Divider sx={{ my: 3 }} />
-              <Stack spacing={1.25}>
-                <Typography sx={{ fontSize: '0.85rem', color: 'text.secondary', lineHeight: 1.55 }}>
-                  🏥{' '}
-                  <Box component="strong" sx={{ color: 'text.primary' }}>
-                    See multi-tenant isolation:
-                  </Box>{' '}
-                  every role also exists for a second organization — swap <code>northcare</code> for{' '}
-                  <code>greenvalley</code> (e.g.{' '}
-                  <Box component="code" sx={{ fontFamily: MONO, color: 'primary.main' }}>
-                    provider@greenvalley.example.org
-                  </Box>
-                  ) and notice a NorthCare user can never see Green Valley’s data.
-                </Typography>
-                <Typography sx={{ fontSize: '0.85rem', color: 'text.secondary', lineHeight: 1.55 }}>
-                  🔄{' '}
-                  <Box component="strong" sx={{ color: 'text.primary' }}>
-                    To switch roles:
-                  </Box>{' '}
-                  open a new Incognito window — Cognito remembers your last sign-in, so a fresh window lets you
-                  log in as someone else.
-                </Typography>
-              </Stack>
-            </CardContent>
-          </Card>
-        )}
+        {/* Footer strip */}
+        <Stack
+          direction="row"
+          sx={{ alignItems: 'center', justifyContent: 'space-between', gap: 2, flexWrap: 'wrap', mt: { xs: 2.5, md: 3 } }}
+        >
+          <Typography sx={{ fontSize: '0.85rem', color: DK.muted }}>
+            Explore the demo through six different roles.
+          </Typography>
+          <Typography sx={{ fontSize: '0.85rem', color: DK.muted }}>Synthetic demo data</Typography>
+        </Stack>
       </Container>
+
+      {/* ── Credentials dialog (opened by the "Credentials" button or a role persona) ─────── */}
+      <Dialog
+        open={credentialsOpen}
+        onClose={() => setCredentialsOpen(false)}
+        maxWidth="lg"
+        fullWidth
+        slotProps={{
+          paper: {
+            sx: {
+              backgroundColor: LT.paper,
+              backgroundImage: 'none',
+              color: LT.text,
+              border: `1px solid ${LT.border}`,
+              borderRadius: 3,
+            },
+          },
+        }}
+      >
+        <DialogContent sx={{ p: { xs: 3, md: 4 } }}>
+          <IconButton
+            aria-label="Close"
+            onClick={() => setCredentialsOpen(false)}
+            sx={{ position: 'absolute', top: 12, right: 12, color: LT.muted }}
+          >
+            <CloseIcon />
+          </IconButton>
+
+          <Stack direction="row" spacing={1.5} sx={{ flexWrap: 'wrap', gap: 1, alignItems: 'center', mb: 0.5, pr: 4 }}>
+            <Typography component="h2" sx={{ fontFamily: HEADING_FONT, fontWeight: 700, fontSize: '1.2rem', color: LT.text }}>
+              👋 Reviewing this project? Explore the live demo
+            </Typography>
+            <Box
+              component="span"
+              sx={{
+                px: 1.1,
+                py: 0.35,
+                borderRadius: 999,
+                fontSize: '0.7rem',
+                fontWeight: 700,
+                letterSpacing: '0.02em',
+                color: '#0f766e',
+                bgcolor: 'rgba(13,148,136,0.12)',
+                border: '1px solid rgba(13,148,136,0.35)',
+              }}
+            >
+              Synthetic data only
+            </Box>
+          </Stack>
+          <Typography sx={{ mb: 3, fontSize: '0.9rem', color: LT.muted }}>
+            Click{' '}
+            <Box component="strong" sx={{ color: LT.text }}>
+              Sign in
+            </Box>{' '}
+            at the top right, then use any account below — each account has its own password (tap the copy
+            icons). Each role is the same color across both organizations.
+          </Typography>
+
+          {/* Two organization columns — NorthCare (left) · Green Valley (right); roles color-matched. */}
+          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: { xs: 3, md: 4 } }}>
+            {ORGS.map((org) => (
+              <Box key={org.domain}>
+                <Typography sx={{ fontFamily: HEADING_FONT, fontWeight: 700, fontSize: '1.05rem', color: LT.text, mb: 1.5 }}>
+                  {org.name}
+                </Typography>
+                <Stack spacing={1.25}>
+                  {ROLE_ROWS.map((role) => {
+                    const active = highlight === role.key
+                    const email = `${role.key}@${org.domain}`
+                    return (
+                      <Box
+                        key={role.key}
+                        sx={{
+                          p: 1.5,
+                          borderRadius: '12px',
+                          border: `1px solid ${active ? role.color : LT.border}`,
+                          backgroundColor: active ? `${role.color}0f` : LT.surface,
+                          transition: 'border-color .15s, background-color .15s',
+                        }}
+                      >
+                        <Box
+                          component="span"
+                          sx={{
+                            display: 'inline-block',
+                            mb: 0.75,
+                            px: 1,
+                            py: 0.3,
+                            borderRadius: 999,
+                            fontSize: '0.68rem',
+                            fontWeight: 700,
+                            letterSpacing: '0.02em',
+                            color: role.color,
+                            bgcolor: `${role.color}1a`,
+                            border: `1px solid ${role.color}55`,
+                          }}
+                        >
+                          {role.label}
+                        </Box>
+
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexWrap: 'wrap' }}>
+                          <Typography sx={{ fontFamily: MONO, fontSize: '0.8rem', fontWeight: 700, color: LT.text, wordBreak: 'break-all' }}>
+                            {email}
+                          </Typography>
+                          <CopyButton value={email} label="email" />
+                        </Box>
+
+                        <Box sx={{ mt: 0.5, display: 'flex', alignItems: 'center', gap: 0.5, flexWrap: 'wrap' }}>
+                          <Box component="span" sx={{ fontSize: '0.7rem', color: LT.muted }}>
+                            Password
+                          </Box>
+                          <Box
+                            component="code"
+                            sx={{
+                              fontFamily: MONO,
+                              fontSize: '0.78rem',
+                              fontWeight: 600,
+                              color: LT.text,
+                              px: 0.9,
+                              py: 0.3,
+                              borderRadius: '6px',
+                              bgcolor: LT.chipBg,
+                              border: `1px solid ${LT.border}`,
+                              wordBreak: 'break-all',
+                            }}
+                          >
+                            {org.passwords[role.key]}
+                          </Box>
+                          <CopyButton value={org.passwords[role.key]} label="password" />
+                        </Box>
+
+                        <Typography sx={{ mt: 0.6, fontSize: '0.72rem', color: LT.muted, lineHeight: 1.4 }}>
+                          {role.note}
+                        </Typography>
+                      </Box>
+                    )
+                  })}
+                </Stack>
+              </Box>
+            ))}
+          </Box>
+
+          <Divider sx={{ my: 3, borderColor: LT.border }} />
+          <Stack spacing={1.25}>
+            <Typography sx={{ fontSize: '0.85rem', color: LT.muted, lineHeight: 1.55 }}>
+              🏥{' '}
+              <Box component="strong" sx={{ color: LT.text }}>
+                See multi-tenant isolation:
+              </Box>{' '}
+              NorthCare (left) and Green Valley (right) are two separate organizations — sign in to each and
+              notice a NorthCare user can never see Green Valley’s data.
+            </Typography>
+            <Typography sx={{ fontSize: '0.85rem', color: LT.muted, lineHeight: 1.55 }}>
+              🔄{' '}
+              <Box component="strong" sx={{ color: LT.text }}>
+                To switch roles:
+              </Box>{' '}
+              open a new Incognito window — Cognito remembers your last sign-in, so a fresh window lets you
+              log in as someone else.
+            </Typography>
+          </Stack>
+        </DialogContent>
+      </Dialog>
     </Box>
   )
 }
