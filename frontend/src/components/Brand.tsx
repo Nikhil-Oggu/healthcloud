@@ -15,20 +15,20 @@ export function Brand({
   onDark?: boolean
   size?: 'md' | 'lg'
 }) {
-  const glyph = size === 'lg' ? 40 : 26
-  const font = size === 'lg' ? 26 : 18
-  const cross = Math.round(glyph * 0.5)
+  const glyph = size === 'lg' ? 44 : 26
+  const font = size === 'lg' ? 30 : 18
+  const cross = Math.round(glyph * 0.62)
 
   return (
-    <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: size === 'lg' ? 1.4 : 1 }}>
+    <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: size === 'lg' ? 1.5 : 1 }}>
       <Box
         aria-hidden
         sx={{
           width: glyph,
           height: glyph,
-          borderRadius: size === 'lg' ? '12px' : '8px',
-          background: 'linear-gradient(135deg, #5eead4, #7c9cff)',
-          boxShadow: '0 0 14px rgba(94,234,212,.45)',
+          borderRadius: size === 'lg' ? '13px' : '8px',
+          background: 'linear-gradient(140deg, #40b2ef 0%, #8b5cf6 100%)',
+          boxShadow: '0 0 16px rgba(124,92,246,.40)',
           flexShrink: 0,
           display: 'flex',
           alignItems: 'center',
@@ -36,7 +36,8 @@ export function Brand({
         }}
       >
         <Box component="svg" viewBox="0 0 24 24" sx={{ width: cross, height: cross, display: 'block' }}>
-          <path d="M12 5.5v13M5.5 12h13" stroke="#ffffff" strokeWidth={2.6} strokeLinecap="round" />
+          <rect x="10" y="4.5" width="4" height="15" rx="2" fill="#ffffff" />
+          <rect x="4.5" y="10" width="15" height="4" rx="2" fill="#ffffff" />
         </Box>
       </Box>
       {!compact && (
