@@ -838,19 +838,35 @@ to the AWS deployment, Alertmanager routing, RDS PITR/snapshot DR — all on-dem
   via a react-query probe):** when Cognito isn't configured (local without the `cognito` profile) the button is
   rendered **disabled with an explanatory note** so a click can't hit the BFF's 500 — it optimistically shows
   enabled while the probe is loading, and only an explicit `false` disables it.
-  **Login redesign (2026-09-22, "Console" theme-aware — portfolio/demo polish):** `LoginPage` was rebuilt for the
-  LinkedIn/recruiter demo. Layout: brand (`<Brand size="lg" />`) + a `CARE COORDINATION & CLAIMS` eyebrow, a centered
-  headline *"Care coordinated. Consent enforced. Decisions explained."* (the verbs `primary.main`-accented), a one-line
-  hook sub, then two balanced columns — a **Security posture** panel (monospace rows: `tenant.isolation` ACTIVE /
-  `consent.policy.engine` ONLINE / `audit.hash_chain` VERIFIED / `field.masking` ENFORCED — worded as honest
-  **backend-enforced capabilities**, NOT fake live telemetry, rule 2) and the **Sign in** card (Cognito button +
-  dev-login). **Fully theme-aware:** every color is a theme token (`primary`/`success`/`text`/`background`/`divider`
-  + `theme.applyStyles('dark', …)`), so the login follows the visitor's light/dark preference (no bespoke always-dark
-  palette). A **demo-credentials card** renders whenever `cognitoEnabled` — a `DEMO_ACCOUNTS` list (role · email ·
-  hint) + a shared **`DEMO_PASSWORD` constant that is a placeholder** (`REPLACE_WITH_YOUR_DEMO_PASSWORD`) to fill with
-  the real shared demo password before deploy (never commit a real password) + tips (swap `northcare`↔`greenvalley`
-  for tenant isolation; use Incognito to switch users past Cognito's SSO cookie). The 8 design directions explored to
-  get here were throwaway HTML artifacts, not committed.
+  **Front page (2026-09-22, landing page — theme-aware; supersedes the "Console" login below):** `LoginPage` was
+  rebuilt from a user-provided design into a proper **landing page** (commit `c764e11`). Layout: a **header** —
+  `<Brand size="lg" />` (logo glyph + wordmark) · **five clickable role personas** with `@mui/icons-material` icons
+  (Patient `PersonOutlined`, Care Coordinator `AccountTreeOutlined`, Reviewer `FactCheckOutlined`, Admin
+  `TuneOutlined`, Auditor `CenterFocusStrongOutlined`) · a rounded **"Sign in"** pill — over a `divider` hairline;
+  then the **hero**: the horizontal-flowing headline *"Care coordinated. Consent enforced. Decisions explained."*
+  (verbs `primary.main`-accented) + a one-line sub. **Theme-aware** (the durable requirement): **light = the
+  reference design** (soft mint→white wash: a teal radial glow + a light linear tint); **dark = a technical
+  deep-navy field** (teal top-glow + a faint 44px two-axis grid) — both via theme tokens + `theme.applyStyles('dark',
+  …)`, following the visitor's light/dark. **Interactive roles:** a role click calls `scrollToSignIn(key)` →
+  smooth-scrolls to the `#signin` anchor and sets `highlight` so that role's demo-account card gets a `primary.main`
+  ring; the Sign in pill scrolls there with no role pre-picked. **Dev login was removed from the page** — Cognito is
+  the sign-in path; a minimal **Sign in (Cognito) + demo-credentials** section sits below the hero (the role nav
+  hides on `xs`, where a horizontal bar doesn't fit). ⚠️ Consequence: local login now needs the backend on the
+  `cognito` profile (no in-UI dev sign-in). The demo card is unchanged in spirit — a `DEMO_ACCOUNTS` list keyed by
+  `RoleKey` + the **`DEMO_PASSWORD` placeholder** (`REPLACE_WITH_YOUR_DEMO_PASSWORD`, never commit a real password) +
+  the isolation/Incognito tips. The sign-in section is a placeholder pending a user redesign.
+  **Logo asset gotcha (FIXED):** `public/logo.png` had been committed **100% transparent** (the earlier
+  browser-canvas flood-fill erased the whole image → the glyph rendered invisibly). Redo background removal **in one
+  tool end-to-end** — a pure-Python `zlib` un-filter → border flood-fill of near-white (r,g,b all > 220), preserving
+  the enclosed white cross → crop to bbox → re-encode. **Never** shuttle a multi-KB base64 PNG through a copy-paste
+  boundary: the first retry corrupted the IDAT (zlib "incorrect data check") while `file` still reported a valid
+  "79×79 RGBA" from the intact header — a silent break.
+
+  **Earlier "Console" login (2026-09-22, superseded by the landing page above):** a brand + `CARE COORDINATION &
+  CLAIMS` eyebrow, the same centered headline, then two balanced columns — a **Security posture** panel (monospace
+  rows: `tenant.isolation` ACTIVE / `consent.policy.engine` ONLINE / `audit.hash_chain` VERIFIED / `field.masking`
+  ENFORCED, worded as honest backend-enforced capabilities, NOT fake live telemetry, rule 2) ↔ a **Sign in** card —
+  with the demo card below. Also theme-aware. Kept here for context; the code is gone.
 
 ## Boot 4.1 notes (learned; avoid re-discovering)
 - Testcontainers is **2.0.x** here → artifacts are `testcontainers-junit-jupiter` / `testcontainers-postgresql`.
@@ -1107,7 +1123,9 @@ to the AWS deployment, Alertmanager routing, RDS PITR/snapshot DR — all on-dem
   - **Shared UI components** (`src/components/`): `Brand` (the real logo image `frontend/public/logo.png` — a
     transparent teal→blue→indigo rounded-square glyph with a white medical cross — + Space-Grotesk wordmark;
     `compact` = glyph only, `onDark` = white wordmark, `size="lg"` = larger mark for the login header. NB: the glyph is
-    the actual asset, NOT a CSS recreation — replacing it means swapping `public/logo.png`),
+    the actual asset, NOT a CSS recreation — replacing it means swapping `public/logo.png` (which must be a **real
+    transparent** PNG — it was once committed 100% transparent by a bad flood-fill; see the logo gotcha in the Auth
+    Front-page note. Verify a new one has opaque pixels before committing)),
     `ConstellationBackground` (the animated network `<canvas>` — `aria-hidden`, resize-aware, **static under
     `prefers-reduced-motion`**, bails cleanly in jsdom; reused by the login hero + dashboard hero band), `PageHeading`
     (the single `<h1>`), `EmptyState` (centered inbox-icon + message — use in every work-queue's empty table cell),
@@ -1115,11 +1133,13 @@ to the AWS deployment, Alertmanager routing, RDS PITR/snapshot DR — all on-dem
   - **The shell** (`AppLayout`): a grouped, role-gated **sidebar** (permanent on desktop via
     `useMediaQuery(up('md'), { defaultMatches: true })` so it renders in jsdom tests; temporary drawer + hamburger on
     mobile), groups **Care / Claims & coverage / Governance**, brand at top, user identity + Log out in the footer.
-  - **Login** (`LoginPage`) = the **theme-aware "Console" design** (2026-09-22 redesign — see the Login redesign note
-    in the Auth section above): brand + `CARE COORDINATION & CLAIMS` eyebrow, centered accented headline, a monospace
-    **Security posture** panel ↔ **Sign in** card, and a **demo-credentials card**. All theme tokens → follows the
-    viewer's light/dark. It's the deployed URL's first impression (`/` → `/login` when unauthenticated). (Superseded the
-    earlier bespoke dark Constellation-hero login.)
+  - **Login** (`LoginPage`) = the **theme-aware landing page** (2026-09-22 redesign — see the Front page note in the
+    Auth section above): a header (brand + logo · five clickable role personas with icons · a "Sign in" pill) over a
+    divider, then the hero (horizontal-flowing accented headline + sub), then a minimal Sign in (Cognito) +
+    demo-credentials section below. **Light = the reference design** (mint→white wash); **dark = a technical deep-navy
+    field** (teal glow + faint grid) — all theme tokens, follows the viewer's light/dark. It's the deployed URL's
+    first impression (`/` → `/login` when unauthenticated). (Superseded the earlier two-column "Console" login, which
+    itself superseded the bespoke dark Constellation-hero login.)
   - **Dashboard** (`HomePage`) = a constellation hero band + an "At a glance" stat row of **real, role-gated counts**
     (from the paged endpoints' `totalElements` via `useQueries` — never fabricated, rule 2) + a role-aware launchpad.
   - **Native `<select>` forms (slice 7)** — every `<TextField select slotProps={{ select: { native: true } }}>`

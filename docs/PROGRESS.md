@@ -456,6 +456,31 @@
 
 ## Log (newest first)
 
+### 2026-09-22 — Front page rebuilt as a landing page (header nav + hero) + logo asset FIXED ✅ (frontend)
+- **Why:** the user designed a specific landing-page layout (a reference image) and wanted the front page to match it
+  **exactly**, then rendered in a "technical dark" style. Supersedes the earlier "Console" two-column login below.
+- **Landing page** (`frontend/src/auth/LoginPage.tsx`, commit `c764e11`): a proper landing header —
+  brand + logo glyph · **five clickable role personas** with icons (Patient, Care Coordinator, Reviewer, Admin,
+  Auditor) · a rounded **"Sign in"** pill — over a hairline divider; then the **hero**: the horizontal-flowing
+  headline *"Care coordinated. Consent enforced. Decisions explained."* (verbs teal-accented) + the one-line sub.
+- **Theme-aware** (the user chose light+dark): **light = the reference image** (soft mint→white wash); **dark = a
+  technical deep-navy field** with a teal top-glow + a faint 44px engineering grid. All via theme tokens +
+  `theme.applyStyles('dark', …)`, so it follows the visitor's light/dark preference. Verified in both schemes.
+- **Interactive roles vs. the pill** (the user's question — "if roles are clickable, what's the Sign in button for?"):
+  clicking a **role** = "explore as this persona" → smooth-scrolls to sign-in and **highlights that role's demo
+  account**; the **Sign in pill** = the primary CTA → scrolls to sign-in with none pre-picked. Different jobs.
+- **Dev login removed from the page** (per the user): Cognito is the sign-in path; a minimal **Sign in (Cognito) +
+  demo-credentials** section stays below the hero. ⚠️ Consequence: local login now needs the backend on the `cognito`
+  profile (no more one-click dev sign-in in the UI). The user has "another idea" for this section — TBD next session.
+- **Logo asset FIXED** (`frontend/public/logo.png`): the previously-committed logo (from `5d19f4c`) was **100%
+  transparent** — the earlier browser-canvas background-removal had flood-filled the *entire* image away (0 opaque
+  pixels), so the glyph had been rendering **invisibly** all along. Redone **in pure Python** (zlib un-filter → border
+  flood-fill of near-white → crop, keeping the enclosed white cross): now a real 79×79 RGBA. **Lesson:** don't ship a
+  12KB base64 blob through a copy-paste boundary (the first attempt corrupted the IDAT — `file` still read the intact
+  header as "79×79 RGBA", but zlib failed the data check); process the bytes end-to-end in one tool (Python `zlib`).
+- **Verified:** `npm run typecheck` + **all 187 frontend tests** (incl. the axe accessibility check) green; in-browser
+  in light and dark. No backend/API changes.
+
 ### 2026-09-22 — Login page redesign (theme-aware "Console") + demo-credentials card + real logo asset ✅ (frontend)
 - **Why:** prepping the LinkedIn/recruiter demo (Phase 12). The login page is the first thing a stranger sees, so it
   needed a stronger, more distinctive first impression — and a way for a reviewer to actually get in and explore.
