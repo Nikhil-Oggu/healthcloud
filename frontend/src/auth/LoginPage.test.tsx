@@ -42,11 +42,13 @@ describe('LoginPage', () => {
     expect(cognito).toHaveAttribute('href', '/oauth2/authorization/cognito')
   })
 
-  it('shows the developer sign-in (dev build) with the seeded demo users', () => {
-    // Vitest runs with import.meta.env.DEV === true, so the dev section renders.
+  it('renders the landing hero and the clickable role personas', () => {
     renderLogin(<LoginPage />)
-    expect(screen.getByLabelText(/demo user/i)).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /developer sign-in/i })).toBeInTheDocument()
+    // The hero headline is the single <h1>.
+    expect(screen.getByRole('heading', { level: 1, name: /care coordinated/i })).toBeInTheDocument()
+    // The role personas across the header are clickable buttons.
+    expect(screen.getByRole('button', { name: /care coordinator/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /auditor/i })).toBeInTheDocument()
   })
 
   it('has no automated accessibility violations', async () => {

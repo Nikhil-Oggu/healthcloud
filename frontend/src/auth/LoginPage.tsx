@@ -1,88 +1,60 @@
 import { useState } from 'react'
-import {
-  Alert,
-  Box,
-  Button,
-  Card,
-  CardContent,
-  Chip,
-  Container,
-  Divider,
-  MenuItem,
-  Stack,
-  TextField,
-  Typography,
-} from '@mui/material'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Navigate, useNavigate } from 'react-router-dom'
-import { api, ApiClientError } from '../api/client'
-import { ME_QUERY_KEY, useCurrentUser } from './useAuth'
+import { Box, Button, Card, CardContent, Chip, Container, Divider, Stack, Typography } from '@mui/material'
+import type { SvgIconComponent } from '@mui/icons-material'
+import PersonOutlinedIcon from '@mui/icons-material/PersonOutlined'
+import AccountTreeOutlinedIcon from '@mui/icons-material/AccountTreeOutlined'
+import FactCheckOutlinedIcon from '@mui/icons-material/FactCheckOutlined'
+import TuneOutlinedIcon from '@mui/icons-material/TuneOutlined'
+import CenterFocusStrongOutlinedIcon from '@mui/icons-material/CenterFocusStrongOutlined'
+import { useQuery } from '@tanstack/react-query'
+import { Navigate } from 'react-router-dom'
+import { api } from '../api/client'
+import { useCurrentUser } from './useAuth'
 import { Brand } from '../components/Brand'
 import { MONO } from '../theme'
-
-/**
- * The seeded demo users (local `dev-login` only — NO password/MFA). This developer sign-in is shown
- * ONLY in a dev build (`import.meta.env.DEV`); the production build shows just "Sign in with Cognito".
- */
-const DEMO_USERS = [
-  'patient@northcare.example.org',
-  'provider@northcare.example.org',
-  'provider2@northcare.example.org',
-  'coordinator@northcare.example.org',
-  'reviewer@northcare.example.org',
-  'admin@northcare.example.org',
-  'auditor@northcare.example.org',
-  'patient@greenvalley.example.org',
-  'provider@greenvalley.example.org',
-  'provider2@greenvalley.example.org',
-  'coordinator@greenvalley.example.org',
-  'reviewer@greenvalley.example.org',
-  'admin@greenvalley.example.org',
-  'auditor@greenvalley.example.org',
-]
 
 // The BFF endpoint that begins the OIDC authorization-code flow. A full-page navigation (not fetch) —
 // the response is a 302 to Cognito's hosted login on another origin.
 const COGNITO_LOGIN_URL = '/oauth2/authorization/cognito'
 
 /**
- * Public demo credentials shown on the login page so a reviewer/recruiter can sign in and explore.
+ * Public demo password shown on the login page so a reviewer/recruiter can sign in and explore.
  * Synthetic data only — safe to publish. All demo accounts share ONE password.
- * 👉 EDIT `DEMO_PASSWORD` below to match the password you set for the Cognito demo accounts.
+ * 👉 EDIT this to match the password you set for the Cognito demo accounts before deploying.
  */
 const DEMO_PASSWORD = 'REPLACE_WITH_YOUR_DEMO_PASSWORD'
 
-const DEMO_ACCOUNTS: { role: string; email: string; note: string }[] = [
-  { role: 'Org Admin', email: 'admin@northcare.example.org', note: 'Full tenant view — manage plans, users, everything' },
-  { role: 'Provider', email: 'provider@northcare.example.org', note: 'Sees only patients assigned to them' },
-  { role: 'Care Coordinator', email: 'coordinator@northcare.example.org', note: 'Assign care teams; manage requests & eligibility' },
-  { role: 'Claims Reviewer', email: 'reviewer@northcare.example.org', note: 'Accept & adjudicate claims' },
-  { role: 'Auditor', email: 'auditor@northcare.example.org', note: 'Read the tamper-evident audit trail' },
-  { role: 'Patient', email: 'patient@northcare.example.org', note: 'Sees only their own record & consent' },
+type RoleKey = 'patient' | 'provider' | 'coordinator' | 'reviewer' | 'admin' | 'auditor'
+
+/**
+ * The role personas shown in the landing header (icon + label), clickable to jump to sign-in with that
+ * role's demo account highlighted. Mirrors the reference design (5 roles across the top nav).
+ */
+const ROLE_NAV: { key: RoleKey; label: string; icon: SvgIconComponent }[] = [
+  { key: 'patient', label: 'Patient', icon: PersonOutlinedIcon },
+  { key: 'coordinator', label: 'Care Coordinator', icon: AccountTreeOutlinedIcon },
+  { key: 'reviewer', label: 'Reviewer', icon: FactCheckOutlinedIcon },
+  { key: 'admin', label: 'Admin', icon: TuneOutlinedIcon },
+  { key: 'auditor', label: 'Auditor', icon: CenterFocusStrongOutlinedIcon },
 ]
 
-// The platform's real, backend-enforced guarantees — described honestly as capabilities (not fake live
-// telemetry). Each maps to a feature actually implemented in the app (see the audit trail / §21 layering).
-const POSTURE: { k: string; v: string }[] = [
-  { k: 'tenant.isolation', v: 'ACTIVE' },
-  { k: 'consent.policy.engine', v: 'ONLINE' },
-  { k: 'audit.hash_chain', v: 'VERIFIED' },
-  { k: 'field.masking', v: 'ENFORCED' },
+/**
+ * The seeded synthetic demo accounts (all NorthCare — swap the org for Green Valley to see isolation).
+ * Keyed by RoleKey so a header role click can highlight the matching card. Provider is included here
+ * (relationship-gating demo) even though the top nav mirrors the reference's five roles.
+ */
+const DEMO_ACCOUNTS: { key: RoleKey; role: string; email: string; note: string }[] = [
+  { key: 'patient', role: 'Patient', email: 'patient@northcare.example.org', note: 'Sees only their own record & consent' },
+  { key: 'provider', role: 'Provider', email: 'provider@northcare.example.org', note: 'Sees only patients assigned to them' },
+  { key: 'coordinator', role: 'Care Coordinator', email: 'coordinator@northcare.example.org', note: 'Assign care teams; manage requests & eligibility' },
+  { key: 'reviewer', role: 'Claims Reviewer', email: 'reviewer@northcare.example.org', note: 'Accept & adjudicate claims' },
+  { key: 'admin', role: 'Org Admin', email: 'admin@northcare.example.org', note: 'Full tenant view — manage plans, users, everything' },
+  { key: 'auditor', role: 'Auditor', email: 'auditor@northcare.example.org', note: 'Read the tamper-evident audit trail' },
 ]
 
 export function LoginPage() {
-  const [email, setEmail] = useState(DEMO_USERS[1])
-  const navigate = useNavigate()
-  const queryClient = useQueryClient()
   const { data: user } = useCurrentUser()
-
-  const login = useMutation<void, ApiClientError, string>({
-    mutationFn: (selected: string) => api.devLogin(selected),
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ME_QUERY_KEY })
-      navigate('/', { replace: true })
-    },
-  })
+  const [highlight, setHighlight] = useState<RoleKey | null>(null)
 
   // Is the Cognito flow actually configured in this environment? (Deployed: yes; local without the
   // `cognito` profile: no.) Drives whether the button is live or shown disabled with an explanation.
@@ -98,207 +70,165 @@ export function LoginPage() {
     return <Navigate to="/" replace />
   }
 
+  const scrollToSignIn = (role?: RoleKey) => {
+    if (role) setHighlight(role)
+    document.getElementById('signin')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
+
   return (
     <Box
       sx={(theme) => ({
         minHeight: '100vh',
-        bgcolor: 'background.default',
-        backgroundImage: 'radial-gradient(900px 440px at 50% -8%, rgba(13,148,136,0.08), transparent 60%)',
+        // Light = the reference's soft mint→white wash. Dark = a technical deep-navy field: a teal glow
+        // up top + a faint engineering grid.
+        backgroundColor: '#f7faf9',
+        backgroundImage: `radial-gradient(1200px 520px at 50% -12%, rgba(13,148,136,0.12), transparent 62%),
+          linear-gradient(180deg, rgba(214,240,235,0.55), transparent 42%)`,
+        backgroundRepeat: 'no-repeat',
         ...theme.applyStyles('dark', {
-          backgroundImage: 'radial-gradient(900px 460px at 50% -8%, rgba(45,212,191,0.10), transparent 62%)',
+          backgroundColor: '#070b18',
+          backgroundImage: `radial-gradient(1200px 540px at 50% -12%, rgba(45,212,191,0.14), transparent 60%),
+            linear-gradient(rgba(148,163,214,0.05) 1px, transparent 1px),
+            linear-gradient(90deg, rgba(148,163,214,0.05) 1px, transparent 1px)`,
+          backgroundSize: 'auto, 44px 44px, 44px 44px',
+          backgroundPosition: 'center top, center, center',
         }),
       })}
     >
-      <Container maxWidth="lg" sx={{ py: { xs: 5, md: 7 } }}>
-        {/* Header: brand + domain eyebrow */}
-        <Stack
-          direction="row"
-          sx={{ alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 1.5, mb: { xs: 5, md: 7 } }}
-        >
-          <Brand size="lg" />
-          <Typography
-            sx={{
-              fontSize: '0.75rem',
-              fontWeight: 600,
-              letterSpacing: '0.16em',
-              textTransform: 'uppercase',
-              color: 'text.secondary',
-            }}
-          >
-            Care coordination &amp; claims
-          </Typography>
-        </Stack>
+      {/* ── Header: brand · role nav · Sign in ─────────────────────────────────────────── */}
+      <Box component="header" sx={{ borderBottom: 1, borderColor: 'divider' }}>
+        <Container maxWidth="lg" sx={{ py: { xs: 2, md: 2.75 } }}>
+          <Stack direction="row" sx={{ alignItems: 'center', justifyContent: 'space-between', gap: 2 }}>
+            <Brand size="lg" />
 
-        {/* Centered headline + hook */}
+            {/* Role personas — hidden on phones, where a horizontal role bar doesn't fit. */}
+            <Stack
+              direction="row"
+              sx={{ display: { xs: 'none', md: 'flex' }, alignItems: 'flex-start', gap: { md: 3.5, lg: 5 } }}
+            >
+              {ROLE_NAV.map((r) => {
+                const Icon = r.icon
+                const active = highlight === r.key
+                return (
+                  <Box
+                    key={r.key}
+                    component="button"
+                    type="button"
+                    onClick={() => scrollToSignIn(r.key)}
+                    sx={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      gap: 0.75,
+                      background: 'none',
+                      border: 0,
+                      p: 0,
+                      cursor: 'pointer',
+                      color: active ? 'primary.main' : 'text.secondary',
+                      transition: 'color .15s',
+                      '&:hover': { color: 'primary.main' },
+                    }}
+                  >
+                    <Icon sx={{ fontSize: 24 }} />
+                    <Box component="span" sx={{ fontSize: '0.98rem', fontWeight: 500, whiteSpace: 'nowrap' }}>
+                      {r.label}
+                    </Box>
+                  </Box>
+                )
+              })}
+            </Stack>
+
+            <Button
+              variant="outlined"
+              onClick={() => scrollToSignIn()}
+              sx={{
+                borderRadius: 999,
+                px: 3,
+                py: 1,
+                fontSize: '1rem',
+                color: 'text.primary',
+                borderColor: 'primary.main',
+                borderWidth: 1.5,
+                '&:hover': { borderColor: 'primary.main', borderWidth: 1.5, backgroundColor: 'action.hover' },
+              }}
+            >
+              Sign in
+            </Button>
+          </Stack>
+        </Container>
+      </Box>
+
+      {/* ── Hero ───────────────────────────────────────────────────────────────────────── */}
+      <Container maxWidth="lg" sx={{ pt: { xs: 7, md: 12 }, pb: { xs: 6, md: 9 } }}>
         <Typography
           component="h1"
           sx={{
             fontFamily: '"Space Grotesk", sans-serif',
             fontWeight: 700,
-            fontSize: { xs: '2rem', md: '2.9rem' },
-            lineHeight: 1.12,
+            fontSize: { xs: '2.1rem', sm: '2.9rem', md: '3.7rem' },
+            lineHeight: 1.1,
             letterSpacing: '-0.02em',
             textAlign: 'center',
-            maxWidth: '18ch',
+            color: 'text.primary',
+            maxWidth: 1060,
             mx: 'auto',
           }}
         >
-          Care <Box component="span" sx={{ color: 'primary.main' }}>coordinated</Box>. Consent{' '}
-          <Box component="span" sx={{ color: 'primary.main' }}>enforced</Box>. Decisions{' '}
-          <Box component="span" sx={{ color: 'primary.main' }}>explained</Box>.
+          Care <Box component="span" sx={{ color: 'primary.main' }}>coordinated.</Box>{' '}
+          Consent <Box component="span" sx={{ color: 'primary.main' }}>enforced.</Box>{' '}
+          Decisions <Box component="span" sx={{ color: 'primary.main' }}>explained.</Box>
         </Typography>
+
         <Typography
           sx={{
             textAlign: 'center',
             color: 'text.secondary',
-            fontSize: { xs: '1rem', md: '1.08rem' },
+            fontSize: { xs: '1.05rem', md: '1.32rem' },
             lineHeight: 1.6,
-            maxWidth: 680,
+            maxWidth: 1100,
             mx: 'auto',
-            mt: 2.5,
+            mt: { xs: 3, md: 4.5 },
           }}
         >
           HealthCloud brings care coordination and synthetic claims processing into one platform, with access
           governed by patient relationships, consent, purpose, and field-level policies.
         </Typography>
+      </Container>
 
-        {/* Two balanced columns: security posture ↔ sign-in */}
-        <Box
-          sx={{
-            display: 'grid',
-            gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' },
-            gap: { xs: 4, md: 6 },
-            alignItems: 'start',
-            mt: { xs: 5, md: 7 },
-          }}
-        >
-          {/* Security posture — honest, backend-enforced capabilities */}
-          <Box>
-            <Typography
-              sx={{
-                fontSize: '0.75rem',
-                fontWeight: 600,
-                letterSpacing: '0.16em',
-                textTransform: 'uppercase',
-                color: 'text.secondary',
-                mb: 1,
-              }}
+      {/* ── Sign in (below the hero) ────────────────────────────────────────────────────── */}
+      <Container id="signin" maxWidth="md" sx={{ pb: { xs: 8, md: 12 }, scrollMarginTop: 24 }}>
+        <Card sx={{ maxWidth: 460, mx: 'auto' }}>
+          <CardContent sx={{ p: { xs: 3, md: 4 }, textAlign: 'center' }}>
+            <Typography component="h2" sx={{ fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, fontSize: '1.6rem' }}>
+              Sign in
+            </Typography>
+            <Typography sx={{ mt: 0.75, mb: 3, fontSize: '0.98rem', color: 'text.secondary' }}>
+              Access your HealthCloud workspace.
+            </Typography>
+
+            <Button
+              variant="contained"
+              fullWidth
+              size="large"
+              component={cognitoEnabled ? 'a' : 'button'}
+              href={cognitoEnabled ? COGNITO_LOGIN_URL : undefined}
+              disabled={!cognitoEnabled}
+              sx={{ py: 1.4, fontSize: '1rem' }}
             >
-              Security posture
-            </Typography>
-            {POSTURE.map((row, i) => (
-              <Box
-                key={row.k}
-                sx={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  py: 1.6,
-                  borderBottom: i < POSTURE.length - 1 ? 1 : 0,
-                  borderColor: 'divider',
-                }}
-              >
-                <Box component="span" sx={{ fontFamily: MONO, fontSize: '0.9rem', color: 'text.primary' }}>
-                  {row.k}
-                </Box>
-                <Box
-                  component="span"
-                  sx={{ display: 'flex', alignItems: 'center', gap: 1, fontFamily: MONO, fontSize: '0.85rem', color: 'success.main' }}
-                >
-                  <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: 'success.main' }} />
-                  {row.v}
-                </Box>
-              </Box>
-            ))}
-            <Typography sx={{ mt: 2, fontSize: '0.82rem', color: 'text.secondary', lineHeight: 1.5 }}>
-              Enforced by the backend on every request — provable in the audit trail.
-            </Typography>
-          </Box>
-
-          {/* Sign-in card */}
-          <Card sx={{ width: '100%' }}>
-            <CardContent sx={{ p: { xs: 3, md: 3.5 } }}>
-              <Typography component="h2" sx={{ fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, fontSize: '1.5rem' }}>
-                Sign in
+              Sign in with Cognito
+              <Box component="span" aria-hidden sx={{ ml: 0.7 }}>↗</Box>
+            </Button>
+            {!cognitoEnabled && (
+              <Typography sx={{ display: 'block', mt: 1.5, fontSize: '0.8rem', color: 'text.secondary' }}>
+                Cognito sign-in isn’t configured in this environment.
               </Typography>
-              <Typography sx={{ mt: 0.5, mb: 3, fontSize: '0.95rem', color: 'text.secondary' }}>
-                Access your HealthCloud workspace.
-              </Typography>
+            )}
+          </CardContent>
+        </Card>
 
-              <Button
-                variant="contained"
-                fullWidth
-                size="large"
-                component={cognitoEnabled ? 'a' : 'button'}
-                href={cognitoEnabled ? COGNITO_LOGIN_URL : undefined}
-                disabled={!cognitoEnabled}
-                sx={{ py: 1.4, fontSize: '1rem' }}
-              >
-                Sign in with Cognito
-                <Box component="span" aria-hidden sx={{ ml: 0.7 }}>↗</Box>
-              </Button>
-              {!cognitoEnabled && (
-                <Typography sx={{ display: 'block', mt: 1, fontSize: '0.75rem', color: 'text.secondary' }}>
-                  Cognito sign-in isn’t configured in this environment
-                  {import.meta.env.DEV ? ' — use the developer sign-in below.' : '.'}
-                </Typography>
-              )}
-
-              {/* Developer sign-in — local dev builds only (hidden in the production bundle). */}
-              {import.meta.env.DEV && (
-                <>
-                  <Divider sx={{ my: 3, fontSize: '0.75rem', color: 'text.secondary' }}>
-                    developer sign-in (local only)
-                  </Divider>
-                  <Box
-                    component="form"
-                    onSubmit={(e) => {
-                      e.preventDefault()
-                      login.mutate(email)
-                    }}
-                  >
-                    <Stack spacing={2}>
-                      <TextField
-                        select
-                        label="Demo user"
-                        value={email}
-                        onChange={(e) => setEmail(e.target.value)}
-                        fullWidth
-                        size="small"
-                      >
-                        {DEMO_USERS.map((u) => (
-                          <MenuItem key={u} value={u} sx={{ fontFamily: MONO, fontSize: '0.85rem' }}>
-                            {u}
-                          </MenuItem>
-                        ))}
-                      </TextField>
-
-                      {login.isError && (
-                        <Alert severity="error">
-                          {login.error.message}
-                          {login.error.correlationId && (
-                            <Typography variant="caption" sx={{ display: 'block', mt: 0.5 }}>
-                              Reference ID: {login.error.correlationId}
-                            </Typography>
-                          )}
-                        </Alert>
-                      )}
-
-                      <Button type="submit" variant="outlined" fullWidth disabled={login.isPending}>
-                        {login.isPending ? 'Signing in…' : 'Developer sign-in'}
-                      </Button>
-                    </Stack>
-                  </Box>
-                </>
-              )}
-            </CardContent>
-          </Card>
-        </Box>
-
-        {/* Demo credentials — shown whenever Cognito login is available (deployed app, or a local
-            `local,cognito` run). Lets a reviewer/recruiter sign in and explore. Synthetic data only. */}
+        {/* Demo credentials — shown whenever Cognito login is available. Synthetic data only. */}
         {cognitoEnabled && (
-          <Card sx={{ mt: { xs: 5, md: 7 }, maxWidth: 940, mx: 'auto' }}>
+          <Card sx={{ mt: { xs: 4, md: 5 } }}>
             <CardContent sx={{ p: { xs: 3, md: 4 } }}>
               <Stack direction="row" spacing={1.5} sx={{ flexWrap: 'wrap', gap: 1, alignItems: 'center', mb: 0.5 }}>
                 <Typography component="h2" sx={{ fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, fontSize: '1.2rem' }}>
@@ -335,17 +265,29 @@ export function LoginPage() {
               </Stack>
 
               <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 2 }}>
-                {DEMO_ACCOUNTS.map((account) => (
-                  <Box key={account.email} sx={{ p: 2, border: 1, borderColor: 'divider', borderRadius: '12px' }}>
-                    <Chip size="small" label={account.role} sx={{ mb: 1 }} />
-                    <Typography sx={{ fontFamily: MONO, fontSize: '0.82rem', color: 'primary.main', wordBreak: 'break-all' }}>
-                      {account.email}
-                    </Typography>
-                    <Typography sx={{ display: 'block', mt: 0.5, fontSize: '0.75rem', color: 'text.secondary' }}>
-                      {account.note}
-                    </Typography>
-                  </Box>
-                ))}
+                {DEMO_ACCOUNTS.map((account) => {
+                  const active = highlight === account.key
+                  return (
+                    <Box
+                      key={account.email}
+                      sx={{
+                        p: 2,
+                        border: active ? 2 : 1,
+                        borderColor: active ? 'primary.main' : 'divider',
+                        borderRadius: '12px',
+                        transition: 'border-color .15s',
+                      }}
+                    >
+                      <Chip size="small" color={active ? 'primary' : 'default'} label={account.role} sx={{ mb: 1 }} />
+                      <Typography sx={{ fontFamily: MONO, fontSize: '0.82rem', color: 'primary.main', wordBreak: 'break-all' }}>
+                        {account.email}
+                      </Typography>
+                      <Typography sx={{ display: 'block', mt: 0.5, fontSize: '0.75rem', color: 'text.secondary' }}>
+                        {account.note}
+                      </Typography>
+                    </Box>
+                  )
+                })}
               </Box>
 
               <Divider sx={{ my: 3 }} />
