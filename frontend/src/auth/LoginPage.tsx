@@ -185,20 +185,23 @@ export function LoginPage() {
                 mt: 3,
               }}
             >
-              Every access{' '}
+              Care{' '}
               <Box component="span" sx={{ color: C.tealDim }}>
-                checked
+                coordinated
               </Box>
-              . Every decision{' '}
+              . Consent{' '}
+              <Box component="span" sx={{ color: C.tealDim }}>
+                enforced
+              </Box>
+              . Decisions{' '}
               <Box component="span" sx={{ color: C.tealDim }}>
                 explained
               </Box>
               .
             </Typography>
-            <Typography sx={{ mt: 2.5, fontSize: '1.05rem', lineHeight: 1.6, color: C.muted, maxWidth: 460 }}>
-              A multi-tenant, consent-aware platform for care coordination and claims. The backend is the
-              only security boundary — every request is re-authorized against tenant, role, relationship and
-              consent.
+            <Typography sx={{ mt: 2.5, fontSize: '1.05rem', lineHeight: 1.6, color: C.muted, maxWidth: 480 }}>
+              HealthCloud brings care coordination and synthetic claims processing into one platform, with
+              access governed by patient relationships, consent, purpose, and field-level policies.
             </Typography>
 
             {/* Security-posture panel — honest capability statements, terminal-styled. */}
