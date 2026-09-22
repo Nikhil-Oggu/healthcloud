@@ -75,6 +75,40 @@ export function LoginPage() {
     document.getElementById('signin')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }
 
+  // The clickable role personas — rendered inline on desktop, and on a wrapped second row on
+  // tablet/phone (so they're never hidden). A function so both placements get fresh elements.
+  const rolePersonas = () =>
+    ROLE_NAV.map((r) => {
+      const Icon = r.icon
+      const active = highlight === r.key
+      return (
+        <Box
+          key={r.key}
+          component="button"
+          type="button"
+          onClick={() => scrollToSignIn(r.key)}
+          sx={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            gap: 0.75,
+            background: 'none',
+            border: 0,
+            p: 0,
+            cursor: 'pointer',
+            color: active ? 'primary.main' : 'text.secondary',
+            transition: 'color .15s',
+            '&:hover': { color: 'primary.main' },
+          }}
+        >
+          <Icon sx={{ fontSize: 24 }} />
+          <Box component="span" sx={{ fontSize: '0.9rem', fontWeight: 500, whiteSpace: 'nowrap' }}>
+            {r.label}
+          </Box>
+        </Box>
+      )
+    })
+
   return (
     <Box
       sx={(theme) => ({
@@ -98,44 +132,16 @@ export function LoginPage() {
       {/* ── Header: brand · role nav · Sign in ─────────────────────────────────────────── */}
       <Box component="header" sx={{ borderBottom: 1, borderColor: 'divider' }}>
         <Container maxWidth="lg" sx={{ py: { xs: 2, md: 2.75 } }}>
+          {/* Top row: brand · (roles inline on desktop) · Sign in */}
           <Stack direction="row" sx={{ alignItems: 'center', justifyContent: 'space-between', gap: 2 }}>
             <Brand size="lg" />
 
-            {/* Role personas — hidden on phones, where a horizontal role bar doesn't fit. */}
+            {/* Role personas inline — desktop only (md+). On smaller screens they move to the row below. */}
             <Stack
               direction="row"
               sx={{ display: { xs: 'none', md: 'flex' }, alignItems: 'flex-start', gap: { md: 3.5, lg: 5 } }}
             >
-              {ROLE_NAV.map((r) => {
-                const Icon = r.icon
-                const active = highlight === r.key
-                return (
-                  <Box
-                    key={r.key}
-                    component="button"
-                    type="button"
-                    onClick={() => scrollToSignIn(r.key)}
-                    sx={{
-                      display: 'flex',
-                      flexDirection: 'column',
-                      alignItems: 'center',
-                      gap: 0.75,
-                      background: 'none',
-                      border: 0,
-                      p: 0,
-                      cursor: 'pointer',
-                      color: active ? 'primary.main' : 'text.secondary',
-                      transition: 'color .15s',
-                      '&:hover': { color: 'primary.main' },
-                    }}
-                  >
-                    <Icon sx={{ fontSize: 24 }} />
-                    <Box component="span" sx={{ fontSize: '0.98rem', fontWeight: 500, whiteSpace: 'nowrap' }}>
-                      {r.label}
-                    </Box>
-                  </Box>
-                )
-              })}
+              {rolePersonas()}
             </Stack>
 
             <Button
@@ -143,9 +149,10 @@ export function LoginPage() {
               onClick={() => scrollToSignIn()}
               sx={{
                 borderRadius: 999,
-                px: 3,
+                px: { xs: 2.5, sm: 3 },
                 py: 1,
                 fontSize: '1rem',
+                flexShrink: 0,
                 color: 'text.primary',
                 borderColor: 'primary.main',
                 borderWidth: 1.5,
@@ -155,6 +162,20 @@ export function LoginPage() {
               Sign in
             </Button>
           </Stack>
+
+          {/* Role personas — second row on tablet/phone (below md), centered + wrapped so all five show. */}
+          <Box
+            sx={{
+              display: { xs: 'flex', md: 'none' },
+              justifyContent: 'center',
+              flexWrap: 'wrap',
+              rowGap: 2,
+              columnGap: { xs: 3, sm: 4.5 },
+              mt: 2.25,
+            }}
+          >
+            {rolePersonas()}
+          </Box>
         </Container>
       </Box>
 

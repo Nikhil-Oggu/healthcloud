@@ -46,9 +46,10 @@ describe('LoginPage', () => {
     renderLogin(<LoginPage />)
     // The hero headline is the single <h1>.
     expect(screen.getByRole('heading', { level: 1, name: /care coordinated/i })).toBeInTheDocument()
-    // The role personas across the header are clickable buttons.
-    expect(screen.getByRole('button', { name: /care coordinator/i })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /auditor/i })).toBeInTheDocument()
+    // The role personas are clickable buttons. They render in two placements (an inline desktop row
+    // and a wrapped mobile/tablet row, toggled by CSS), so both copies are in the DOM.
+    expect(screen.getAllByRole('button', { name: /care coordinator/i }).length).toBeGreaterThanOrEqual(1)
+    expect(screen.getAllByRole('button', { name: /auditor/i }).length).toBeGreaterThanOrEqual(1)
   })
 
   it('has no automated accessibility violations', async () => {
