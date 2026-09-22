@@ -3,6 +3,8 @@ import {
   Alert,
   Box,
   Button,
+  Card,
+  CardContent,
   Chip,
   Container,
   Divider,
@@ -68,45 +70,6 @@ const POSTURE: { k: string; v: string }[] = [
   { k: 'field.masking', v: 'ENFORCED' },
 ]
 
-// Bespoke, always-dark "Console" palette (mode-independent by design, like the login hero tokens).
-const C = {
-  bg: '#0a0d12',
-  panel: '#0e131c',
-  panelBar: '#131a26',
-  border: '#22304a',
-  borderSoft: '#1d2942',
-  text: '#d7e2ef',
-  muted: '#8b98ab',
-  faint: '#5f6f84',
-  teal: '#5eead4',
-  tealDim: '#2dd4bf',
-  green: '#4ade80',
-}
-
-// A terminal-style window title bar (traffic-light dots + a mono label).
-function WindowBar({ label }: { label: string }) {
-  return (
-    <Box
-      sx={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: 0.8,
-        px: 1.6,
-        py: 1.2,
-        bgcolor: C.panelBar,
-        borderBottom: `1px solid ${C.border}`,
-      }}
-    >
-      {['#ff5f57', '#febc2e', '#28c840'].map((c) => (
-        <Box key={c} sx={{ width: 9, height: 9, borderRadius: '50%', bgcolor: c }} />
-      ))}
-      <Box component="span" sx={{ ml: 1, fontFamily: MONO, fontSize: '0.72rem', color: C.faint }}>
-        {label}
-      </Box>
-    </Box>
-  )
-}
-
 export function LoginPage() {
   const [email, setEmail] = useState(DEMO_USERS[1])
   const navigate = useNavigate()
@@ -135,169 +98,147 @@ export function LoginPage() {
     return <Navigate to="/" replace />
   }
 
-  // Dark form-control styling (MUI inputs default to light-on-light).
-  const darkField = {
-    '& .MuiInputLabel-root': { color: C.muted },
-    '& .MuiInputLabel-root.Mui-focused': { color: C.teal },
-    '& .MuiOutlinedInput-root': {
-      color: C.text,
-      fontFamily: MONO,
-      fontSize: '0.85rem',
-      '& fieldset': { borderColor: C.border },
-      '&:hover fieldset': { borderColor: C.faint },
-      '&.Mui-focused fieldset': { borderColor: C.teal },
-    },
-    '& .MuiSelect-icon': { color: C.muted },
-  }
-
   return (
     <Box
-      sx={{
+      sx={(theme) => ({
         minHeight: '100vh',
-        color: C.text,
-        fontFamily: 'Inter, system-ui, sans-serif',
-        background: `radial-gradient(760px 480px at 80% -12%, rgba(45,212,191,0.10), transparent 62%),
-          repeating-linear-gradient(0deg, transparent 0 27px, rgba(120,140,170,0.045) 27px 28px),
-          repeating-linear-gradient(90deg, transparent 0 27px, rgba(120,140,170,0.045) 27px 28px),
-          ${C.bg}`,
-      }}
+        bgcolor: 'background.default',
+        backgroundImage: 'radial-gradient(900px 440px at 50% -8%, rgba(13,148,136,0.08), transparent 60%)',
+        ...theme.applyStyles('dark', {
+          backgroundImage: 'radial-gradient(900px 460px at 50% -8%, rgba(45,212,191,0.10), transparent 62%)',
+        }),
+      })}
     >
-      <Container maxWidth="lg" sx={{ py: { xs: 6, md: 8 } }}>
+      <Container maxWidth="lg" sx={{ py: { xs: 5, md: 7 } }}>
+        {/* Header: brand + domain eyebrow */}
+        <Stack
+          direction="row"
+          sx={{ alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 1.5, mb: { xs: 5, md: 7 } }}
+        >
+          <Brand />
+          <Typography
+            sx={{
+              fontSize: '0.75rem',
+              fontWeight: 600,
+              letterSpacing: '0.16em',
+              textTransform: 'uppercase',
+              color: 'text.secondary',
+            }}
+          >
+            Care coordination &amp; claims
+          </Typography>
+        </Stack>
+
+        {/* Centered headline + hook */}
+        <Typography
+          component="h1"
+          sx={{
+            fontFamily: '"Space Grotesk", sans-serif',
+            fontWeight: 700,
+            fontSize: { xs: '2rem', md: '2.9rem' },
+            lineHeight: 1.12,
+            letterSpacing: '-0.02em',
+            textAlign: 'center',
+            maxWidth: '18ch',
+            mx: 'auto',
+          }}
+        >
+          Care <Box component="span" sx={{ color: 'primary.main' }}>coordinated</Box>. Consent{' '}
+          <Box component="span" sx={{ color: 'primary.main' }}>enforced</Box>. Decisions{' '}
+          <Box component="span" sx={{ color: 'primary.main' }}>explained</Box>.
+        </Typography>
+        <Typography
+          sx={{
+            textAlign: 'center',
+            color: 'text.secondary',
+            fontSize: { xs: '1rem', md: '1.08rem' },
+            lineHeight: 1.6,
+            maxWidth: 680,
+            mx: 'auto',
+            mt: 2.5,
+          }}
+        >
+          HealthCloud brings care coordination and synthetic claims processing into one platform, with access
+          governed by patient relationships, consent, purpose, and field-level policies.
+        </Typography>
+
+        {/* Two balanced columns: security posture ↔ sign-in */}
         <Box
           sx={{
             display: 'grid',
-            gridTemplateColumns: { xs: '1fr', md: '1.05fr 0.95fr' },
-            gap: { xs: 5, md: 7 },
-            alignItems: 'center',
+            gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' },
+            gap: { xs: 4, md: 6 },
+            alignItems: 'start',
+            mt: { xs: 5, md: 7 },
           }}
         >
-          {/* Hero + security posture (the engineering-credibility centerpiece) */}
+          {/* Security posture — honest, backend-enforced capabilities */}
           <Box>
-            <Brand onDark />
             <Typography
-              component="h1"
               sx={{
-                fontFamily: '"Space Grotesk", sans-serif',
-                fontWeight: 700,
-                fontSize: { xs: '2.1rem', md: '2.9rem' },
-                lineHeight: 1.08,
-                letterSpacing: '-0.02em',
-                mt: 3,
+                fontSize: '0.75rem',
+                fontWeight: 600,
+                letterSpacing: '0.16em',
+                textTransform: 'uppercase',
+                color: 'text.secondary',
+                mb: 1,
               }}
             >
-              Care{' '}
-              <Box component="span" sx={{ color: C.tealDim }}>
-                coordinated
-              </Box>
-              . Consent{' '}
-              <Box component="span" sx={{ color: C.tealDim }}>
-                enforced
-              </Box>
-              . Decisions{' '}
-              <Box component="span" sx={{ color: C.tealDim }}>
-                explained
-              </Box>
-              .
+              Security posture
             </Typography>
-            <Typography sx={{ mt: 2.5, fontSize: '1.05rem', lineHeight: 1.6, color: C.muted, maxWidth: 480 }}>
-              HealthCloud brings care coordination and synthetic claims processing into one platform, with
-              access governed by patient relationships, consent, purpose, and field-level policies.
-            </Typography>
-
-            {/* Security-posture panel — honest capability statements, terminal-styled. */}
-            <Box
-              sx={{
-                mt: 4,
-                maxWidth: 460,
-                bgcolor: C.panel,
-                border: `1px solid ${C.border}`,
-                borderRadius: '14px',
-                overflow: 'hidden',
-              }}
-            >
-              <WindowBar label="security-posture" />
-              <Box sx={{ p: 2.2 }}>
-                {POSTURE.map((row, i) => (
-                  <Box
-                    key={row.k}
-                    sx={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      fontFamily: MONO,
-                      fontSize: '0.82rem',
-                      py: 1,
-                      borderBottom: i < POSTURE.length - 1 ? `1px dashed ${C.borderSoft}` : 'none',
-                    }}
-                  >
-                    <Box component="span" sx={{ color: '#9fb0c6' }}>
-                      {row.k}
-                    </Box>
-                    <Box component="span" sx={{ display: 'flex', alignItems: 'center', gap: 1, color: C.green }}>
-                      <Box
-                        sx={{
-                          width: 7,
-                          height: 7,
-                          borderRadius: '50%',
-                          bgcolor: C.green,
-                          boxShadow: `0 0 0 3px rgba(74,222,128,0.18)`,
-                        }}
-                      />
-                      {row.v}
-                    </Box>
-                  </Box>
-                ))}
+            {POSTURE.map((row, i) => (
+              <Box
+                key={row.k}
+                sx={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  py: 1.6,
+                  borderBottom: i < POSTURE.length - 1 ? 1 : 0,
+                  borderColor: 'divider',
+                }}
+              >
+                <Box component="span" sx={{ fontFamily: MONO, fontSize: '0.9rem', color: 'text.primary' }}>
+                  {row.k}
+                </Box>
+                <Box
+                  component="span"
+                  sx={{ display: 'flex', alignItems: 'center', gap: 1, fontFamily: MONO, fontSize: '0.85rem', color: 'success.main' }}
+                >
+                  <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: 'success.main' }} />
+                  {row.v}
+                </Box>
               </Box>
-            </Box>
-            <Typography sx={{ mt: 1.5, fontFamily: MONO, fontSize: '0.72rem', color: C.faint }}>
-              // enforced by the backend on every request — provable in the audit trail
+            ))}
+            <Typography sx={{ mt: 2, fontSize: '0.82rem', color: 'text.secondary', lineHeight: 1.5 }}>
+              Enforced by the backend on every request — provable in the audit trail.
             </Typography>
           </Box>
 
           {/* Sign-in card */}
-          <Box
-            sx={{
-              width: '100%',
-              maxWidth: 420,
-              justifySelf: { md: 'end' },
-              bgcolor: C.panel,
-              border: `1px solid ${C.border}`,
-              borderRadius: '16px',
-              overflow: 'hidden',
-              boxShadow: '0 30px 60px -30px rgba(0,0,0,0.7)',
-            }}
-          >
-            <WindowBar label="sign-in" />
-            <Box sx={{ p: { xs: 3, md: 3.5 } }}>
-              <Typography component="h2" sx={{ fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, fontSize: '1.3rem' }}>
+          <Card sx={{ width: '100%' }}>
+            <CardContent sx={{ p: { xs: 3, md: 3.5 } }}>
+              <Typography component="h2" sx={{ fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, fontSize: '1.5rem' }}>
                 Sign in
               </Typography>
-              <Typography sx={{ mt: 0.5, mb: 3, fontSize: '0.9rem', color: C.muted }}>
+              <Typography sx={{ mt: 0.5, mb: 3, fontSize: '0.95rem', color: 'text.secondary' }}>
                 Access your HealthCloud workspace.
               </Typography>
 
               <Button
+                variant="contained"
                 fullWidth
                 size="large"
                 component={cognitoEnabled ? 'a' : 'button'}
                 href={cognitoEnabled ? COGNITO_LOGIN_URL : undefined}
                 disabled={!cognitoEnabled}
-                sx={{
-                  fontFamily: MONO,
-                  fontWeight: 600,
-                  textTransform: 'none',
-                  color: C.teal,
-                  border: `1px solid ${C.tealDim}`,
-                  bgcolor: 'rgba(45,212,191,0.12)',
-                  py: 1.3,
-                  '&:hover': { bgcolor: 'rgba(45,212,191,0.2)', borderColor: C.teal },
-                  '&.Mui-disabled': { color: C.faint, borderColor: C.border, bgcolor: 'transparent' },
-                }}
+                sx={{ py: 1.4, fontSize: '1rem' }}
               >
                 Sign in with Cognito
+                <Box component="span" aria-hidden sx={{ ml: 0.7 }}>↗</Box>
               </Button>
               {!cognitoEnabled && (
-                <Typography sx={{ display: 'block', mt: 1, fontSize: '0.75rem', color: C.muted }}>
+                <Typography sx={{ display: 'block', mt: 1, fontSize: '0.75rem', color: 'text.secondary' }}>
                   Cognito sign-in isn’t configured in this environment
                   {import.meta.env.DEV ? ' — use the developer sign-in below.' : '.'}
                 </Typography>
@@ -306,15 +247,7 @@ export function LoginPage() {
               {/* Developer sign-in — local dev builds only (hidden in the production bundle). */}
               {import.meta.env.DEV && (
                 <>
-                  <Divider
-                    sx={{
-                      my: 3,
-                      fontFamily: MONO,
-                      fontSize: '0.72rem',
-                      color: C.faint,
-                      '&::before, &::after': { borderColor: C.border },
-                    }}
-                  >
+                  <Divider sx={{ my: 3, fontSize: '0.75rem', color: 'text.secondary' }}>
                     developer sign-in (local only)
                   </Divider>
                   <Box
@@ -332,7 +265,6 @@ export function LoginPage() {
                         onChange={(e) => setEmail(e.target.value)}
                         fullWidth
                         size="small"
-                        sx={darkField}
                       >
                         {DEMO_USERS.map((u) => (
                           <MenuItem key={u} value={u} sx={{ fontFamily: MONO, fontSize: '0.85rem' }}>
@@ -352,73 +284,50 @@ export function LoginPage() {
                         </Alert>
                       )}
 
-                      <Button
-                        type="submit"
-                        variant="outlined"
-                        fullWidth
-                        disabled={login.isPending}
-                        sx={{
-                          fontFamily: MONO,
-                          textTransform: 'none',
-                          color: C.text,
-                          borderColor: C.border,
-                          '&:hover': { borderColor: C.faint, bgcolor: 'rgba(255,255,255,0.03)' },
-                        }}
-                      >
+                      <Button type="submit" variant="outlined" fullWidth disabled={login.isPending}>
                         {login.isPending ? 'Signing in…' : 'Developer sign-in'}
                       </Button>
                     </Stack>
                   </Box>
                 </>
               )}
-            </Box>
-          </Box>
+            </CardContent>
+          </Card>
         </Box>
 
         {/* Demo credentials — shown whenever Cognito login is available (deployed app, or a local
             `local,cognito` run). Lets a reviewer/recruiter sign in and explore. Synthetic data only. */}
         {cognitoEnabled && (
-          <Box
-            sx={{
-              mt: { xs: 5, md: 7 },
-              maxWidth: 940,
-              mx: 'auto',
-              bgcolor: C.panel,
-              border: `1px solid ${C.border}`,
-              borderRadius: '16px',
-              overflow: 'hidden',
-            }}
-          >
-            <WindowBar label="demo-access" />
-            <Box sx={{ p: { xs: 3, md: 4 } }}>
+          <Card sx={{ mt: { xs: 5, md: 7 }, maxWidth: 940, mx: 'auto' }}>
+            <CardContent sx={{ p: { xs: 3, md: 4 } }}>
               <Stack direction="row" spacing={1.5} sx={{ flexWrap: 'wrap', gap: 1, alignItems: 'center', mb: 0.5 }}>
                 <Typography component="h2" sx={{ fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, fontSize: '1.2rem' }}>
                   👋 Reviewing this project? Explore the live demo
                 </Typography>
-                <Chip
-                  size="small"
-                  label="Synthetic data only"
-                  sx={{ bgcolor: 'rgba(74,222,128,0.14)', color: C.green, border: `1px solid rgba(74,222,128,0.35)` }}
-                />
+                <Chip size="small" color="success" label="Synthetic data only" />
               </Stack>
-              <Typography sx={{ mb: 2.5, fontSize: '0.9rem', color: C.muted }}>
-                Click <strong style={{ color: C.text }}>Sign in with Cognito</strong> above, then use any
-                account below. Every account shares the same password.
+              <Typography sx={{ mb: 2.5, fontSize: '0.9rem', color: 'text.secondary' }}>
+                Click{' '}
+                <Box component="strong" sx={{ color: 'text.primary' }}>
+                  Sign in with Cognito
+                </Box>{' '}
+                above, then use any account below. Every account shares the same password.
               </Typography>
 
               <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', gap: 1, alignItems: 'center', mb: 3 }}>
-                <Typography sx={{ fontSize: '0.9rem', color: C.muted }}>Password for all accounts:</Typography>
+                <Typography sx={{ fontSize: '0.9rem', color: 'text.secondary' }}>Password for all accounts:</Typography>
                 <Box
                   component="code"
                   sx={{
                     fontFamily: MONO,
                     fontWeight: 600,
-                    color: C.teal,
+                    color: 'primary.main',
                     px: 1.2,
                     py: 0.6,
                     borderRadius: '8px',
-                    bgcolor: 'rgba(45,212,191,0.1)',
-                    border: `1px solid ${C.border}`,
+                    bgcolor: 'action.hover',
+                    border: 1,
+                    borderColor: 'divider',
                   }}
                 >
                   {DEMO_PASSWORD}
@@ -427,40 +336,43 @@ export function LoginPage() {
 
               <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 2 }}>
                 {DEMO_ACCOUNTS.map((account) => (
-                  <Box key={account.email} sx={{ p: 2, border: `1px solid ${C.border}`, borderRadius: '12px', bgcolor: 'rgba(255,255,255,0.02)' }}>
-                    <Chip
-                      size="small"
-                      label={account.role}
-                      sx={{ mb: 1, bgcolor: 'rgba(129,140,248,0.14)', color: '#c7ccff', border: `1px solid ${C.border}` }}
-                    />
-                    <Typography sx={{ fontFamily: MONO, fontSize: '0.82rem', color: C.teal, wordBreak: 'break-all' }}>
+                  <Box key={account.email} sx={{ p: 2, border: 1, borderColor: 'divider', borderRadius: '12px' }}>
+                    <Chip size="small" label={account.role} sx={{ mb: 1 }} />
+                    <Typography sx={{ fontFamily: MONO, fontSize: '0.82rem', color: 'primary.main', wordBreak: 'break-all' }}>
                       {account.email}
                     </Typography>
-                    <Typography sx={{ display: 'block', mt: 0.5, fontSize: '0.75rem', color: C.muted }}>
+                    <Typography sx={{ display: 'block', mt: 0.5, fontSize: '0.75rem', color: 'text.secondary' }}>
                       {account.note}
                     </Typography>
                   </Box>
                 ))}
               </Box>
 
-              <Divider sx={{ my: 3, '&::before, &::after': { borderColor: C.border } }} />
+              <Divider sx={{ my: 3 }} />
               <Stack spacing={1.25}>
-                <Typography sx={{ fontSize: '0.85rem', color: C.muted, lineHeight: 1.55 }}>
-                  🏥 <strong style={{ color: C.text }}>See multi-tenant isolation:</strong> every role also
-                  exists for a second organization — swap <code>northcare</code> for <code>greenvalley</code>{' '}
-                  (e.g.{' '}
-                  <Box component="code" sx={{ fontFamily: MONO, color: C.teal }}>
+                <Typography sx={{ fontSize: '0.85rem', color: 'text.secondary', lineHeight: 1.55 }}>
+                  🏥{' '}
+                  <Box component="strong" sx={{ color: 'text.primary' }}>
+                    See multi-tenant isolation:
+                  </Box>{' '}
+                  every role also exists for a second organization — swap <code>northcare</code> for{' '}
+                  <code>greenvalley</code> (e.g.{' '}
+                  <Box component="code" sx={{ fontFamily: MONO, color: 'primary.main' }}>
                     provider@greenvalley.example.org
                   </Box>
                   ) and notice a NorthCare user can never see Green Valley’s data.
                 </Typography>
-                <Typography sx={{ fontSize: '0.85rem', color: C.muted, lineHeight: 1.55 }}>
-                  🔄 <strong style={{ color: C.text }}>To switch roles:</strong> open a new Incognito window —
-                  Cognito remembers your last sign-in, so a fresh window lets you log in as someone else.
+                <Typography sx={{ fontSize: '0.85rem', color: 'text.secondary', lineHeight: 1.55 }}>
+                  🔄{' '}
+                  <Box component="strong" sx={{ color: 'text.primary' }}>
+                    To switch roles:
+                  </Box>{' '}
+                  open a new Incognito window — Cognito remembers your last sign-in, so a fresh window lets you
+                  log in as someone else.
                 </Typography>
               </Stack>
-            </Box>
-          </Box>
+            </CardContent>
+          </Card>
         )}
       </Container>
     </Box>
