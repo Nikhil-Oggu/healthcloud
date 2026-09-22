@@ -115,7 +115,7 @@ export function LoginPage() {
           direction="row"
           sx={{ alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 1.5, mb: { xs: 5, md: 7 } }}
         >
-          <Brand />
+          <Brand size="lg" />
           <Typography
             sx={{
               fontSize: '0.75rem',
