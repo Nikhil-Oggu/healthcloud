@@ -144,9 +144,13 @@ export function LoginPage() {
               {rolePersonas()}
             </Stack>
 
+            {/* The single sign-in action for the site: a full-page navigation to the Cognito BFF flow
+                (disabled only when Cognito isn't configured in this environment). */}
             <Button
               variant="outlined"
-              onClick={() => scrollToSignIn()}
+              component={cognitoEnabled ? 'a' : 'button'}
+              href={cognitoEnabled ? COGNITO_LOGIN_URL : undefined}
+              disabled={!cognitoEnabled}
               sx={{
                 borderRadius: 999,
                 px: { xs: 2.5, sm: 3 },
@@ -216,40 +220,11 @@ export function LoginPage() {
         </Typography>
       </Container>
 
-      {/* ── Sign in (below the hero) ────────────────────────────────────────────────────── */}
+      {/* ── Demo credentials (below the hero) ───────────────────────────────────────────── */}
       <Container id="signin" maxWidth="md" sx={{ pb: { xs: 8, md: 12 }, scrollMarginTop: 24 }}>
-        <Card sx={{ maxWidth: 460, mx: 'auto' }}>
-          <CardContent sx={{ p: { xs: 3, md: 4 }, textAlign: 'center' }}>
-            <Typography component="h2" sx={{ fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, fontSize: '1.6rem' }}>
-              Sign in
-            </Typography>
-            <Typography sx={{ mt: 0.75, mb: 3, fontSize: '0.98rem', color: 'text.secondary' }}>
-              Access your HealthCloud workspace.
-            </Typography>
-
-            <Button
-              variant="contained"
-              fullWidth
-              size="large"
-              component={cognitoEnabled ? 'a' : 'button'}
-              href={cognitoEnabled ? COGNITO_LOGIN_URL : undefined}
-              disabled={!cognitoEnabled}
-              sx={{ py: 1.4, fontSize: '1rem' }}
-            >
-              Sign in with Cognito
-              <Box component="span" aria-hidden sx={{ ml: 0.7 }}>↗</Box>
-            </Button>
-            {!cognitoEnabled && (
-              <Typography sx={{ display: 'block', mt: 1.5, fontSize: '0.8rem', color: 'text.secondary' }}>
-                Cognito sign-in isn’t configured in this environment.
-              </Typography>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Demo credentials — shown whenever Cognito login is available. Synthetic data only. */}
+        {/* Shown whenever Cognito login is available. Synthetic data only. */}
         {cognitoEnabled && (
-          <Card sx={{ mt: { xs: 4, md: 5 } }}>
+          <Card>
             <CardContent sx={{ p: { xs: 3, md: 4 } }}>
               <Stack direction="row" spacing={1.5} sx={{ flexWrap: 'wrap', gap: 1, alignItems: 'center', mb: 0.5 }}>
                 <Typography component="h2" sx={{ fontFamily: '"Space Grotesk", sans-serif', fontWeight: 700, fontSize: '1.2rem' }}>
@@ -260,9 +235,9 @@ export function LoginPage() {
               <Typography sx={{ mb: 2.5, fontSize: '0.9rem', color: 'text.secondary' }}>
                 Click{' '}
                 <Box component="strong" sx={{ color: 'text.primary' }}>
-                  Sign in with Cognito
+                  Sign in
                 </Box>{' '}
-                above, then use any account below. Every account shares the same password.
+                at the top right, then use any account below. Every account shares the same password.
               </Typography>
 
               <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', gap: 1, alignItems: 'center', mb: 3 }}>

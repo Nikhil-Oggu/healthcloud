@@ -36,9 +36,9 @@ describe('LoginPage', () => {
     vi.mocked(api.authConfig).mockResolvedValue({ cognitoEnabled: true })
   })
 
-  it('offers "Sign in with Cognito" as a full-page link to the BFF OIDC endpoint', () => {
+  it('the header "Sign in" is a full-page link to the BFF OIDC endpoint', () => {
     renderLogin(<LoginPage />)
-    const cognito = screen.getByRole('link', { name: /sign in with cognito/i })
+    const cognito = screen.getByRole('link', { name: /^sign in$/i })
     expect(cognito).toHaveAttribute('href', '/oauth2/authorization/cognito')
   })
 
