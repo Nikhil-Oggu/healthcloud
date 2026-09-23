@@ -5254,3 +5254,106 @@ A: The breadcrumb shows `{user.organizationName}`, which comes from the current-
 cheap: `useCurrentUser` reads the already-cached `/api/v1/me` result (the shell fetched it), so there's no extra
 network call — it just subscribes this component to that cached data. The only test consequence was ensuring the
 test renders within the `QueryClientProvider` it already used.
+
+---
+
+## Fixing floating-label glitches: label-above forms on the detail pages — 2026-09-23
+
+### What we built
+After redesigning the detail pages, the user noticed the **embedded forms** inside them still used MUI's
+**floating labels** (the label notched into the top border), which looked cramped and inconsistent with the
+clean **label-above** style the rest of the app uses. We converted every such form to label-above, fixed a
+layout regression it introduced on a half-width card, and taught the shared `MedicalCodePicker` an opt-in
+label-above mode.
+
+### How it works
+Each page got a small local **`FormField`** helper — a label above the control:
+
+```tsx
+function FormField({ id, label, children, grow, full }) {
+  return (
+    <Box sx={{ flex: grow ? 1 : undefined, minWidth: grow ? 0 : undefined, width: full ? '100%' : undefined }}>
+      <Typography component="label" htmlFor={id} variant="body2"
+        sx={{ display: 'block', mb: 0.75, fontWeight: 500, color: 'text.secondary' }}>
+        {label}
+      </Typography>
+      {children}
+    </Box>
+  )
+}
+```
+
+The control carries the matching `id`, so `getByLabelText(label)` and screen readers still resolve. `grow`
+(`flex:1; minWidth:0`) lets a field share a row and shrink; `full` (`width:100%`) makes a field span a column
+stack (used for the multiline comment box).
+
+Forms converted: Patient detail (Care team, Coverage eligibility, Consent), Request detail (Assign to, Reason,
+Add a comment), Coverage plan detail (Allowed amount, network select, and the three code-picker rows).
+
+The `MedicalCodePicker` is shared and, by design, keeps its floating label in the create forms. To make the
+Coverage detail rows uniformly label-above without touching those, we added an opt-in `labelAbove` prop:
+
+```tsx
+renderInput={(params) => (
+  <TextField
+    {...params}
+    label={labelAbove ? undefined : label}
+    slotProps={labelAbove
+      ? { ...params.slotProps, htmlInput: { ...params.slotProps?.htmlInput, 'aria-label': label } }
+      : params.slotProps}
+  />
+)}
+```
+
+Default off → claims/prior-auth/referral create forms are byte-for-byte unchanged.
+
+### Key points to remember
+- **A placeholder/floating label vs. accessible name:** when you drop the floating `label`, the input loses its
+  accessible name. Restore it with `htmlFor`/`id` (FormField) or `aria-label` (the picker), or `getByLabelText`
+  tests fail.
+- **This MUI version's `AutocompleteRenderInputParams` exposes `slotProps`, not `inputProps`.** The first attempt
+  set `inputProps={{ ...params.inputProps, 'aria-label' }}` and failed typecheck (`Property 'inputProps' does not
+  exist on AutocompleteRenderInputParams`, and TextField no longer accepts `inputProps`). The fix merges into
+  `params.slotProps.htmlInput`.
+- **Half-width cards can't hold a wide row.** Patient detail's Care team lives in two side-by-side cards. Converting
+  the form to label-above and keeping select + From + To + Assign on one row overflowed the card — the "To" field
+  spilled past the edge and the Assign button was pushed off. Fix: select full-width on its own line, then
+  From/To/Assign below, with `flexShrink: 0` on the button so it's never squeezed out.
+- **`flex:1` in a column vs. a row:** `grow` (flex:1) grows the main axis. In a row that's width (good for sharing
+  space); in a column it would grow height. For the column-stacked comment box we used `full` (width:100%) instead.
+
+### Failures and how we fixed them
+1. **Typecheck error** on the picker (`inputProps` not on the params type / not a TextField prop) → merged the
+   `aria-label` into `slotProps.htmlInput` instead. Green after.
+2. **Care team layout regression** (self-inflicted): forcing a 200px min on the select and keeping everything on
+   one row overflowed the half-width card and hid the Assign button. Fixed by the two-row layout + shrinkable
+   fields (`minWidth:0`) + `flexShrink:0` on the button. The user caught this one in the preview.
+
+### Interview Q&A
+
+#### 1. Beginner
+**Q: What's a "floating label" and why change it?**
+A: In MUI's outlined text field the label starts inside the field and floats up to notch into the border when the
+field has focus/content. It's fine, but on a dense grid of fields it looks cramped and, here, inconsistent with the
+label-above style the rest of the app uses. We moved labels to sit plainly above each field.
+
+#### 2. Intermediate
+**Q: How do you change a field's label styling without breaking tests that find it by label?**
+A: Keep the accessible name. React Testing Library's `getByLabelText` matches an input's accessible name, which
+comes from an associated `<label for>` , `aria-label`, or `aria-labelledby` — not from visual styling. So as long
+as we wire `htmlFor`/`id` (FormField) or set `aria-label` (picker), the query keeps resolving no matter where the
+label sits.
+
+**Q: Why add `labelAbove` as an opt-in prop instead of just changing MedicalCodePicker?**
+A: The picker is shared by four create forms that intentionally keep the inline label (a documented exception).
+Changing it outright would alter those forms and risk their tests. An opt-in prop (default off) lets only the
+Coverage detail cards adopt label-above while everything else stays exactly as it was.
+
+#### 3. Advanced
+**Q: The Care team overflow — what actually caused it and why did two rows fix it?**
+A: The Providers/Coordinators cards are `flex:1` halves of a row, so each is ~half the content width. A single
+row of select (forced `minWidth:200`) + two date inputs (~150px each) + an Assign button exceeds that width, and
+flexbox couldn't shrink the min-constrained select enough, so content overflowed and the button wrapped/clipped
+out of view. Putting the select on its own full-width line removes it from the constrained row; the remaining
+From/To can shrink (`minWidth:0`) to share the row with a `flexShrink:0` button, which always fits. It's a
+constraint-satisfaction problem: reduce the number of inflexible items competing for one narrow row.

@@ -1227,8 +1227,12 @@ to the AWS deployment, Alertmanager routing, RDS PITR/snapshot DR — all on-dem
       the control, and the control carries the matching `id` — so the label sits above (not a floating MUI label) and
       `getByLabelText` still resolves. Native selects use `slotProps={{ select: { native: true } }}` (no `inputLabel`
       shrink needed since there's no floating label). Forms end with a **Clear** (outlined, resets RHF) + a primary
-      submit button. **Exception:** the shared `MedicalCodePicker` keeps its own inline label (Claims line items,
-      Referrals/Prior-auth code fields) — a deliberate functional keep, so those fields aren't label-above.
+      submit button. **Exception:** the shared `MedicalCodePicker` keeps its own inline label **in the create
+      forms** (Claims line items, Referrals/Prior-auth code fields) — a deliberate functional keep. It also now
+      accepts an opt-in **`labelAbove`** prop (2026-09-23, commit `e8d2022`) that renders the label above and keeps
+      the accessible name via `aria-label` (merged into the Autocomplete's `slotProps.htmlInput`, NOT `inputProps` —
+      this MUI version's `AutocompleteRenderInputParams` exposes `slotProps`, not `inputProps`); the **Coverage plan
+      detail** cards pass it so their picker rows are label-above too. Default off, so the create forms are unchanged.
     - **Two recurring arrangements:** **master-detail** (Patients — a left directory list ↔ a right overview panel,
       selection in local `useState`) and **form + card-list history** (the queues — a left create-form card ↔ a right
       history card). Both use a CSS grid (`gridTemplateColumns: { xs:'1fr', md:'2fr 3fr' }` etc.); when the caller
@@ -1302,6 +1306,14 @@ to the AWS deployment, Alertmanager routing, RDS PITR/snapshot DR — all on-dem
     - **Pure visual restyle — keep it that way:** no data/mutation/logic changes, and preserve the test handles the
       detail tests assert on (e.g. the reprocessing-detail test matches the exact text **"Plan: North PPO"**, so keep
       plan and counts on **separate** subtitle lines — don't merge them).
+    - **Embedded forms on detail pages are label-above too (2026-09-23, commit `e8d2022`).** The forms inside the
+      cards (Patient detail's Care team / Coverage eligibility / Consent; Request detail's Assign to / Reason /
+      Add a comment; Coverage plan detail's Allowed amount / network select / picker rows) use a local **`FormField`**
+      helper (label above via `<Typography component="label" htmlFor>` + a control with the matching `id`; optional
+      `grow` = `flex:1, minWidth:0`, `full` = `width:100%`). **Do not reintroduce MUI floating labels** (`label=…` +
+      `inputLabel:{shrink:true}`) on these. **Half-width cards (Patient detail Care team)** can't fit a select + two
+      dates + a button on one row — put the select full-width on its own line, then From/To/Assign below, and give
+      trailing buttons `flexShrink: 0` so they never get pushed off.
 
 ## Infrastructure & deployment conventions (Phase 10; learned)
 - **⚠️ AWS cost/approval boundary (hard rule).** Never create, modify, or destroy AWS resources — no

@@ -456,6 +456,29 @@
 
 ## Log (newest first)
 
+### 2026-09-23 — Detail-page embedded forms converted to label-above (glitch fix) ✅ (frontend)
+- **Why:** the user spotted that the detail pages' **embedded forms** still used MUI **floating labels** (notched
+  into the field border) — cramped and inconsistent with the label-above style the rest of the redesign uses.
+  Commit `e8d2022`, 4 files.
+- **Converted to a label-above `FormField`** (a `<Typography component="label" htmlFor>` above a control with the
+  matching `id`, so `getByLabelText`/screen readers still resolve):
+  - **Patient detail** — Care team (Add provider/coordinator, From, To), Coverage eligibility (Plan, Member ID,
+    Coverage start/end), Consent (Effect, Purpose, Data category, Scope, Provider, Effective from/to).
+  - **Request detail** — Assign to, Reason to `<action>`, Add a comment.
+  - **Coverage plan detail** — Allowed amount, Add a provider to the network, and the three **MedicalCodePicker**
+    rows (Exclude / Price / Require prior auth).
+- **`MedicalCodePicker` gained an opt-in `labelAbove` prop** (default off): renders the label above instead of the
+  floating label and preserves the accessible name via **`aria-label`** (merged into the Autocomplete's
+  `slotProps.htmlInput`). The create forms (claims/prior-auth/referrals) don't pass it, so they keep their inline
+  label **unchanged** — the documented exception still holds for those.
+- **Care team layout regression fixed:** those Providers/Coordinators cards are half-width, so a first attempt put
+  the select + two date fields + Assign button on one row → the "To" field overflowed the card and the Assign
+  button was pushed off. Restructured: the select sits full-width on its own line, with **From / To / Assign**
+  below (fields shrink to fit); the Assign button is back and visible.
+- **Pure visual restyle, no behavior change**; every test handle preserved, so **no tests changed**.
+- **Verify:** typecheck clean, **183 tests / 40 files** pass, build succeeds; verified live (Patient, Request,
+  Coverage plan detail).
+
 ### 2026-09-23 — All 9 detail pages redesigned to the workspace design language ✅ (frontend)
 - **Why:** after the list/queue pages, the sidebar footer, and Manual review / Reprocessing were redesigned, the
   **detail pages** (the pages you land on from a list row) were the last inconsistency — still the old "Back link +
