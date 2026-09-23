@@ -1138,7 +1138,11 @@ to the AWS deployment, Alertmanager routing, RDS PITR/snapshot DR — all on-dem
     wash, the zebra, the soft chips — the chip tint uses the CSS-var `--mui-palette-<color>-mainChannel` so it follows
     the active scheme). **New scheme-aware styling MUST go through theme vars / `applyStyles`, never a hardcoded hex.**
     `useColorScheme` returns `undefined` mode without a CSS-vars provider, so `ThemeToggle` renders nothing in unit
-    tests (they don't wrap in `ThemeProvider`) — keep that guard.
+    tests (they don't wrap in `ThemeProvider`) — keep that guard. **`ThemeToggle` (2026-09-23, commit `548fb89`) is
+    a compact, labelled "Appearance" segmented control** — Light / System / Dark, each an icon + label in one row on
+    a tinted track, the selected one a raised `background.paper` card. **The "Appearance" heading lives inside
+    `ThemeToggle`** (not the caller) so it disappears together with the control under the `!mode` guard — don't move
+    it back into `AppLayout`, or unit tests would show an orphan label.
   - **Depth & color pass (slice 8)** — a subtle fixed radial **canvas wash** (`MuiCssBaseline` body), a soft layered
     **card shadow**, and a faint **zebra** on even table rows (head row untinted) so the app isn't flat white; the
     dashboard stat cards carry a brand-gradient top accent + teal number + hover lift, tiles get a hover lift.
@@ -1158,6 +1162,11 @@ to the AWS deployment, Alertmanager routing, RDS PITR/snapshot DR — all on-dem
   - **The shell** (`AppLayout`): a grouped, role-gated **sidebar** (permanent on desktop via
     `useMediaQuery(up('md'), { defaultMatches: true })` so it renders in jsdom tests; temporary drawer + hamburger on
     mobile), groups **Care / Claims & coverage / Governance**, brand at top, user identity + Log out in the footer.
+    **Sidebar footer (2026-09-23, commit `548fb89`) — the current look:** the **identity is the focal point** — a
+    larger, bolder name (`fontSize 1.15rem`) over the org, with a **teal→indigo accent bar** beside it; the role is a
+    **teal-tinted `Chip` with a shield icon** (not a plain outlined chip); a **divider with a short teal accent
+    segment**; then the compact **Appearance** control (see `ThemeToggle` below) and the Log out button. Keep the
+    identity visually dominant over the theme switch.
   - **Login** (`LoginPage`) = a **bespoke always-dark "technical" landing page** (2026-09-22 — see the Front page note
     in the Auth section above; NOT theme-aware, it uses its own `DK`/`LT` token sets): a header (brand + logo · six
     role personas with icons, inline on desktop / wrapped row below md · a "Sign in" pill = the Cognito action) over a

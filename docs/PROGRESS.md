@@ -456,6 +456,26 @@
 
 ## Log (newest first)
 
+### 2026-09-23 — Sidebar footer redesigned (identity + Appearance control) ✅ (frontend)
+- **Why:** the user supplied a reference mockup for the sidebar footer (the user identity + theme switch +
+  logout block) and, in a follow-up, asked to make the **identity the focal point** (bigger name) and the
+  **Appearance switch smaller**. Commit `548fb89`, 2 files (`layout/AppLayout.tsx`, `components/ThemeToggle.tsx`).
+- **Identity** now leads: a larger, bolder **name** (1.15rem) over the org name, with a **teal→indigo accent bar**
+  beside it (a small echo of the constellation hero).
+- **Role chip** is a **teal-tinted pill with a shield icon** (`bgcolor: rgba(13,148,136,0.10)`, `color:
+  primary.dark`, teal icon) — was a plain outlined chip.
+- A **divider with a short teal accent segment** separates identity from settings.
+- **ThemeToggle** became a **compact, labelled "Appearance" segmented control** — Light / System / Dark, each an
+  icon + label in one row, the selected one a raised `background.paper` card; deliberately small so it doesn't
+  compete with the identity block (was three icon-only tooltip buttons). The **"Appearance" heading lives inside
+  ThemeToggle**, so it disappears together with the control when there's no CSS-vars provider (unit tests — the
+  toggle already returns `null` there), avoiding an orphan label.
+- **Log out** stays, moved below the Appearance control.
+- **Pure visual restyle, no behavior change**; no tests reference the footer directly, and the app-shell
+  **accessibility test still passes** (skip link + named Primary nav + single h1, no axe violations).
+- **Verify:** typecheck clean, **183 tests / 40 files** pass, `npm run build` succeeds; confirmed live in the
+  browser in **both light and dark** (switching modes restyles the footer + the whole app).
+
 ### 2026-09-23 — Manual review & Reprocessing redesigned to the workspace design language ✅ (frontend)
 - **Why:** the user supplied per-page reference mockups (before/after) for the last two **Claims & coverage**
   queues still on the old stacked layout — **Manual review** (claim-reviews) and **Reprocessing** — and asked to
