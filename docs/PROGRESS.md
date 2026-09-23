@@ -456,6 +456,36 @@
 
 ## Log (newest first)
 
+### 2026-09-23 — Governance pages redesigned to the workspace design language ✅ (frontend)
+- **Why:** the user supplied per-page reference mockups (before/after) and asked to bring the three **Governance**
+  pages — **Audit trail**, **Access review**, **Dead letters** — up to the same polished, consistent design as the
+  core workspace pages already redesigned (commit `8709846`). Commit `064451a` (pushed to `origin/main`), 3 files.
+- **Shared design language applied to each page:** a **breadcrumb** (`{org} / Governance`) + hairline divider, a
+  **subtitled `PageHeading`**, softly-shadowed cards, and a teal-tinted **count `Chip`** on the section heading —
+  the same tokens as the workspace-page redesign.
+- **Audit** (`src/audit/AuditEventsPage.tsx`): the top-right "Verify integrity" button became a dedicated
+  **"Verify the audit chain" card** (teal link-icon tile + the HMAC-hash-chain explanation, moved up from the small
+  grey footnote, + the button), with the pass/fail `Alert` rendered inside it. Below it an **"Audit events"**
+  section heading (+ count chip), then the search + Action `<Select>` filters and the events table moved **inside a
+  card**. The sortable When/Seq headers, server-side action filter + debounced id search, and pagination are
+  unchanged.
+- **Access review** (`src/breakglass/AccessReviewPage.tsx`): added **three info cards** — Provider-declared (teal
+  person), Time-boxed & audited (indigo clock), Administrator control (purple shield) — then an **"Active emergency
+  access"** section heading (+ count chip) and the grants table, with a **richer empty state** (shield-in-circle +
+  "No active emergency access." + "Active grants will appear here for review."). The inline Revoke→Confirm flow,
+  patient links, provider-name tooltips, and admin-vs-auditor gating are unchanged.
+- **Dead letters** (`src/deadletter/DeadLetterEventsPage.tsx`): added **three numbered step cards** — 01 Inspect /
+  02 Resolve / 03 Replay (teal circular icons + teal step numbers) — then a **"Dead-lettered messages"** section
+  heading (+ count chip), the search box + table **inside a card** with a two-line empty state, and an explanatory
+  **footnote** (info icon; kept the full original wording at the user's request). The inline Replay→Confirm flow,
+  Replayed chip, sortable headers, debounced id search, and pagination are unchanged.
+- **Pure visual restyle** — no behavior, endpoint, or role-gate change; the three pages depend on the same hooks as
+  before. To keep the tests green (test-critical: the Verify integrity / Revoke / Replay buttons, the "Action"
+  select label, the search boxes' accessible names, the sortable column headers), those elements were preserved.
+- **Verify:** `npm run typecheck` clean; full suite **183 tests / 40 files** green; `npm run build` succeeds;
+  verified live in the browser preview against each mockup. Files: `AuditEventsPage.tsx`, `AccessReviewPage.tsx`,
+  `DeadLetterEventsPage.tsx`.
+
 ### 2026-09-23 — RP-initiated Cognito logout (switch users same-window, no Incognito) ✅ (backend + frontend)
 - **Why:** the user wanted to check each provider's view (`provider@`/`provider2@` × NorthCare/Green Valley) but
   found that after logging in as one, **Log out → Sign in** re-logged the **same** user. Root cause: our logout only

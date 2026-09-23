@@ -1237,6 +1237,25 @@ to the AWS deployment, Alertmanager routing, RDS PITR/snapshot DR — all on-dem
       underlying option **values** stay the raw enum.
     - **Kept exports:** `money` (from `claims/ClaimsPage.tsx`) and `percent` (from `coverage/CoveragePlansPage.tsx`)
       are imported by the corresponding **detail** pages — don't drop them when editing those files.
+  - **Governance page layouts (2026-09-23, commit `064451a`) — the current look of the three Governance pages.**
+    The **Audit trail**, **Access review**, and **Dead letters** pages follow the same shared design language as the
+    workspace pages above (breadcrumb `{org} / Governance` + divider, subtitled `PageHeading`, softly-shadowed
+    cards, a teal-tinted count `Chip` on a section heading). These are **read-heavy ops pages, so they KEEP their
+    wide data tables** (unlike the queues, which became card lists) — the restyle wraps the existing table in a card
+    and adds context above it, rather than replacing it:
+    - **Audit** (`src/audit/AuditEventsPage.tsx`): a **"Verify the audit chain" card** (teal link-icon tile +
+      explanation + the Verify-integrity button, with the verify `Alert` inside it) above an **"Audit events"**
+      section (count chip) whose filters (debounced id search + Action `<Select>`) and sortable table live in a card.
+    - **Access review** (`src/breakglass/AccessReviewPage.tsx`): **three info cards** (Provider-declared / Time-boxed
+      & audited / Administrator control — tinted circular icons) above an **"Active emergency access"** section
+      (count chip) + the grants table with a shield empty state; the Revoke→Confirm flow + admin/auditor gating kept.
+    - **Dead letters** (`src/deadletter/DeadLetterEventsPage.tsx`): **three numbered step cards** (01 Inspect / 02
+      Resolve / 03 Replay) above a **"Dead-lettered messages"** section (count chip) + the search/table-in-a-card +
+      an explanatory footnote; the Replay→Confirm flow + Replayed chip kept.
+    - **Test-critical elements preserved** when restyling any of these: the Verify-integrity / Revoke / Replay
+      buttons (by exact name), the **"Action"** select label, the search boxes' accessible names (`aria-label` via
+      `slotProps.htmlInput` when the visible label is dropped for a placeholder + magnifier), and the sortable
+      column headers — the existing tests assert on all of these.
 
 ## Infrastructure & deployment conventions (Phase 10; learned)
 - **⚠️ AWS cost/approval boundary (hard rule).** Never create, modify, or destroy AWS resources — no

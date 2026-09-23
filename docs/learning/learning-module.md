@@ -4856,3 +4856,113 @@ access; at most it lets anyone start a logout, which is harmless. The client *se
 A: Same code; only the two env vars change — `COGNITO_HOSTED_UI_DOMAIN` (same pool domain) and
 `COGNITO_LOGOUT_REDIRECT_URI` set to the CloudFront `https://…` origin (already a registered Sign-out URL). The
 backend then emits a logout URL that returns to the deployed app instead of localhost.
+
+---
+
+## Redesigning the Governance pages onto the shared design language — 2026-09-23
+
+### What we built
+We restyled the three **Governance** pages — **Audit trail**, **Access review**, and **Dead letters** — to match
+per-page reference mockups, bringing them onto the same "workspace" design language the core pages already use
+(commit `8709846`). This session's work is commit `064451a` (3 files, frontend only). It was a **pure visual
+restyle**: no endpoints, hooks, behavior, or role gates changed.
+
+### How it works
+All three pages now open the same way:
+
+- A **breadcrumb** (`{organizationName} / Governance`) + a hairline `Divider`.
+- A **subtitled `PageHeading`** — the `<h1>` plus a one-line description under it.
+- Softly-shadowed **cards** and a **teal-tinted count `Chip`** next to a section heading.
+
+Unlike the numbered work queues (which became card lists in the earlier redesign), these are **read-heavy ops
+pages, so they keep their wide data tables** — the restyle wraps the table in a card and adds context above it.
+
+**Audit** (`frontend/src/audit/AuditEventsPage.tsx`): the old top-right "Verify integrity" button became a
+dedicated **"Verify the audit chain" card** — a teal link-icon tile, the HMAC-hash-chain explanation (promoted up
+from the small grey footnote), and the button — with the pass/fail `Alert` rendered inside it. Below it, an
+**"Audit events"** section heading (+ count chip), then the filters (debounced id search + Action `<Select>`) and
+the sortable events table inside a card.
+
+**Access review** (`frontend/src/breakglass/AccessReviewPage.tsx`): three **info cards** driven by a small data
+array, each a tinted circular icon + title + body:
+
+```tsx
+const INFO_CARDS = [
+  { icon: <PersonOutlinedIcon/>,   tint: 'rgba(13,148,136,0.10)', color: 'primary.main', title: 'Provider-declared', ... },
+  { icon: <ScheduleOutlinedIcon/>, tint: 'rgba(79,70,229,0.10)',  color: '#4f46e5',      title: 'Time-boxed & audited', ... },
+  { icon: <ShieldOutlinedIcon/>,   tint: 'rgba(124,58,237,0.10)', color: '#7c3aed',      title: 'Administrator control', ... },
+]
+```
+
+Then an **"Active emergency access"** section (+ count chip) and the grants table, with a richer empty state
+(shield-in-circle + a bold line + a muted secondary line).
+
+**Dead letters** (`frontend/src/deadletter/DeadLetterEventsPage.tsx`): three **numbered step cards** (01 Inspect /
+02 Resolve / 03 Replay — teal circular icons + teal step numbers), then a **"Dead-lettered messages"** section
+(+ count chip), the search box + table inside a card with a two-line empty state, and an explanatory **footnote**
+(info icon).
+
+### Key points to remember
+- **Test-critical elements must survive a restyle.** The existing tests assert on: the **Verify integrity /
+  Revoke / Replay** buttons (by exact accessible name), the **"Action"** select label (`getByLabelText('Action')`
+  then a `role="option"` click — so it stays a **non-native** MUI select), the **search boxes' accessible names**
+  (`/search correlation/i`, `/search event id/i`), and the **sortable column headers** (`/Seq/i`,
+  `/Source topic/i`). When you drop a visible `label` in favor of a placeholder + magnifier adornment, you must add
+  an `aria-label` via `slotProps={{ htmlInput: { 'aria-label': '…' } }}` or the `getByRole('textbox', { name })`
+  query breaks.
+- **Two `Stack` alignment gotcha reminders held:** put `alignItems`/`justifyContent` in `sx`, not as direct props,
+  when children are an array (a documented project rule).
+- **Adding `useCurrentUser` to a page that had no router/user mock is safe.** Dead letters' test doesn't wrap in a
+  `MemoryRouter` or mock `useCurrentUser`; because `useCurrentUser` is a react-query hook (needs only the
+  `QueryClientProvider`, which the test has) and we render **no** `RouterLink`, the breadcrumb simply falls back to
+  `{user?.organizationName ?? '—'}` in the test and the suite stays green.
+- **Count chips read `totalElements`** (paged pages: Audit, Dead letters) or `rows.length` (Access review lists all
+  active grants, not paged).
+- The Dead-letters **footnote wording** was, on the user's request, kept as the full original sentence (the longer
+  "Messages that failed processing…" paragraph), not a shortened rewrite.
+
+### Failures and how we fixed them
+Nothing broke this session. Each page was restyled, then `npm run typecheck` + its own test file were run and
+passed on the first try; the full suite (**183 tests / 40 files**) + `npm run build` were green before commit. The
+only mid-session change was a **copy tweak** — the user asked to restore the fuller Dead-letters footnote wording,
+which was a one-line edit (no test touches that text).
+
+### Interview Q&A
+
+#### 1. Beginner
+**Q: What is a "pure visual restyle"?**
+A: A change that only affects how a page looks — layout, cards, spacing, icons — without changing what it does: same
+data source, same API calls, same buttons and behavior. These three pages kept every hook and endpoint; only the
+JSX/styling changed.
+
+**Q: Why keep a table on these pages but use card lists on the work queues?**
+A: The Governance pages are read-heavy operational views with many columns (audit fingerprints, dead-letter
+payloads/failures) where a dense table is the right tool. The work queues are browse-and-act lists where a card per
+row reads better. The design language is shared; the row presentation differs by purpose.
+
+#### 2. Intermediate
+**Q: How do you restyle a page without breaking its tests?**
+A: Read the test file first and identify what it queries by — accessible names, labels, roles. Preserve those exact
+handles while changing everything around them. Here that meant keeping the button names, the "Action" select as a
+non-native MUI select, the search inputs' accessible names (re-added as `aria-label` when the visible label was
+dropped), and the sortable header labels.
+
+**Q: Why does dropping a `TextField`'s `label` require an `aria-label`?**
+A: A control's accessible name comes from its label. If you replace the floating `label` with only a placeholder
+(plus a magnifier icon), the element loses its accessible name, so `getByRole('textbox', { name: /…/ })` no longer
+matches. Adding `slotProps={{ htmlInput: { 'aria-label': '…' } }}` restores the name for both assistive tech and
+the tests.
+
+#### 3. Advanced
+**Q: A page's test neither wraps it in a router nor mocks `useCurrentUser`, yet you added `useCurrentUser`. Why is
+that safe?**
+A: `useCurrentUser` is a TanStack Query hook, so it only needs the `QueryClientProvider` the test already sets up —
+not a router. In the test the query has no mocked resolver, so its `data` is `undefined` and the breadcrumb renders
+the `'—'` fallback; nothing throws. A router would only be required if the component rendered `Link`/`useParams`,
+which the breadcrumb does not. So the addition is invisible to the existing assertions.
+
+**Q: The count chip uses `totalElements` on two pages but `rows.length` on the third — why the inconsistency?**
+A: It mirrors each page's data model. Audit and Dead letters are server-paged (`PageResponse`), so the true total
+is `totalElements` (the current page holds only `size` rows). Access review's endpoint returns **all active** grants
+as a plain array, so `rows.length` *is* the total. Using `rows.length` on a paged page would under-count to the page
+size.
