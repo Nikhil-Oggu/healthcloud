@@ -1195,6 +1195,34 @@ to the AWS deployment, Alertmanager routing, RDS PITR/snapshot DR — all on-dem
     name-resolving queues (they briefly show empty/"—" before a secondary query resolves); making every empty table
     use the centered `EmptyState` (a few still use plain left-aligned text); and giving the Phase-2 **Requests**
     queue the same search + pagination the eight newer queues have.
+  - **Workspace page layouts (2026-09-23, commit `8709846`) — the current look of the core pages.** Following
+    per-page reference mockups, the main in-app pages were restyled onto a shared design language; **match these
+    when adding or editing a page** (they supersede the older full-width-table look for these pages):
+    - **Every page opens with** a **breadcrumb** (`{user.organizationName} / {nav group}`, e.g. "… / Care" or
+      "… / Claims & coverage") + a hairline `Divider`, then a **`PageHeading` with a one-line subtitle** under it.
+    - **Label-above form fields:** a small local `Field` helper — `<Typography component="label" htmlFor={id}>` above
+      the control, and the control carries the matching `id` — so the label sits above (not a floating MUI label) and
+      `getByLabelText` still resolves. Native selects use `slotProps={{ select: { native: true } }}` (no `inputLabel`
+      shrink needed since there's no floating label). Forms end with a **Clear** (outlined, resets RHF) + a primary
+      submit button. **Exception:** the shared `MedicalCodePicker` keeps its own inline label (Claims line items,
+      Referrals/Prior-auth code fields) — a deliberate functional keep, so those fields aren't label-above.
+    - **Two recurring arrangements:** **master-detail** (Patients — a left directory list ↔ a right overview panel,
+      selection in local `useState`) and **form + card-list history** (the queues — a left create-form card ↔ a right
+      history card). Both use a CSS grid (`gridTemplateColumns: { xs:'1fr', md:'2fr 3fr' }` etc.); when the caller
+      lacks the create role, the history/overview renders full-width instead.
+    - **History cards (queues):** the card header holds the title + a **teal-tinted count `Chip`**
+      (`bgcolor:'rgba(13,148,136,0.10)', color:'primary.dark'`) + a search box (magnifier `InputAdornment`,
+      `slotProps={{ htmlInput: { 'aria-label': '…' } }}` for the accessible name) + a Status `<Select>`; the body is a
+      **card list** (bordered rounded `Box` per row: business-number `RouterLink` + status chip, teal-tinted **avatar
+      initials** + patient, key/value details, a "View … →" `RouterLink` with `ArrowForwardOutlinedIcon`) with the
+      `TablePagination` footer kept. **This dropped client-side column sorting** (no table headers in a card list —
+      the backend default newest-first stands); **search + status filter + server pagination are unchanged**.
+    - **Card grid:** Coverage plans is a responsive card grid (search + type filter + count), each card a teal shield
+      icon + type chip, name + code, a 2×2 metric grid, and a "View plan →" link.
+    - **Humanized enum labels** in display/table cells via a local `humanize` (`CLAIM_SUPPORT`→"Claim support"); the
+      underlying option **values** stay the raw enum.
+    - **Kept exports:** `money` (from `claims/ClaimsPage.tsx`) and `percent` (from `coverage/CoveragePlansPage.tsx`)
+      are imported by the corresponding **detail** pages — don't drop them when editing those files.
 
 ## Infrastructure & deployment conventions (Phase 10; learned)
 - **⚠️ AWS cost/approval boundary (hard rule).** Never create, modify, or destroy AWS resources — no

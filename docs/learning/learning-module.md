@@ -4635,3 +4635,128 @@ header stayed valid, so `file` was fooled) — fixed by generating the asset end
 a *compositing* bug (`background-attachment: fixed` let the light body paint through during scroll) — fixed by
 dropping `fixed`. Lesson: validate generated binaries by decoding them, and be wary of `fixed` backgrounds over a
 differently-colored body.
+
+---
+
+## Redesigning the core workspace pages: master-detail & form + card-list — 2026-09-23
+
+### What we built
+We restyled the main in-app pages — **Requests, Patients, Referrals, Claims, Coverage plans, Prior
+authorizations, Appeals** — from plain full-width tables into a consistent, polished layout that matches the
+new front page. Each page now opens with a breadcrumb + subtitled heading and uses one of two arrangements:
+a **master-detail** view (Patients) or a **form + card-list history** view (the queues). Coverage plans became
+a searchable **card grid**. We also got the header **"Sign in" → Cognito** flow working end-to-end locally
+(runtime only — the button was already wired correctly).
+
+### How it works
+- **Shared building blocks** (repeated per page, not yet extracted):
+  - Breadcrumb: `{user.organizationName} / {nav group}` + a hairline `<Divider>`, then a `PageHeading` (`<h1>`)
+    with a muted subtitle beneath it.
+  - **Label-above field** — a tiny local helper so the label sits above the control *and* stays accessible:
+    ```tsx
+    function Field({ id, label, children }: { id: string; label: string; children: ReactNode }) {
+      return (
+        <Box>
+          <Typography component="label" htmlFor={id} variant="body2"
+            sx={{ display: 'block', mb: 0.75, fontWeight: 500, color: 'text.secondary' }}>
+            {label}
+          </Typography>
+          {children}
+        </Box>
+      )
+    }
+    // usage: <Field id="ref-patientId" label="Patient"><TextField id="ref-patientId" .../></Field>
+    ```
+    The matching `id`/`htmlFor` is what keeps `getByLabelText('Patient')` working in tests even though there's no
+    floating MUI label.
+  - **Humanized enum labels** for display: `const humanize = s => s[0].toUpperCase() + s.slice(1).toLowerCase().replace(/_/g,' ')`
+    turns `CLAIM_SUPPORT` → "Claim support". Option **values** stay the raw enum; only the visible text changes.
+- **Master-detail (Patients):** a CSS grid `{ xs:'1fr', md:'1fr 1fr' }`. Selection lives in local state; the
+  directory filters client-side by name/MRN, and the overview reads `filtered.find(id) ?? filtered[0]` so it always
+  shows something sensible. The consent-masked DOB renders a 🔒 lock + "Restricted" when `dateOfBirth == null`.
+- **Form + card-list history (queues):** a grid `{ xs:'1fr', md:'2fr 3fr' }` with the create-form card on the left
+  and a history card on the right. The history header carries a **teal-tinted count `Chip`**, a **debounced search
+  box**, and a Status `<Select>`; the body maps rows to bordered cards (business-number link + status chip, avatar
+  initials + patient, key/value details, "View … →"). The `TablePagination` footer is kept. Server pagination +
+  search + status filter are unchanged; only the **client-side column sort** was removed (a table affordance that
+  doesn't fit a card list — the backend already defaults to newest-first).
+- **Card grid (Coverage plans):** search by name/code + a plan-type filter + a count, then cards with a shield icon,
+  type chip, a 2×2 metric grid (Deductible/Coinsurance, Copay/OOP max), and a "View plan →" link.
+- **Verify loop:** `npm run typecheck`, `npx vitest run` (40 files / 183 tests), `npm run build`, then each page
+  eyeballed in the browser preview against its mockup.
+
+### Key points to remember
+- **The label-above pattern must keep `id`/`htmlFor` paired**, or `getByLabelText` breaks and screen readers lose the
+  association. This is the single most repeated correctness detail across the redesign.
+- **Kept exports:** `money` (`claims/ClaimsPage.tsx`) and `percent` (`coverage/CoveragePlansPage.tsx`) are imported by
+  the matching **detail** pages. A "clean rewrite" of those files must preserve the exports or the detail pages fail to
+  compile — checked with `grep -rn "import { money" src` before rewriting.
+- **Master-detail duplicates data:** the selected patient's name/MRN appear in both panels, so `getByText`/`findByText`
+  had to become `getAllByText`/`findAllByText` in the Patients tests.
+- **MUI 9 `Stack` gotcha (again):** `alignItems`/`justifyContent` as direct `Stack` props leak to the DOM (React
+  "unknown prop" warning) when children are an array — always put them in `sx`. Caught by `tsc` and a jsdom console
+  warning.
+- **Search box accessible name:** with no visible `label`, set it via `slotProps={{ htmlInput: { 'aria-label': '…' } }}`
+  so `getByRole('textbox', { name: /search …/i })` resolves.
+- **Deliberate functional keeps over pixel-matching:** the mockups showed plain text inputs for procedure/diagnosis
+  codes, but we kept the searchable `MedicalCodePicker` (validates against the catalog) — it shows an inline label
+  instead of label-above. Worth trading a small visual difference for real validation.
+- **The Cognito "Sign in" button was never broken** — it's a full-page link to `/oauth2/authorization/cognito`; it only
+  looked dead because the backend wasn't running. Lesson: verify the runtime before "fixing" code. The client secret was
+  pulled from AWS via command substitution so it never appeared in a prompt, a shell arg, or output.
+
+### Failures and how we fixed them
+- **Typecheck failed on `Stack` alignment props** (Requests page): moved `alignItems`/`justifyContent` into `sx`.
+- **Test failures after removing the "Create a request" header** and renaming buttons: the assertions targeted removed
+  text (`New request`, `Create a request`, button `Request`/`Submit`/`Create`). Fixed by pointing the assertions at the
+  new, stable labels (the primary button, or the form's first field) and updating button names to match.
+- **`React.ReactNode` used without importing React** (Prior-auth `DetailRow`): switched to `import type { ReactNode }`.
+- **Removed obsolete "column header sorts" tests** on the four queues that became card lists — the affordance no longer
+  exists; the remaining queue tests (search debounce, status filter, pager, empty state, role-gated form) still cover the
+  behavior.
+
+### Interview Q&A
+
+#### 1. Beginner
+**Q: What is a "master-detail" layout?**
+A: A list of items on one side and a detail/overview panel on the other; selecting an item on the list updates the
+panel. Our Patients page is the example — a directory on the left, the selected patient's overview on the right.
+
+**Q: Why put the field label above the input instead of using MUI's floating label?**
+A: It matched the mockups and reads more clearly for dense forms. We kept accessibility by pairing a
+`<label htmlFor>` with the control's `id`, so assistive tech (and `getByLabelText` tests) still associate them.
+
+**Q: The "Sign in" button did nothing — was it a bug in the button?**
+A: No. It's a full-page link to the backend's Cognito endpoint. It appeared dead only because the backend wasn't
+running to answer that link. Starting the backend fixed it — no code change.
+
+#### 2. Intermediate
+**Q: You removed client-side column sorting from the queues. Did that reduce functionality?**
+A: Only the UI affordance. The backend still returns results newest-first by default, and search, status filtering,
+and server-side pagination are unchanged. A card list has no column headers to click, so column sort didn't fit; the
+same data is still reachable via search/filter.
+
+**Q: How did you avoid breaking the detail pages when rewriting `ClaimsPage`/`CoveragePlansPage`?**
+A: Those files export helper functions (`money`, `percent`) that the detail pages import. Before rewriting I grepped
+for the importers and made sure the rewrite kept the exports, then re-ran typecheck to confirm nothing dangled.
+
+**Q: Why did some Patients tests switch to `getAllByText`?**
+A: In a master-detail view the selected row's name and MRN appear in both the directory and the overview, so
+`getByText` (which requires exactly one match) throws. `getAllByText` asserts "at least one" instead.
+
+#### 3. Advanced
+**Q: The label-above `Field` is duplicated in several files. Trade-off?**
+A: It's ~12 lines and slightly different per page (some wrap in `flex:1`). Duplicating kept each page self-contained
+and the diffs reviewable; the cost is drift risk. A future refactor could extract a shared `components/Field.tsx`
+(and a `NativeSelectField`) — already noted as a follow-up in CLAUDE.md.
+
+**Q: How is the search box's accessible name set when there's no visible label, and why does it matter?**
+A: Via `slotProps={{ htmlInput: { 'aria-label': 'Search claim #' } }}`, which puts `aria-label` on the native
+`<input>`. It matters because the tests locate it with `getByRole('textbox', { name: /search …/i })`, and screen-reader
+users need a name for an unlabeled field. Putting it on the wrapper (`input` slot) instead of `htmlInput` wouldn't
+reach the actual input element.
+
+**Q: Why fetch the Cognito client secret with command substitution instead of pasting it?**
+A: So the secret never enters the conversation, the shell history as a literal, or command output — it flows straight
+from `aws cognito-idp describe-user-pool-client` into an env var. This mirrors how the deployed app injects it from
+Secrets Manager, and it respects the rule that the assistant never handles credentials in plaintext.

@@ -456,6 +456,47 @@
 
 ## Log (newest first)
 
+### 2026-09-23 — Core workspace pages redesigned to master-detail / card layouts ✅ (frontend)
+- **Why:** the user supplied per-page reference mockups and asked to bring the main in-app pages up to the same
+  polished, consistent design as the new front page. Commit `8709846` (pushed to `origin/main`), 20 files.
+- **Also this session:** got the **header "Sign in" → Cognito** flow working end-to-end **locally** — the button
+  was already correctly wired (full-page link to `/oauth2/authorization/cognito`); it looked dead only because the
+  backend wasn't running. Started the backend on `local,cognito` (client id `2apbhhj0d4pn3pvc004nmkki6l`, secret
+  fetched from AWS via `aws cognito-idp describe-user-pool-client` command-substitution — never typed/echoed),
+  verified 302 → the branded Cognito hosted UI through the Vite proxy. No code change; runtime/verify only.
+- **Shared design language applied to every page:** a **breadcrumb** (`{org} / {group}`) + hairline divider, a
+  **subtitled `PageHeading`**, softly-shadowed cards, a **label-above form field** pattern (a small local `Field`
+  helper: `<Typography component="label" htmlFor>` + the control), teal-tinted **avatar initials**, a teal-tinted
+  **count `Chip`**, and **humanized enum labels** (`CLAIM_SUPPORT`→"Claim support", `NORMAL`→"Normal" via a local
+  `humanize`). Two recurring arrangements: **master-detail** (Patients) and **form + card-list history** (the queues).
+- **Requests** (`src/requests/RequestsPage.tsx`): cleaner label-above create form (Clear + "Create request"),
+  4-column table **Title · Type · Priority · Status**, icon empty state. (Also removed the "＋ Create a request"
+  card-header block at the user's request — Requests only; other forms keep their header.)
+- **Patients** (`src/patients/PatientsPage.tsx`): **master-detail** — left **Patient directory** card (count chip,
+  client-side **search by name/MRN**, selectable avatar rows with a teal left-border on the selected one) ↔ right
+  **Patient overview** card (big avatar, name/MRN/status, **Date of birth** with a 🔒 lock + "Restricted" when the
+  backend masks it, the "Some fields are restricted…" note, and an **Open patient record** button). Export CSV +
+  the coordinator/admin Add-patient form preserved. (Master-detail duplicates the selected row's name/MRN across
+  both panels → tests switched to `getAllByText`.)
+- **Referrals / Claims / Prior auth / Appeals** (`src/referral`, `src/claims`, `src/priorauth`, `src/appeal`):
+  **two-column** — left **create-form card**, right **history card** whose header holds the count chip + a search
+  box (magnifier adornment) + a Status `<Select>`, and whose body is a **card list** (each: business-number link +
+  status chip, avatar + patient, key/value details, a "View … →" link) with the `TablePagination` footer kept.
+  Claims left the searchable **procedure-code picker** on its line items; Referrals kept the **diagnosis-code
+  picker** for its reason (both show an inline label rather than label-above — a deliberate functional keep).
+- **Coverage plans** (`src/coverage/CoveragePlansPage.tsx`): a **searchable card grid** — search by name/code +
+  a plan-type filter + an "N plans" count; each card = a teal shield icon + type chip, name + code, a 2×2 metric
+  grid (Deductible / Coinsurance, Copay / Out-of-pocket maximum), and a **View plan →** link. Admin create-plan
+  form preserved. Kept the `money` + `percent` exports the coverage/claim **detail** pages import.
+- **Deliberate scope note:** the card-list history dropped **client-side column sorting** (a table-header affordance
+  that doesn't fit a card list) — the backend default (newest-first) stands, and **search + status filter + server
+  pagination are unchanged**. The corresponding "column header sorts" unit tests were removed; all other queue tests
+  (search debounce, status filter, pager, empty state, role-gated form) were updated for the new labels and stay.
+- **MUI 9 `Stack` gotcha (re-hit):** `alignItems`/`justifyContent` passed as direct `Stack` props leak to the DOM
+  (React "unknown prop" warning) when children are an array — moved them into `sx` (already a documented rule).
+- **Verify:** `npm run typecheck` clean · **`npx vitest run` → 40 files / 183 tests pass** · `npm run build` clean.
+  Each page also verified live in the browser preview (as Dana, a PROVIDER, on the running `local,cognito` app).
+
 ### 2026-09-22 — Front page → technical-dark bento + two-org credentials popup ✅ (frontend)
 - **Why:** iterate the landing page (below) toward the user's preferred "technical dark" look and a stronger,
   self-serve demo entry point for recruiters. Commit `e2d86eb` (`frontend/src/auth/LoginPage.tsx` only).
