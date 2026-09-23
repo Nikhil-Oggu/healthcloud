@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import type { ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Controller, useFieldArray, useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -9,11 +10,13 @@ import {
   Button,
   Card,
   CardContent,
+  Divider,
   IconButton,
   Stack,
   TextField,
   Typography,
 } from '@mui/material'
+import AddOutlinedIcon from '@mui/icons-material/AddOutlined'
 import { ApiClientError } from '../api/client'
 import { usePatients } from '../patients/usePatients'
 import { MedicalCodePicker } from './MedicalCodePicker'
@@ -43,6 +46,23 @@ const createSchema = z.object({
 // The Zod schema coerces number inputs, so the form's input type (raw fields) differs from its parsed output.
 type CreateFormInput = z.input<typeof createSchema>
 type CreateFormOutput = z.output<typeof createSchema>
+
+/** A form field with the label sitting above the control (the design's label-on-top style). */
+function Field({ id, label, children }: { id: string; label: string; children: ReactNode }) {
+  return (
+    <Box sx={{ flex: 1, minWidth: 0 }}>
+      <Typography
+        component="label"
+        htmlFor={id}
+        variant="body2"
+        sx={{ display: 'block', mb: 0.75, fontWeight: 500, color: 'text.secondary' }}
+      >
+        {label}
+      </Typography>
+      {children}
+    </Box>
+  )
+}
 
 export function CreateClaimForm() {
   const patients = usePatients()
@@ -90,76 +110,95 @@ export function CreateClaimForm() {
   }
 
   return (
-    <Card>
-      <CardContent>
-        <Typography variant="subtitle1" gutterBottom>
-          New claim
-        </Typography>
+    <Card sx={{ height: '100%' }}>
+      <CardContent sx={{ p: { xs: 2.5, sm: 3 } }}>
+        {/* Card header */}
+        <Box sx={{ mb: 3 }}>
+          <Typography variant="h6" component="h2" sx={{ fontWeight: 700 }}>
+            Create a claim
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            Add patient details and the services provided.
+          </Typography>
+        </Box>
+
         {submitError && (
           <Alert severity="error" sx={{ mb: 2 }} onClose={() => setSubmitError(null)}>
             {submitError}
           </Alert>
         )}
+
         <Box component="form" onSubmit={handleSubmit(onSubmit)} noValidate>
-          <Stack spacing={2}>
+          <Stack spacing={2.5}>
             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-              <TextField
-                select
-                label="Patient"
-                size="small"
-                fullWidth
-                defaultValue=""
-                slotProps={{ select: { native: true }, inputLabel: { shrink: true } }}
-                {...register('patientId')}
-                error={!!errors.patientId}
-                helperText={errors.patientId?.message}
-              >
-                <option value="" disabled>
-                  {patients.isPending ? 'Loading…' : 'Select a patient'}
-                </option>
-                {(patients.data ?? []).map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.fullName} ({p.medicalRecordNumber})
+              <Field id="claim-patientId" label="Patient">
+                <TextField
+                  id="claim-patientId"
+                  select
+                  size="small"
+                  fullWidth
+                  slotProps={{ select: { native: true } }}
+                  {...register('patientId')}
+                  error={!!errors.patientId}
+                  helperText={errors.patientId?.message}
+                >
+                  <option value="" disabled>
+                    {patients.isPending ? 'Loading…' : 'Select a patient'}
                   </option>
-                ))}
-              </TextField>
+                  {(patients.data ?? []).map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.fullName} ({p.medicalRecordNumber})
+                    </option>
+                  ))}
+                </TextField>
+              </Field>
+              <Field id="claim-serviceDate" label="Service date">
+                <TextField
+                  id="claim-serviceDate"
+                  type="date"
+                  size="small"
+                  fullWidth
+                  sx={{ minWidth: 168 }}
+                  slotProps={{ htmlInput: { max: today() } }}
+                  {...register('serviceDate')}
+                  error={!!errors.serviceDate}
+                  helperText={errors.serviceDate?.message}
+                />
+              </Field>
+            </Stack>
+
+            <Field id="claim-renderingProviderId" label="Rendering provider">
               <TextField
-                label="Service date"
-                type="date"
-                size="small"
-                sx={{ minWidth: 168 }}
-                slotProps={{ inputLabel: { shrink: true }, htmlInput: { max: today() } }}
-                {...register('serviceDate')}
-                error={!!errors.serviceDate}
-                helperText={errors.serviceDate?.message}
-              />
-              <TextField
+                id="claim-renderingProviderId"
                 select
-                label="Rendering provider"
                 size="small"
                 fullWidth
-                defaultValue=""
-                slotProps={{ select: { native: true }, inputLabel: { shrink: true } }}
+                slotProps={{ select: { native: true } }}
                 helperText="Optional — used to check the plan's network"
                 {...register('renderingProviderId')}
               >
-                <option value="">
-                  {providers.isPending ? 'Loading…' : '— None —'}
-                </option>
+                <option value="">{providers.isPending ? 'Loading…' : '— None —'}</option>
                 {(providers.data ?? []).map((p) => (
                   <option key={p.userId} value={p.userId}>
                     {p.fullName}
                   </option>
                 ))}
               </TextField>
-            </Stack>
+            </Field>
 
-            <Typography variant="subtitle2">Lines</Typography>
-            {typeof errors.lines?.message === 'string' && (
-              <Typography variant="caption" color="error">
-                {errors.lines.message}
+            <Divider sx={{ mx: -3 }} />
+
+            <Box>
+              <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+                Claim lines
               </Typography>
-            )}
+              {typeof errors.lines?.message === 'string' && (
+                <Typography variant="caption" color="error">
+                  {errors.lines.message}
+                </Typography>
+              )}
+            </Box>
+
             {lines.fields.map((field, i) => (
               <Stack key={field.id} direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ alignItems: 'flex-start' }}>
                 <Controller
@@ -213,11 +252,24 @@ export function CreateClaimForm() {
               </Button>
             </Box>
 
-            <Box>
-              <Button type="submit" variant="contained" disabled={createClaim.isPending}>
+            <Divider sx={{ mx: -3 }} />
+
+            <Stack direction="row" spacing={1.5} sx={{ justifyContent: 'flex-end' }}>
+              <Button
+                variant="outlined"
+                color="inherit"
+                onClick={() => {
+                  reset()
+                  setSubmitError(null)
+                }}
+                disabled={createClaim.isPending}
+              >
+                Clear
+              </Button>
+              <Button type="submit" variant="contained" startIcon={<AddOutlinedIcon />} disabled={createClaim.isPending}>
                 {createClaim.isPending ? 'Creating…' : 'Create claim'}
               </Button>
-            </Box>
+            </Stack>
           </Stack>
         </Box>
       </CardContent>

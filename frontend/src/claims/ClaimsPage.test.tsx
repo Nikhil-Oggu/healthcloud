@@ -81,7 +81,7 @@ describe('ClaimsPage', () => {
 
     expect(await screen.findByText('No claims yet.')).toBeInTheDocument()
     // A reviewer reads the queue but sees no create form.
-    expect(screen.queryByText('New claim')).not.toBeInTheDocument()
+    expect(screen.queryByText('Create a claim')).not.toBeInTheDocument()
   })
 
   it('a create role sees the New claim form', async () => {
@@ -93,23 +93,7 @@ describe('ClaimsPage', () => {
 
     renderPage(<ClaimsPage />)
 
-    expect(await screen.findByText('New claim')).toBeInTheDocument()
-  })
-
-  it('clicking a column header sorts by that field, toggling asc/desc', async () => {
-    const user = userEvent.setup()
-    renderPage(<ClaimsPage />)
-    await screen.findByText('CLM-ABC12345')
-
-    await user.click(screen.getByRole('button', { name: /Service date/i }))
-    await waitFor(() =>
-      expect(listClaimsPage).toHaveBeenCalledWith(expect.objectContaining({ sort: 'serviceDate,asc', page: 0 })),
-    )
-
-    await user.click(screen.getByRole('button', { name: /Service date/i }))
-    await waitFor(() =>
-      expect(listClaimsPage).toHaveBeenCalledWith(expect.objectContaining({ sort: 'serviceDate,desc' })),
-    )
+    expect(await screen.findByText('Create a claim')).toBeInTheDocument()
   })
 
   it('advancing the pager requests the next page', async () => {

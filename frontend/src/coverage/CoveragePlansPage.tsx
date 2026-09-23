@@ -9,22 +9,23 @@ import {
   Button,
   Card,
   CardContent,
+  Chip,
+  Divider,
+  InputAdornment,
   Link,
-  Paper,
+  MenuItem,
   Stack,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
   TextField,
   Typography,
 } from '@mui/material'
+import SearchOutlinedIcon from '@mui/icons-material/SearchOutlined'
+import ShieldOutlinedIcon from '@mui/icons-material/ShieldOutlined'
+import ArrowForwardOutlinedIcon from '@mui/icons-material/ArrowForwardOutlined'
 import { ApiClientError } from '../api/client'
 import { useCurrentUser } from '../auth/useAuth'
 import { LoadingScreen } from '../components/LoadingScreen'
 import { ErrorScreen } from '../components/ErrorScreen'
+import { EmptyState } from '../components/EmptyState'
 import { money } from '../claims/ClaimsPage'
 import { useCoveragePlans, useCreateCoveragePlan } from './useCoverage'
 import { PageHeading } from '../components/PageHeading'
@@ -37,62 +38,162 @@ export function percent(rate: number): string {
   return `${+(rate * 100).toFixed(2)}%`
 }
 
+/** One labelled metric inside a plan card. */
+function Metric({ label, value }: { label: string; value: string }) {
+  return (
+    <Box>
+      <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+        {label}
+      </Typography>
+      <Typography sx={{ fontWeight: 700, fontSize: '1.05rem' }}>{value}</Typography>
+    </Box>
+  )
+}
+
 export function CoveragePlansPage() {
   const { data: user } = useCurrentUser()
   const plans = useCoveragePlans()
   const canCreate = (user?.roles ?? []).some((r) => ADMIN_ROLES.includes(r))
 
+  const [query, setQuery] = useState('')
+  const [planType, setPlanType] = useState<(typeof PLAN_TYPES)[number] | ''>('')
+
   if (plans.isPending) return <LoadingScreen />
   if (plans.isError) return <ErrorScreen error={plans.error} />
 
+  const all = plans.data
+  const q = query.trim().toLowerCase()
+  const filtered = all.filter((p) => {
+    const matchesQ = !q || p.name.toLowerCase().includes(q) || p.planCode.toLowerCase().includes(q)
+    const matchesType = !planType || p.planType === planType
+    return matchesQ && matchesType
+  })
+
   return (
     <Stack spacing={3}>
-      <PageHeading>Coverage plans</PageHeading>
+      {/* Breadcrumb */}
+      <Box>
+        <Typography variant="body2" color="text.secondary">
+          {user?.organizationName ?? '—'}
+          <Box component="span" sx={{ mx: 1, opacity: 0.6 }}>
+            /
+          </Box>
+          Claims &amp; coverage
+        </Typography>
+        <Divider sx={{ mt: 1.5 }} />
+      </Box>
+
+      {/* Title + subtitle */}
+      <Box>
+        <PageHeading sx={{ mb: 0.5 }}>Coverage plans</PageHeading>
+        <Typography color="text.secondary">Review plan details and cost-sharing terms.</Typography>
+      </Box>
+
+      {/* Search + type filter */}
+      <Stack direction="row" spacing={2} sx={{ flexWrap: 'wrap', rowGap: 1.5 }}>
+        <TextField
+          size="small"
+          placeholder="Search by plan name or code"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          slotProps={{
+            input: {
+              startAdornment: (
+                <InputAdornment position="start">
+                  <SearchOutlinedIcon fontSize="small" />
+                </InputAdornment>
+              ),
+            },
+            htmlInput: { 'aria-label': 'Search by plan name or code' },
+          }}
+          sx={{ minWidth: 260, flexGrow: 1, maxWidth: 460 }}
+        />
+        <TextField
+          select
+          label="Plan type"
+          size="small"
+          value={planType}
+          onChange={(e) => setPlanType(e.target.value as (typeof PLAN_TYPES)[number] | '')}
+          sx={{ minWidth: 180 }}
+        >
+          <MenuItem value="">All plan types</MenuItem>
+          {PLAN_TYPES.map((t) => (
+            <MenuItem key={t} value={t}>
+              {t}
+            </MenuItem>
+          ))}
+        </TextField>
+      </Stack>
+
+      <Typography variant="body2" color="text.secondary">
+        {all.length} {all.length === 1 ? 'plan' : 'plans'}
+      </Typography>
+
+      {filtered.length === 0 ? (
+        <Card>
+          <CardContent>
+            <EmptyState message={all.length === 0 ? 'No coverage plans yet.' : 'No plans match your search.'} />
+          </CardContent>
+        </Card>
+      ) : (
+        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 3 }}>
+          {filtered.map((p) => (
+            <Card key={p.id}>
+              <CardContent sx={{ p: { xs: 2.5, sm: 3 } }}>
+                <Stack direction="row" spacing={1} sx={{ alignItems: 'flex-start', justifyContent: 'space-between' }}>
+                  <Box
+                    sx={{
+                      width: 44,
+                      height: 44,
+                      borderRadius: 2,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      color: 'primary.main',
+                      bgcolor: 'rgba(13,148,136,0.10)',
+                    }}
+                  >
+                    <ShieldOutlinedIcon />
+                  </Box>
+                  <Chip label={p.planType} size="small" />
+                </Stack>
+
+                <Box sx={{ mt: 2 }}>
+                  <Typography variant="h6" component="h2" sx={{ fontWeight: 700 }}>
+                    {p.name}
+                  </Typography>
+                  <Link component={RouterLink} to={`/coverage-plans/${p.id}`} sx={{ fontWeight: 600 }} underline="hover">
+                    {p.planCode}
+                  </Link>
+                </Box>
+
+                <Divider sx={{ my: 2.5 }} />
+
+                <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2.5 }}>
+                  <Metric label="Deductible" value={money(p.deductibleAmount)} />
+                  <Metric label="Coinsurance" value={percent(p.coinsuranceRate)} />
+                  <Metric label="Copay" value={money(p.copayAmount)} />
+                  <Metric label="Out-of-pocket maximum" value={p.outOfPocketMax == null ? '—' : money(p.outOfPocketMax)} />
+                </Box>
+
+                <Divider sx={{ my: 2.5 }} />
+
+                <Link
+                  component={RouterLink}
+                  to={`/coverage-plans/${p.id}`}
+                  underline="hover"
+                  sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5, fontWeight: 600 }}
+                >
+                  View plan
+                  <ArrowForwardOutlinedIcon sx={{ fontSize: 16 }} />
+                </Link>
+              </CardContent>
+            </Card>
+          ))}
+        </Box>
+      )}
 
       {canCreate && <CreateCoveragePlanForm />}
-
-      <TableContainer component={Paper} elevation={0}>
-        <Table aria-label="Coverage plans">
-          <TableHead>
-            <TableRow>
-              <TableCell>Code</TableCell>
-              <TableCell>Name</TableCell>
-              <TableCell>Type</TableCell>
-              <TableCell align="right">Deductible</TableCell>
-              <TableCell align="right">Coinsurance</TableCell>
-              <TableCell align="right">Copay</TableCell>
-              <TableCell align="right">OOP max</TableCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {plans.data.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={7}>
-                  <Typography variant="body2" color="text.secondary">
-                    No coverage plans yet.
-                  </Typography>
-                </TableCell>
-              </TableRow>
-            ) : (
-              plans.data.map((p) => (
-                <TableRow key={p.id} hover>
-                  <TableCell>
-                    <Link component={RouterLink} to={`/coverage-plans/${p.id}`}>
-                      {p.planCode}
-                    </Link>
-                  </TableCell>
-                  <TableCell>{p.name}</TableCell>
-                  <TableCell>{p.planType}</TableCell>
-                  <TableCell align="right">{money(p.deductibleAmount)}</TableCell>
-                  <TableCell align="right">{percent(p.coinsuranceRate)}</TableCell>
-                  <TableCell align="right">{money(p.copayAmount)}</TableCell>
-                  <TableCell align="right">{p.outOfPocketMax == null ? '—' : money(p.outOfPocketMax)}</TableCell>
-                </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
-      </TableContainer>
     </Stack>
   )
 }
@@ -149,8 +250,8 @@ function CreateCoveragePlanForm() {
 
   return (
     <Card>
-      <CardContent>
-        <Typography variant="subtitle1" gutterBottom>
+      <CardContent sx={{ p: { xs: 2.5, sm: 3 } }}>
+        <Typography variant="h6" component="h2" sx={{ fontWeight: 700, mb: 2 }}>
           New coverage plan
         </Typography>
         {submitError && (

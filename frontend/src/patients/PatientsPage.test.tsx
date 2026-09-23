@@ -64,8 +64,9 @@ describe('PatientsPage', () => {
 
     renderPage(<PatientsPage />)
 
-    expect(await screen.findByText('Sam Sample')).toBeInTheDocument()
-    expect(screen.getByText('NC-0001')).toBeInTheDocument()
+    // The selected patient appears in both the directory row and the overview panel.
+    expect((await screen.findAllByText('Sam Sample')).length).toBeGreaterThanOrEqual(1)
+    expect(screen.getAllByText('NC-0001').length).toBeGreaterThanOrEqual(1)
   })
 
   it('shows "Restricted" when the date of birth is masked by consent', async () => {
@@ -76,7 +77,7 @@ describe('PatientsPage', () => {
 
     renderPage(<PatientsPage />)
 
-    await screen.findByText('Sam Sample')
+    await screen.findAllByText('Sam Sample')
     expect(screen.getByText('Restricted')).toBeInTheDocument()
     expect(screen.queryByText('1985-03-14')).not.toBeInTheDocument()
   })
@@ -87,7 +88,7 @@ describe('PatientsPage', () => {
 
     renderPage(<PatientsPage />)
 
-    await screen.findByText('Sam Sample')
+    await screen.findAllByText('Sam Sample')
     expect(screen.queryByText('Add patient')).not.toBeInTheDocument()
   })
 
@@ -123,7 +124,7 @@ describe('PatientsPage', () => {
     vi.stubGlobal('URL', { ...URL, createObjectURL, revokeObjectURL })
 
     renderPage(<PatientsPage />)
-    await screen.findByText('Sam Sample')
+    await screen.findAllByText('Sam Sample')
 
     await userEvent.click(screen.getByRole('button', { name: 'Export CSV' }))
 

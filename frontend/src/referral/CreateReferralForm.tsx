@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import type { ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Controller, useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -13,6 +14,7 @@ import {
   TextField,
   Typography,
 } from '@mui/material'
+import AddOutlinedIcon from '@mui/icons-material/AddOutlined'
 import { ApiClientError } from '../api/client'
 import { usePatients } from '../patients/usePatients'
 import { MedicalCodePicker } from '../claims/MedicalCodePicker'
@@ -25,6 +27,23 @@ const createSchema = z.object({
 })
 // All fields are strings (no coercion), so input and output types coincide.
 type CreateForm = z.infer<typeof createSchema>
+
+/** A form field with the label sitting above the control (the design's label-on-top style). */
+function Field({ id, label, children }: { id: string; label: string; children: ReactNode }) {
+  return (
+    <Box>
+      <Typography
+        component="label"
+        htmlFor={id}
+        variant="body2"
+        sx={{ display: 'block', mb: 0.75, fontWeight: 500, color: 'text.secondary' }}
+      >
+        {label}
+      </Typography>
+      {children}
+    </Box>
+  )
+}
 
 export function CreateReferralForm() {
   const patients = usePatients()
@@ -59,26 +78,50 @@ export function CreateReferralForm() {
   }
 
   return (
-    <Card>
-      <CardContent>
-        <Typography variant="subtitle1" gutterBottom>
-          New request
-        </Typography>
+    <Card sx={{ height: '100%' }}>
+      <CardContent sx={{ p: { xs: 2.5, sm: 3 } }}>
+        {/* Card header */}
+        <Stack direction="row" spacing={2} sx={{ mb: 3, alignItems: 'flex-start' }}>
+          <Box
+            sx={{
+              width: 44,
+              height: 44,
+              borderRadius: 2,
+              flexShrink: 0,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: 'primary.main',
+              bgcolor: 'rgba(13,148,136,0.10)',
+            }}
+          >
+            <AddOutlinedIcon />
+          </Box>
+          <Box>
+            <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
+              Create a referral
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              Choose a patient and add the referral details.
+            </Typography>
+          </Box>
+        </Stack>
+
         {submitError && (
           <Alert severity="error" sx={{ mb: 2 }} onClose={() => setSubmitError(null)}>
             {submitError}
           </Alert>
         )}
+
         <Box component="form" onSubmit={handleSubmit(onSubmit)} noValidate>
-          <Stack spacing={2}>
-            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+          <Stack spacing={2.5}>
+            <Field id="ref-patientId" label="Patient">
               <TextField
+                id="ref-patientId"
                 select
-                label="Patient"
                 size="small"
                 fullWidth
-                defaultValue=""
-                slotProps={{ select: { native: true }, inputLabel: { shrink: true } }}
+                slotProps={{ select: { native: true } }}
                 {...register('patientId')}
                 error={!!errors.patientId}
                 helperText={errors.patientId?.message}
@@ -92,18 +135,21 @@ export function CreateReferralForm() {
                   </option>
                 ))}
               </TextField>
+            </Field>
+
+            <Field id="ref-specialty" label="Specialty">
               <TextField
-                label="Specialty"
+                id="ref-specialty"
                 size="small"
                 fullWidth
-                placeholder="e.g. Cardiology"
+                placeholder="Enter specialty"
                 {...register('specialty')}
                 error={!!errors.specialty}
                 helperText={errors.specialty?.message}
               />
-            </Stack>
+            </Field>
 
-            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ alignItems: 'flex-start' }}>
+            <Box sx={{ '& .MuiAutocomplete-root': { width: '100%' } }}>
               <Controller
                 control={control}
                 name="reasonCode"
@@ -118,13 +164,24 @@ export function CreateReferralForm() {
                   />
                 )}
               />
-            </Stack>
-
-            <Box>
-              <Button type="submit" variant="contained" disabled={createReferral.isPending}>
-                {createReferral.isPending ? 'Requesting…' : 'Request'}
-              </Button>
             </Box>
+
+            <Stack direction="row" spacing={1.5} sx={{ pt: 0.5 }}>
+              <Button
+                variant="outlined"
+                color="inherit"
+                onClick={() => {
+                  reset()
+                  setSubmitError(null)
+                }}
+                disabled={createReferral.isPending}
+              >
+                Clear
+              </Button>
+              <Button type="submit" variant="contained" disabled={createReferral.isPending}>
+                {createReferral.isPending ? 'Requesting…' : 'Request referral'}
+              </Button>
+            </Stack>
           </Stack>
         </Box>
       </CardContent>

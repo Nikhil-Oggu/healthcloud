@@ -61,7 +61,7 @@ describe('CreateAppealForm', () => {
 
     await userEvent.selectOptions(screen.getByLabelText('Claim'), 'c1')
     await userEvent.type(screen.getByLabelText('Reason'), 'Please reconsider')
-    await userEvent.click(screen.getByRole('button', { name: 'Submit' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Submit appeal' }))
 
     await waitFor(() => expect(createAppeal).toHaveBeenCalledTimes(1))
     const body = createAppeal.mock.calls[0][0]
@@ -73,7 +73,7 @@ describe('CreateAppealForm', () => {
     renderForm(<CreateAppealForm />)
     await screen.findByRole('option', { name: 'CLM-REJECT (REJECTED)' })
 
-    await userEvent.click(screen.getByRole('button', { name: 'Submit' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Submit appeal' }))
 
     await waitFor(() => expect(screen.getAllByText('Required').length).toBeGreaterThan(0))
     expect(createAppeal).not.toHaveBeenCalled()

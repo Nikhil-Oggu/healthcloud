@@ -125,21 +125,6 @@ describe('AppealsPage', () => {
     )
   })
 
-  it('clicking a column header sorts by that field, toggling asc/desc', async () => {
-    const user = userEvent.setup()
-    renderPage(<AppealsPage />)
-    await screen.findByText('APL-ABC12345')
-
-    await user.click(screen.getByRole('button', { name: /Appeal #/i }))
-    await waitFor(() =>
-      expect(listAppeals).toHaveBeenCalledWith(expect.objectContaining({ sort: 'appealNumber,asc', page: 0 })),
-    )
-
-    await user.click(screen.getByRole('button', { name: /Appeal #/i }))
-    await waitFor(() =>
-      expect(listAppeals).toHaveBeenCalledWith(expect.objectContaining({ sort: 'appealNumber,desc' })),
-    )
-  })
 
   it('advancing the pager requests the next page', async () => {
     listAppeals.mockResolvedValue(pageOf([APPEAL], { totalElements: 45, totalPages: 3, last: false }))

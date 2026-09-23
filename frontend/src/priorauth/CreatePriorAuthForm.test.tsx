@@ -69,7 +69,7 @@ describe('CreatePriorAuthForm', () => {
     // Native date input: set the value directly rather than typing.
     fireEvent.change(screen.getByLabelText('Service from'), { target: { value: '2026-07-01' } })
 
-    await userEvent.click(screen.getByRole('button', { name: 'Request' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Request authorization' }))
 
     await waitFor(() => expect(createPriorAuthorization).toHaveBeenCalledTimes(1))
     const body = createPriorAuthorization.mock.calls[0][0]
@@ -85,7 +85,7 @@ describe('CreatePriorAuthForm', () => {
     await screen.findByRole('option', { name: 'Sam Sample (NC-0001)' })
 
     // Nothing selected/entered → Zod stops the submit and the API is never called.
-    await userEvent.click(screen.getByRole('button', { name: 'Request' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Request authorization' }))
 
     await waitFor(() => expect(screen.getAllByText('Required').length).toBeGreaterThan(0))
     expect(createPriorAuthorization).not.toHaveBeenCalled()

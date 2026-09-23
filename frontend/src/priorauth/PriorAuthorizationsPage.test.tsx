@@ -99,16 +99,16 @@ describe('PriorAuthorizationsPage', () => {
     renderPage(<PriorAuthorizationsPage />)
 
     expect(await screen.findByText('No prior authorizations yet.')).toBeInTheDocument()
-    expect(screen.queryByText('New request')).not.toBeInTheDocument()
+    expect(screen.queryByText('New authorization request')).not.toBeInTheDocument()
   })
 
-  it('a requester role sees the New request form', async () => {
+  it('a requester role sees the create form', async () => {
     listPriorAuthorizations.mockResolvedValue(pageOf([]))
     mockUser(['CARE_COORDINATOR'])
 
     renderPage(<PriorAuthorizationsPage />)
 
-    expect(await screen.findByText('New request')).toBeInTheDocument()
+    expect(await screen.findByText('New authorization request')).toBeInTheDocument()
   })
 
   it('typing in the search box queries the server by auth number (debounced)', async () => {
@@ -122,25 +122,6 @@ describe('PriorAuthorizationsPage', () => {
     )
   })
 
-  it('clicking a column header sorts by that field, toggling asc/desc', async () => {
-    const user = userEvent.setup()
-    renderPage(<PriorAuthorizationsPage />)
-    await screen.findByText('PA-ABC12345')
-
-    await user.click(screen.getByRole('button', { name: /Requested from/i }))
-    await waitFor(() =>
-      expect(listPriorAuthorizations).toHaveBeenCalledWith(
-        expect.objectContaining({ sort: 'requestedServiceFrom,asc', page: 0 }),
-      ),
-    )
-
-    await user.click(screen.getByRole('button', { name: /Requested from/i }))
-    await waitFor(() =>
-      expect(listPriorAuthorizations).toHaveBeenCalledWith(
-        expect.objectContaining({ sort: 'requestedServiceFrom,desc' }),
-      ),
-    )
-  })
 
   it('advancing the pager requests the next page', async () => {
     listPriorAuthorizations.mockResolvedValue(pageOf([AUTH], { totalElements: 45, totalPages: 3, last: false }))

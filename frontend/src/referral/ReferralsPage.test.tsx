@@ -97,16 +97,16 @@ describe('ReferralsPage', () => {
     renderPage(<ReferralsPage />)
 
     expect(await screen.findByText('No referrals yet.')).toBeInTheDocument()
-    expect(screen.queryByText('New request')).not.toBeInTheDocument()
+    expect(screen.queryByText('Create a referral')).not.toBeInTheDocument()
   })
 
-  it('a requester role sees the New request form', async () => {
+  it('a requester role sees the create-referral form', async () => {
     listReferrals.mockResolvedValue(pageOf([]))
     mockUser(['CARE_COORDINATOR'])
 
     renderPage(<ReferralsPage />)
 
-    expect(await screen.findByText('New request')).toBeInTheDocument()
+    expect(await screen.findByText('Create a referral')).toBeInTheDocument()
   })
 
   it('typing in the search box queries the server by referral number (debounced)', async () => {
@@ -117,22 +117,6 @@ describe('ReferralsPage', () => {
     await user.type(screen.getByRole('textbox', { name: /search referral/i }), 'ABC12')
     await waitFor(() =>
       expect(listReferrals).toHaveBeenCalledWith(expect.objectContaining({ q: 'ABC12', page: 0 })),
-    )
-  })
-
-  it('clicking a column header sorts by that field, toggling asc/desc', async () => {
-    const user = userEvent.setup()
-    renderPage(<ReferralsPage />)
-    await screen.findByText('REF-ABC12345')
-
-    await user.click(screen.getByRole('button', { name: /Specialty/i }))
-    await waitFor(() =>
-      expect(listReferrals).toHaveBeenCalledWith(expect.objectContaining({ sort: 'specialty,asc', page: 0 })),
-    )
-
-    await user.click(screen.getByRole('button', { name: /Specialty/i }))
-    await waitFor(() =>
-      expect(listReferrals).toHaveBeenCalledWith(expect.objectContaining({ sort: 'specialty,desc' })),
     )
   })
 

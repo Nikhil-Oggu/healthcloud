@@ -1,21 +1,20 @@
 import { useEffect, useState } from 'react'
 import { Link as RouterLink } from 'react-router-dom'
 import {
+  Box,
+  Card,
+  CardContent,
   Chip,
+  Divider,
+  InputAdornment,
   Link,
   MenuItem,
-  Paper,
   Stack,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
   TablePagination,
-  TableRow,
-  TableSortLabel,
   TextField,
+  Typography,
 } from '@mui/material'
+import SearchOutlinedIcon from '@mui/icons-material/SearchOutlined'
 import type { ClaimStatus } from '../api/types'
 import { usePatients } from '../patients/usePatients'
 import { useCurrentUser } from '../auth/useAuth'
@@ -35,10 +34,6 @@ const STATUSES: ClaimStatus[] = ['DRAFT', 'SUBMITTED', 'ACCEPTED', 'REJECTED', '
 
 const ROWS_PER_PAGE_OPTIONS = [10, 20, 50]
 
-/** Columns the backend allows sorting by (mirrors the ClaimController allowlist); Patient is resolved client-side. */
-type SortField = 'claimNumber' | 'serviceDate' | 'totalChargeAmount' | 'status'
-type SortDir = 'asc' | 'desc'
-
 /** Format a numeric amount as USD currency for display. */
 export function money(amount: number): string {
   return amount.toLocaleString(undefined, { style: 'currency', currency: 'USD' })
@@ -54,9 +49,6 @@ export function ClaimsPage() {
   // The raw search box, and the debounced value we actually query with (so we don't fire per keystroke).
   const [search, setSearch] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
-  // No active sort by default → the backend applies its default (createdAt DESC = newest first).
-  const [sortField, setSortField] = useState<SortField | null>(null)
-  const [sortDir, setSortDir] = useState<SortDir>('asc')
 
   // Debounce the search box: settle for 300ms after the last keystroke before querying the server.
   useEffect(() => {
@@ -64,26 +56,14 @@ export function ClaimsPage() {
     return () => clearTimeout(timer)
   }, [search])
 
-  const sort = sortField ? `${sortField},${sortDir}` : undefined
   const claims = useClaimsPage({
     page,
     size,
-    sort,
+    sort: undefined, // newest-first (the backend default); the card list has no column sort
     status: status || undefined,
     q: debouncedSearch.trim() || undefined,
   })
   const patients = usePatients()
-
-  // A column header toggles asc → desc on repeat click; a new column starts ascending. Any change resets to page 0.
-  function toggleSort(field: SortField) {
-    if (sortField === field) {
-      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
-    } else {
-      setSortField(field)
-      setSortDir('asc')
-    }
-    setPage(0)
-  }
 
   if (claims.isPending) return <LoadingScreen />
   if (claims.isError) return <ErrorScreen error={claims.error} />
@@ -93,94 +73,104 @@ export function ClaimsPage() {
 
   const rows = claims.data.content
 
-  const sortableHeader = (field: SortField, label: string, align: 'left' | 'right' = 'left') => (
-    <TableCell align={align} sortDirection={sortField === field ? sortDir : false}>
-      <TableSortLabel
-        active={sortField === field}
-        direction={sortField === field ? sortDir : 'asc'}
-        onClick={() => toggleSort(field)}
-      >
-        {label}
-      </TableSortLabel>
-    </TableCell>
-  )
-
-  return (
-    <Stack spacing={3}>
-      <PageHeading>Claims</PageHeading>
-
-      {canCreate && <CreateClaimForm />}
-
-      <Stack direction="row" spacing={2} sx={{ flexWrap: 'wrap', rowGap: 2 }}>
-        <TextField
-          label="Search claim #"
-          size="small"
-          value={search}
-          onChange={(e) => {
-            setSearch(e.target.value)
-            setPage(0)
-          }}
-          placeholder="e.g. CLM-1A2B"
-          sx={{ minWidth: 220, maxWidth: 340 }}
-        />
-
-        <TextField
-          select
-          label="Status"
-          size="small"
-          value={status}
-          onChange={(e) => {
-            setStatus(e.target.value as ClaimStatus | '')
-            setPage(0)
-          }}
-          sx={{ minWidth: 200 }}
+  const historyCard = (
+    <Card>
+      <CardContent sx={{ p: { xs: 2.5, sm: 3 } }}>
+        {/* History header: title + count, then search + status filter */}
+        <Stack
+          direction="row"
+          spacing={2}
+          sx={{ alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', rowGap: 1.5, mb: 2 }}
         >
-          <MenuItem value="">All statuses</MenuItem>
-          {STATUSES.map((s) => (
-            <MenuItem key={s} value={s}>
-              {s}
-            </MenuItem>
-          ))}
-        </TextField>
-      </Stack>
+          <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
+            <Typography variant="h6" component="h2" sx={{ fontWeight: 700 }}>
+              Claim history
+            </Typography>
+            <Chip
+              label={claims.data.totalElements}
+              size="small"
+              sx={{ bgcolor: 'rgba(13,148,136,0.10)', color: 'primary.dark', fontWeight: 600 }}
+            />
+          </Stack>
 
-      <TableContainer component={Paper} elevation={0}>
-        <Table aria-label="Claims">
-          <TableHead>
-            <TableRow>
-              {sortableHeader('claimNumber', 'Claim #')}
-              <TableCell>Patient</TableCell>
-              {sortableHeader('serviceDate', 'Service date')}
-              {sortableHeader('totalChargeAmount', 'Total charge', 'right')}
-              {sortableHeader('status', 'Status')}
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {rows.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={5}>
-                  <EmptyState message="No claims yet." />
-                </TableCell>
-              </TableRow>
-            ) : (
-              rows.map((c) => (
-                <TableRow key={c.id} hover>
-                  <TableCell>
-                    <Link component={RouterLink} to={`/claims/${c.id}`}>
-                      {c.claimNumber}
-                    </Link>
-                  </TableCell>
-                  <TableCell>{nameFor(c.patientId)}</TableCell>
-                  <TableCell>{c.serviceDate}</TableCell>
-                  <TableCell align="right">{money(c.totalChargeAmount)}</TableCell>
-                  <TableCell>
-                    <Chip label={c.status} size="small" color={claimStatusColor(c.status)} />
-                  </TableCell>
-                </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
+          <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', flexWrap: 'wrap', rowGap: 1.5 }}>
+            <TextField
+              size="small"
+              placeholder="Search claim #"
+              value={search}
+              onChange={(e) => {
+                setSearch(e.target.value)
+                setPage(0)
+              }}
+              slotProps={{
+                input: {
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <SearchOutlinedIcon fontSize="small" />
+                    </InputAdornment>
+                  ),
+                },
+                htmlInput: { 'aria-label': 'Search claim #' },
+              }}
+              sx={{ minWidth: 200 }}
+            />
+            <TextField
+              select
+              label="Status"
+              size="small"
+              value={status}
+              onChange={(e) => {
+                setStatus(e.target.value as ClaimStatus | '')
+                setPage(0)
+              }}
+              sx={{ minWidth: 160 }}
+            >
+              <MenuItem value="">All statuses</MenuItem>
+              {STATUSES.map((s) => (
+                <MenuItem key={s} value={s}>
+                  {s}
+                </MenuItem>
+              ))}
+            </TextField>
+          </Stack>
+        </Stack>
+
+        {rows.length === 0 ? (
+          <EmptyState message="No claims yet." />
+        ) : (
+          <Stack spacing={2}>
+            {rows.map((c) => (
+              <Box key={c.id} sx={{ border: 1, borderColor: 'divider', borderRadius: 2, p: { xs: 2, sm: 2.5 } }}>
+                <Stack direction="row" spacing={1} sx={{ alignItems: 'center', justifyContent: 'space-between' }}>
+                  <Link component={RouterLink} to={`/claims/${c.id}`} sx={{ fontWeight: 700 }} underline="hover">
+                    {c.claimNumber}
+                  </Link>
+                  <Chip label={c.status} size="small" color={claimStatusColor(c.status)} />
+                </Stack>
+
+                <Typography sx={{ fontWeight: 600, mt: 1 }}>{nameFor(c.patientId)}</Typography>
+
+                <Divider sx={{ my: 2 }} />
+
+                <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2 }}>
+                  <Box>
+                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                      Service date
+                    </Typography>
+                    <Typography>{c.serviceDate}</Typography>
+                  </Box>
+                  <Box>
+                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                      Total charge
+                    </Typography>
+                    <Typography>{money(c.totalChargeAmount)}</Typography>
+                  </Box>
+                </Box>
+              </Box>
+            ))}
+          </Stack>
+        )}
+
         <TablePagination
           component="div"
           count={claims.data.totalElements}
@@ -193,7 +183,38 @@ export function ClaimsPage() {
           }}
           rowsPerPageOptions={ROWS_PER_PAGE_OPTIONS}
         />
-      </TableContainer>
+      </CardContent>
+    </Card>
+  )
+
+  return (
+    <Stack spacing={3}>
+      {/* Breadcrumb */}
+      <Box>
+        <Typography variant="body2" color="text.secondary">
+          {user?.organizationName ?? '—'}
+          <Box component="span" sx={{ mx: 1, opacity: 0.6 }}>
+            /
+          </Box>
+          Claims &amp; coverage
+        </Typography>
+        <Divider sx={{ mt: 1.5 }} />
+      </Box>
+
+      {/* Title + subtitle */}
+      <Box>
+        <PageHeading sx={{ mb: 0.5 }}>Claims</PageHeading>
+        <Typography color="text.secondary">Create claims and keep track of their status.</Typography>
+      </Box>
+
+      {canCreate ? (
+        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '3fr 2fr' }, gap: 3, alignItems: 'start' }}>
+          <CreateClaimForm />
+          {historyCard}
+        </Box>
+      ) : (
+        historyCard
+      )}
     </Stack>
   )
 }

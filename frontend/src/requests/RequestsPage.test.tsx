@@ -70,7 +70,7 @@ describe('RequestsPage', () => {
     renderPage(<RequestsPage />)
 
     await screen.findByText('Help with a claim')
-    expect(screen.queryByText('New request')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Create request' })).not.toBeInTheDocument()
   })
 
   it('creates a request from the form', async () => {
@@ -80,13 +80,13 @@ describe('RequestsPage', () => {
     createRequest.mockResolvedValue({ ...REQUEST, id: 'r2', title: 'New one' })
 
     renderPage(<RequestsPage />)
-    expect(await screen.findByText('New request')).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: 'Create request' })).toBeInTheDocument()
     // Wait for the patient dropdown to populate before selecting.
     await screen.findByRole('option', { name: 'Sam Sample (NC-0001)' })
 
     await userEvent.selectOptions(screen.getByLabelText('Patient'), 'p1')
-    await userEvent.type(screen.getByLabelText('Title'), 'New one')
-    await userEvent.click(screen.getByRole('button', { name: 'Create' }))
+    await userEvent.type(screen.getByLabelText('Request title'), 'New one')
+    await userEvent.click(screen.getByRole('button', { name: 'Create request' }))
 
     await waitFor(() =>
       expect(createRequest).toHaveBeenCalledWith(

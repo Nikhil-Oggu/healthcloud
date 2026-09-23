@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import type { ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Controller, useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -34,6 +35,23 @@ const createSchema = z
   })
 // All fields are strings (no coercion), so input and output types coincide.
 type CreateForm = z.infer<typeof createSchema>
+
+/** A form field with the label sitting above the control (the design's label-on-top style). */
+function Field({ id, label, children }: { id: string; label: string; children: ReactNode }) {
+  return (
+    <Box sx={{ flex: 1, minWidth: 0 }}>
+      <Typography
+        component="label"
+        htmlFor={id}
+        variant="body2"
+        sx={{ display: 'block', mb: 0.75, fontWeight: 500, color: 'text.secondary' }}
+      >
+        {label}
+      </Typography>
+      {children}
+    </Box>
+  )
+}
 
 export function CreatePriorAuthForm() {
   const patients = usePatients()
@@ -79,26 +97,33 @@ export function CreatePriorAuthForm() {
   }
 
   return (
-    <Card>
-      <CardContent>
-        <Typography variant="subtitle1" gutterBottom>
-          New request
-        </Typography>
+    <Card sx={{ height: '100%' }}>
+      <CardContent sx={{ p: { xs: 2.5, sm: 3 } }}>
+        {/* Card header */}
+        <Box sx={{ mb: 3 }}>
+          <Typography variant="h6" component="h2" sx={{ fontWeight: 700 }}>
+            New authorization request
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            Add patient, coverage, and service details.
+          </Typography>
+        </Box>
+
         {submitError && (
           <Alert severity="error" sx={{ mb: 2 }} onClose={() => setSubmitError(null)}>
             {submitError}
           </Alert>
         )}
+
         <Box component="form" onSubmit={handleSubmit(onSubmit)} noValidate>
-          <Stack spacing={2}>
-            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+          <Stack spacing={2.5}>
+            <Field id="pa-patientId" label="Patient">
               <TextField
+                id="pa-patientId"
                 select
-                label="Patient"
                 size="small"
                 fullWidth
-                defaultValue=""
-                slotProps={{ select: { native: true }, inputLabel: { shrink: true } }}
+                slotProps={{ select: { native: true } }}
                 {...register('patientId')}
                 error={!!errors.patientId}
                 helperText={errors.patientId?.message}
@@ -112,13 +137,15 @@ export function CreatePriorAuthForm() {
                   </option>
                 ))}
               </TextField>
+            </Field>
+
+            <Field id="pa-coveragePlanId" label="Coverage plan">
               <TextField
+                id="pa-coveragePlanId"
                 select
-                label="Coverage plan"
                 size="small"
                 fullWidth
-                defaultValue=""
-                slotProps={{ select: { native: true }, inputLabel: { shrink: true } }}
+                slotProps={{ select: { native: true } }}
                 {...register('coveragePlanId')}
                 error={!!errors.coveragePlanId}
                 helperText={errors.coveragePlanId?.message}
@@ -132,9 +159,9 @@ export function CreatePriorAuthForm() {
                   </option>
                 ))}
               </TextField>
-            </Stack>
+            </Field>
 
-            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ alignItems: 'flex-start' }}>
+            <Box sx={{ '& .MuiAutocomplete-root': { width: '100%' } }}>
               <Controller
                 control={control}
                 name="procedureCode"
@@ -147,31 +174,51 @@ export function CreatePriorAuthForm() {
                   />
                 )}
               />
-              <TextField
-                label="Service from"
-                type="date"
-                size="small"
-                slotProps={{ inputLabel: { shrink: true } }}
-                {...register('requestedServiceFrom')}
-                error={!!errors.requestedServiceFrom}
-                helperText={errors.requestedServiceFrom?.message}
-              />
-              <TextField
-                label="Service to (optional)"
-                type="date"
-                size="small"
-                slotProps={{ inputLabel: { shrink: true } }}
-                {...register('requestedServiceTo')}
-                error={!!errors.requestedServiceTo}
-                helperText={errors.requestedServiceTo?.message}
-              />
+            </Box>
+
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+              <Field id="pa-serviceFrom" label="Service from">
+                <TextField
+                  id="pa-serviceFrom"
+                  type="date"
+                  size="small"
+                  fullWidth
+                  slotProps={{ inputLabel: { shrink: true } }}
+                  {...register('requestedServiceFrom')}
+                  error={!!errors.requestedServiceFrom}
+                  helperText={errors.requestedServiceFrom?.message}
+                />
+              </Field>
+              <Field id="pa-serviceTo" label="Service to (optional)">
+                <TextField
+                  id="pa-serviceTo"
+                  type="date"
+                  size="small"
+                  fullWidth
+                  slotProps={{ inputLabel: { shrink: true } }}
+                  {...register('requestedServiceTo')}
+                  error={!!errors.requestedServiceTo}
+                  helperText={errors.requestedServiceTo?.message}
+                />
+              </Field>
             </Stack>
 
-            <Box>
-              <Button type="submit" variant="contained" disabled={createAuth.isPending}>
-                {createAuth.isPending ? 'Requesting…' : 'Request'}
+            <Stack direction="row" spacing={1.5} sx={{ pt: 0.5 }}>
+              <Button
+                variant="outlined"
+                color="inherit"
+                onClick={() => {
+                  reset()
+                  setSubmitError(null)
+                }}
+                disabled={createAuth.isPending}
+              >
+                Clear
               </Button>
-            </Box>
+              <Button type="submit" variant="contained" disabled={createAuth.isPending}>
+                {createAuth.isPending ? 'Requesting…' : 'Request authorization'}
+              </Button>
+            </Stack>
           </Stack>
         </Box>
       </CardContent>

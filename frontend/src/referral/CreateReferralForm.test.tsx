@@ -59,7 +59,7 @@ describe('CreateReferralForm', () => {
     await userEvent.type(screen.getByLabelText('Specialty'), 'Cardiology')
     await userEvent.type(screen.getByLabelText('Reason (diagnosis)'), 'I10')
 
-    await userEvent.click(screen.getByRole('button', { name: 'Request' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Request referral' }))
 
     await waitFor(() => expect(createReferral).toHaveBeenCalledTimes(1))
     const body = createReferral.mock.calls[0][0]
@@ -73,7 +73,7 @@ describe('CreateReferralForm', () => {
     await screen.findByRole('option', { name: 'Sam Sample (NC-0001)' })
 
     // Nothing selected/entered → Zod stops the submit and the API is never called.
-    await userEvent.click(screen.getByRole('button', { name: 'Request' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Request referral' }))
 
     await waitFor(() => expect(screen.getAllByText('Required').length).toBeGreaterThan(0))
     expect(createReferral).not.toHaveBeenCalled()
