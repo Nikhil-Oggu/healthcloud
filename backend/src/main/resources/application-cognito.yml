@@ -28,3 +28,13 @@ spring:
             issuer-uri: ${COGNITO_ISSUER_URI:https://cognito-idp.us-east-1.amazonaws.com/us-east-1_YA95ksq5k}
             # Make the email claim the principal name so UserContextFilter.resolveByEmail works unchanged.
             user-name-attribute: email
+
+# RP-initiated logout (clears the Cognito hosted-UI session cookie so "Sign in" prompts again). Cognito's
+# logout endpoint is non-standard (not in OIDC discovery): https://<hosted-ui-domain>/logout?client_id=..&logout_uri=..
+# The hosted-UI domain is NOT derivable from the issuer, so it is configured here (env-overridable). The
+# logout-redirect-uri must be one of the app client's registered "Sign out URLs" (localhost:5173 locally;
+# the CloudFront URL on deploy). AuthConfigController surfaces the built URL to the SPA via /api/v1/auth/config.
+healthcloud:
+  cognito:
+    hosted-ui-domain: ${COGNITO_HOSTED_UI_DOMAIN:healthcloud-dev-927747714796.auth.us-east-1.amazoncognito.com}
+    logout-redirect-uri: ${COGNITO_LOGOUT_REDIRECT_URI:http://localhost:5173/}

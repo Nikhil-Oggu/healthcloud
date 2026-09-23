@@ -107,11 +107,25 @@ export function AppLayout() {
   const roles = user?.roles ?? []
 
   async function handleLogout() {
+    // Fetch the Cognito RP-initiated logout URL (if any) before ending the session. /auth/config is public,
+    // so this works regardless of order; any failure just falls back to a local-only logout.
+    let cognitoLogoutUrl: string | null | undefined
+    try {
+      cognitoLogoutUrl = (await api.authConfig()).cognitoLogoutUrl
+    } catch {
+      // ignore — Cognito may not be configured (dev), or the probe failed; fall back to local logout below.
+    }
     try {
       await api.logout()
     } finally {
       queryClient.clear()
-      navigate('/login', { replace: true })
+      if (cognitoLogoutUrl) {
+        // Full-page redirect through Cognito's hosted-UI /logout to clear its SSO cookie, then back to the app
+        // (which lands unauthenticated on /login). Without this, Cognito silently re-authenticates the same user.
+        window.location.assign(cognitoLogoutUrl)
+      } else {
+        navigate('/login', { replace: true })
+      }
     }
   }
 

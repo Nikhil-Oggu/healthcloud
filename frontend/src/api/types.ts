@@ -1,6 +1,12 @@
 /** Public sign-in capabilities of this environment (GET /api/v1/auth/config, mirrors AuthConfigDto). */
 export interface AuthConfig {
   cognitoEnabled: boolean
+  /**
+   * Cognito's RP-initiated logout URL (hosted-UI `/logout`), or null when Cognito isn't configured. Navigating
+   * to it clears the Cognito session cookie so the next sign-in prompts again — used on logout so a different
+   * user can sign in without an Incognito window.
+   */
+  cognitoLogoutUrl?: string | null
 }
 
 /** The authenticated user's context, as returned by GET /api/v1/me (mirrors CurrentUserDto). */
