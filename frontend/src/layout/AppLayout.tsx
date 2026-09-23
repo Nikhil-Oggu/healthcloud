@@ -213,30 +213,73 @@ export function AppLayout() {
         <>
           <Divider />
           <Box sx={{ p: 2 }}>
-            <Typography variant="body2" sx={{ fontWeight: 600, lineHeight: 1.3 }} noWrap>
-              {user.fullName ?? user.email}
-            </Typography>
-            <Typography variant="caption" color="text.secondary" noWrap sx={{ display: 'block' }}>
-              {user.organizationName ?? 'No organization'}
-            </Typography>
-            <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', mt: 1 }}>
+            {/* Identity, with a teal→indigo accent bar (a small echo of the constellation hero). */}
+            <Box sx={{ display: 'flex', alignItems: 'stretch', gap: 1.5 }}>
+              <Box
+                aria-hidden
+                sx={{
+                  width: 5,
+                  borderRadius: 2,
+                  flexShrink: 0,
+                  background: 'linear-gradient(180deg, #2dd4bf 0%, #4f46e5 100%)',
+                }}
+              />
+              <Box sx={{ minWidth: 0 }}>
+                <Typography sx={{ fontWeight: 700, fontSize: '1.15rem', lineHeight: 1.25 }} noWrap>
+                  {user.fullName ?? user.email}
+                </Typography>
+                <Typography variant="body2" color="text.secondary" noWrap sx={{ display: 'block' }}>
+                  {user.organizationName ?? 'No organization'}
+                </Typography>
+              </Box>
+            </Box>
+
+            <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', mt: 1.5 }}>
               {roles.map((role) => (
-                <Chip key={role} label={role} size="small" variant="outlined" />
+                <Chip
+                  key={role}
+                  icon={<ShieldOutlinedIcon />}
+                  label={role}
+                  size="small"
+                  sx={{
+                    bgcolor: 'rgba(13,148,136,0.10)',
+                    color: 'primary.dark',
+                    fontWeight: 600,
+                    '& .MuiChip-icon': { color: 'primary.main' },
+                  }}
+                />
               ))}
             </Box>
+
+            {/* Divider with a short teal accent segment on the left. */}
+            <Box sx={{ position: 'relative', my: 2 }}>
+              <Divider />
+              <Box
+                aria-hidden
+                sx={{
+                  position: 'absolute',
+                  top: -1,
+                  left: 0,
+                  width: 32,
+                  height: 3,
+                  borderRadius: 2,
+                  background: 'linear-gradient(90deg, #2dd4bf 0%, #4f46e5 100%)',
+                }}
+              />
+            </Box>
+
+            <ThemeToggle />
+
             <Button
               fullWidth
               variant="outlined"
               color="inherit"
               startIcon={<LogoutOutlinedIcon />}
               onClick={handleLogout}
-              sx={{ mt: 1.5, justifyContent: 'flex-start' }}
+              sx={{ mt: 2, justifyContent: 'flex-start' }}
             >
               Log out
             </Button>
-            <Box sx={{ mt: 1.5 }}>
-              <ThemeToggle />
-            </Box>
           </Box>
         </>
       )}
