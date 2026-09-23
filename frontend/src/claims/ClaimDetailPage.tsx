@@ -131,23 +131,32 @@ export function ClaimDetailPage() {
     <Stack spacing={3}>
       <Box>
         <BackLink to="/claims" label="Back to claims" />
+        <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+          {user?.organizationName ?? '—'}
+          <Box component="span" sx={{ mx: 1, opacity: 0.6 }}>
+            /
+          </Box>
+          Claims &amp; coverage
+        </Typography>
+        <Divider sx={{ mt: 1.5 }} />
       </Box>
 
+      <Box>
+        <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', flexWrap: 'wrap', rowGap: 1 }}>
+          <PageHeading sx={{ mb: 0 }}>Claim {c.claimNumber}</PageHeading>
+          <Chip label={c.status} color={claimStatusColor(c.status)} size="small" />
+        </Stack>
+        <Typography color="text.secondary" sx={{ mt: 0.5 }}>
+          Service date {c.serviceDate} · total charge {money(c.totalChargeAmount)}
+          {c.renderingProviderId ? ` · rendered by ${renderingProviderName ?? 'a provider'}` : ''}
+        </Typography>
+      </Box>
+
+      {(actions.length > 0 || showAdjudicate || showReadjudicate || actionError) && (
       <Card>
         <CardContent>
-          <Stack direction="row" spacing={2} sx={{ alignItems: 'center', mb: 1 }}>
-            <PageHeading>Claim {c.claimNumber}</PageHeading>
-            <Chip label={c.status} color={claimStatusColor(c.status)} />
-          </Stack>
-          <Typography variant="body2" color="text.secondary">
-            Service date {c.serviceDate} · total charge {money(c.totalChargeAmount)}
-            {c.renderingProviderId
-              ? ` · rendered by ${renderingProviderName ?? 'a provider'}`
-              : ''}
-          </Typography>
-
           {actionError && (
-            <Alert severity="error" sx={{ mt: 2 }} onClose={() => setActionError(null)}>
+            <Alert severity="error" onClose={() => setActionError(null)}>
               {actionError}
               {correlationId && (
                 <Typography variant="caption" sx={{ display: 'block', mt: 0.5, opacity: 0.8 }}>
@@ -159,7 +168,7 @@ export function ClaimDetailPage() {
 
           {(actions.length > 0 || showAdjudicate || showReadjudicate) && (
             <>
-              <Divider sx={{ my: 2 }} />
+              {actionError && <Divider sx={{ my: 2 }} />}
               <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', rowGap: 1, alignItems: 'center' }}>
                 {actions.map((to) => (
                   <Button
@@ -225,10 +234,11 @@ export function ClaimDetailPage() {
           )}
         </CardContent>
       </Card>
+      )}
 
       <Card>
         <CardContent>
-          <Typography variant="subtitle1" gutterBottom>
+          <Typography variant="subtitle1" component="h2" gutterBottom sx={{ fontWeight: 700 }}>
             Lines
           </Typography>
           <Table size="small" aria-label="Claim lines">
@@ -269,7 +279,7 @@ export function ClaimDetailPage() {
 
       <Card>
         <CardContent>
-          <Typography variant="subtitle1" gutterBottom>
+          <Typography variant="subtitle1" component="h2" gutterBottom sx={{ fontWeight: 700 }}>
             Timeline
           </Typography>
           {history.isPending ? (
@@ -307,7 +317,7 @@ function AdjudicationCard({ result }: { result: ReturnType<typeof useAdjudicatio
   return (
     <Card>
       <CardContent>
-        <Typography variant="subtitle1" gutterBottom>
+        <Typography variant="subtitle1" component="h2" gutterBottom sx={{ fontWeight: 700 }}>
           Adjudication{version ? ` — version ${version}` : ''}
         </Typography>
 
@@ -405,7 +415,7 @@ function AnomaliesCard({
     <Card>
       <CardContent>
         <Stack direction="row" spacing={2} sx={{ alignItems: 'center', mb: 1, flexWrap: 'wrap', rowGap: 1 }}>
-          <Typography variant="subtitle1">Anomaly signals</Typography>
+          <Typography variant="subtitle1" component="h2" sx={{ fontWeight: 700 }}>Anomaly signals</Typography>
           {canScan && (
             <Button variant="outlined" size="small" disabled={scanning} onClick={onScan}>
               {scanning ? 'Scanning…' : 'Scan'}
@@ -458,7 +468,7 @@ function VersionHistoryCard({ versions }: { versions: ReturnType<typeof useAdjud
   return (
     <Card>
       <CardContent>
-        <Typography variant="subtitle1" gutterBottom>
+        <Typography variant="subtitle1" component="h2" gutterBottom sx={{ fontWeight: 700 }}>
           Version history
         </Typography>
         <Box sx={{ overflowX: 'auto' }}>

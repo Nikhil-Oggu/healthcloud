@@ -2,9 +2,8 @@ import { Link as RouterLink, useParams } from 'react-router-dom'
 import { BackLink } from '../components/BackLink'
 import {
   Box,
-  Card,
-  CardContent,
   Chip,
+  Divider,
   Link,
   Paper,
   Stack,
@@ -17,6 +16,7 @@ import {
   Typography,
 } from '@mui/material'
 import { useClaims } from '../claims/useClaims'
+import { useCurrentUser } from '../auth/useAuth'
 import { LoadingScreen } from '../components/LoadingScreen'
 import { ErrorScreen } from '../components/ErrorScreen'
 import { itemOutcomeColor, reprocessingStatusColor } from './statusColor'
@@ -25,6 +25,7 @@ import { PageHeading } from '../components/PageHeading'
 
 export function ReprocessingBatchDetailPage() {
   const { id = '' } = useParams()
+  const { data: user } = useCurrentUser()
   const batch = useReprocessingBatch(id)
   const claims = useClaims()
 
@@ -39,26 +40,36 @@ export function ReprocessingBatchDetailPage() {
     <Stack spacing={3}>
       <Box>
         <BackLink to="/reprocessing" label="Back to reprocessing" />
+        <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+          {user?.organizationName ?? '—'}
+          <Box component="span" sx={{ mx: 1, opacity: 0.6 }}>
+            /
+          </Box>
+          Claims &amp; coverage
+        </Typography>
+        <Divider sx={{ mt: 1.5 }} />
       </Box>
 
-      <Card>
-        <CardContent>
-          <Stack direction="row" spacing={2} sx={{ alignItems: 'center', mb: 1 }}>
-            <PageHeading>Batch {b.batchNumber}</PageHeading>
-            <Chip label={b.status} color={reprocessingStatusColor(b.status)} />
-          </Stack>
-          <Typography variant="body2" color="text.secondary">
-            Plan: {b.coveragePlanName ?? '—'}
-          </Typography>
-          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-            {b.succeededCount} succeeded · {b.failedCount} failed · {b.totalCount} total
-          </Typography>
-          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
-            Started {new Date(b.createdAt).toLocaleString()}
-            {b.finishedAt ? ` · finished ${new Date(b.finishedAt).toLocaleString()}` : ''}
-          </Typography>
-        </CardContent>
-      </Card>
+      <Box>
+        <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', flexWrap: 'wrap', rowGap: 1 }}>
+          <PageHeading sx={{ mb: 0 }}>Batch {b.batchNumber}</PageHeading>
+          <Chip label={b.status} color={reprocessingStatusColor(b.status)} size="small" />
+        </Stack>
+        <Typography color="text.secondary" sx={{ mt: 0.5 }}>
+          Plan: {b.coveragePlanName ?? '—'}
+        </Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+          {b.succeededCount} succeeded · {b.failedCount} failed · {b.totalCount} total
+        </Typography>
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+          Started {new Date(b.createdAt).toLocaleString()}
+          {b.finishedAt ? ` · finished ${new Date(b.finishedAt).toLocaleString()}` : ''}
+        </Typography>
+      </Box>
+
+      <Typography variant="h6" component="h2" sx={{ fontWeight: 700 }}>
+        Reprocessed claims
+      </Typography>
 
       <TableContainer component={Paper} elevation={0}>
         <Table aria-label="Reprocessed claims">

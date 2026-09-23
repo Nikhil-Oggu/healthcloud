@@ -11,6 +11,7 @@ import {
   Card,
   CardContent,
   Chip,
+  Divider,
   Paper,
   Stack,
   Table,
@@ -140,9 +141,24 @@ export function PatientDetailPage() {
     <Stack spacing={3}>
       <Box>
         <BackLink to="/patients" label="Back to patients" />
-        <PageHeading sx={{ mt: 1 }}>
-          {p.fullName}
-        </PageHeading>
+        <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+          {user?.organizationName ?? '—'}
+          <Box component="span" sx={{ mx: 1, opacity: 0.6 }}>
+            /
+          </Box>
+          Care
+        </Typography>
+        <Divider sx={{ mt: 1.5 }} />
+      </Box>
+
+      <Box>
+        <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', flexWrap: 'wrap', rowGap: 1 }}>
+          <PageHeading sx={{ mb: 0 }}>{p.fullName}</PageHeading>
+          <Chip label={p.status} size="small" color={p.status === 'ACTIVE' ? 'success' : 'default'} />
+        </Stack>
+        <Typography color="text.secondary" sx={{ mt: 0.5 }}>
+          Patient record — consent, care team, coverage and documents.
+        </Typography>
       </Box>
 
       <Card>
@@ -171,7 +187,7 @@ export function PatientDetailPage() {
       <DocumentsCard patientId={id} canWrite={canUploadDocuments} />
 
       <Box>
-        <Typography variant="h6" gutterBottom>
+        <Typography variant="h6" component="h2" gutterBottom sx={{ fontWeight: 700 }}>
           Consent directives
         </Typography>
 
@@ -278,7 +294,7 @@ function CareTeamCard({ patientId, canWrite }: { patientId: string; canWrite: bo
 
   return (
     <Box>
-      <Typography variant="h6" gutterBottom>
+      <Typography variant="h6" component="h2" gutterBottom sx={{ fontWeight: 700 }}>
         Care team
       </Typography>
       <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} sx={{ alignItems: 'stretch' }}>
@@ -454,7 +470,7 @@ function EligibilityCard({ patientId, canWrite }: { patientId: string; canWrite:
 
   return (
     <Box>
-      <Typography variant="h6" gutterBottom>
+      <Typography variant="h6" component="h2" gutterBottom sx={{ fontWeight: 700 }}>
         Coverage eligibility
       </Typography>
 
@@ -660,7 +676,7 @@ function DocumentsCard({ patientId, canWrite }: { patientId: string; canWrite: b
 
   return (
     <Box>
-      <Typography variant="h6" gutterBottom>
+      <Typography variant="h6" component="h2" gutterBottom sx={{ fontWeight: 700 }}>
         Documents
       </Typography>
 

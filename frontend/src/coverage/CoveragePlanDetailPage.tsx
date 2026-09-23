@@ -7,6 +7,7 @@ import {
   Button,
   Card,
   CardContent,
+  Chip,
   Divider,
   Stack,
   Table,
@@ -59,20 +60,29 @@ export function CoveragePlanDetailPage() {
     <Stack spacing={3}>
       <Box>
         <BackLink to="/coverage-plans" label="Back to coverage plans" />
+        <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+          {user?.organizationName ?? '—'}
+          <Box component="span" sx={{ mx: 1, opacity: 0.6 }}>
+            /
+          </Box>
+          Claims &amp; coverage
+        </Typography>
+        <Divider sx={{ mt: 1.5 }} />
       </Box>
 
-      <Card>
-        <CardContent>
-          <PageHeading gutterBottom>
+      <Box>
+        <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', flexWrap: 'wrap', rowGap: 1 }}>
+          <PageHeading sx={{ mb: 0 }}>
             {p.name} <Typography component="span" color="text.secondary">({p.planCode})</Typography>
           </PageHeading>
-          <Typography variant="body2" color="text.secondary">
-            {p.planType} · deductible {money(p.deductibleAmount)} · coinsurance {percent(p.coinsuranceRate)} ·
-            copay {money(p.copayAmount)} · out-of-pocket max{' '}
-            {p.outOfPocketMax == null ? 'none' : money(p.outOfPocketMax)}
-          </Typography>
-        </CardContent>
-      </Card>
+          <Chip label={p.planType} size="small" color="primary" variant="outlined" />
+        </Stack>
+        <Typography color="text.secondary" sx={{ mt: 0.5 }}>
+          deductible {money(p.deductibleAmount)} · coinsurance {percent(p.coinsuranceRate)} · copay{' '}
+          {money(p.copayAmount)} · out-of-pocket max{' '}
+          {p.outOfPocketMax == null ? 'none' : money(p.outOfPocketMax)}
+        </Typography>
+      </Box>
 
       <ExclusionsCard planId={id} canAdmin={canAdmin} />
 
@@ -129,7 +139,7 @@ function ExclusionsCard({ planId, canAdmin }: { planId: string; canAdmin: boolea
   return (
     <Card>
       <CardContent>
-        <Typography variant="subtitle1" gutterBottom>
+        <Typography variant="subtitle1" component="h2" gutterBottom sx={{ fontWeight: 700 }}>
           Excluded procedures
         </Typography>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
@@ -257,7 +267,7 @@ function FeeScheduleCard({ planId, canAdmin }: { planId: string; canAdmin: boole
   return (
     <Card>
       <CardContent>
-        <Typography variant="subtitle1" gutterBottom>
+        <Typography variant="subtitle1" component="h2" gutterBottom sx={{ fontWeight: 700 }}>
           Fee schedule
         </Typography>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
@@ -395,7 +405,7 @@ function PriorAuthRequirementsCard({ planId, canAdmin }: { planId: string; canAd
   return (
     <Card>
       <CardContent>
-        <Typography variant="subtitle1" gutterBottom>
+        <Typography variant="subtitle1" component="h2" gutterBottom sx={{ fontWeight: 700 }}>
           Prior-auth requirements
         </Typography>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
@@ -523,7 +533,7 @@ function NetworkProvidersCard({ planId, canAdmin }: { planId: string; canAdmin: 
   return (
     <Card>
       <CardContent>
-        <Typography variant="subtitle1" gutterBottom>
+        <Typography variant="subtitle1" component="h2" gutterBottom sx={{ fontWeight: 700 }}>
           Network providers
         </Typography>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>

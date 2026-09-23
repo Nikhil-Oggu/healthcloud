@@ -76,25 +76,36 @@ export function ReferralDetailPage() {
     <Stack spacing={3}>
       <Box>
         <BackLink to="/referrals" label="Back to referrals" />
+        <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+          {user?.organizationName ?? '—'}
+          <Box component="span" sx={{ mx: 1, opacity: 0.6 }}>
+            /
+          </Box>
+          Care
+        </Typography>
+        <Divider sx={{ mt: 1.5 }} />
       </Box>
 
+      <Box>
+        <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', flexWrap: 'wrap', rowGap: 1 }}>
+          <PageHeading sx={{ mb: 0 }}>Referral {r.referralNumber}</PageHeading>
+          <Chip label={r.status} color={referralStatusColor(r.status)} size="small" />
+        </Stack>
+        <Typography color="text.secondary" sx={{ mt: 0.5 }}>
+          {r.specialty} · reason {r.reasonCode} ({r.reasonCodeSystem})
+        </Typography>
+        {r.decisionReason && (
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+            Decision reason: {r.decisionReason}
+          </Typography>
+        )}
+      </Box>
+
+      {(actions.length > 0 || actionError) && (
       <Card>
         <CardContent>
-          <Stack direction="row" spacing={2} sx={{ alignItems: 'center', mb: 1 }}>
-            <PageHeading>Referral {r.referralNumber}</PageHeading>
-            <Chip label={r.status} color={referralStatusColor(r.status)} />
-          </Stack>
-          <Typography variant="body2" color="text.secondary">
-            {r.specialty} · reason {r.reasonCode} ({r.reasonCodeSystem})
-          </Typography>
-          {r.decisionReason && (
-            <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-              Decision reason: {r.decisionReason}
-            </Typography>
-          )}
-
           {actionError && (
-            <Alert severity="error" sx={{ mt: 2 }} onClose={() => setActionError(null)}>
+            <Alert severity="error" onClose={() => setActionError(null)}>
               {actionError}
               {correlationId && (
                 <Typography variant="caption" sx={{ display: 'block', mt: 0.5, opacity: 0.8 }}>
@@ -106,7 +117,7 @@ export function ReferralDetailPage() {
 
           {actions.length > 0 && (
             <>
-              <Divider sx={{ my: 2 }} />
+              {actionError && <Divider sx={{ my: 2 }} />}
               <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', rowGap: 1, alignItems: 'center' }}>
                 {actions.map((to) => (
                   <Button
@@ -147,10 +158,11 @@ export function ReferralDetailPage() {
           )}
         </CardContent>
       </Card>
+      )}
 
       <Card>
         <CardContent>
-          <Typography variant="subtitle1" gutterBottom>
+          <Typography variant="subtitle1" component="h2" gutterBottom sx={{ fontWeight: 700 }}>
             Timeline
           </Typography>
           {history.isPending ? (
