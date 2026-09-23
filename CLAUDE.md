@@ -1279,6 +1279,29 @@ to the AWS deployment, Alertmanager routing, RDS PITR/snapshot DR — all on-dem
       buttons (by exact name), the **"Action"** select label, the search boxes' accessible names (`aria-label` via
       `slotProps.htmlInput` when the visible label is dropped for a placeholder + magnifier), and the sortable
       column headers — the existing tests assert on all of these.
+  - **Detail page layouts (2026-09-23, commit `567522f`) — the current look of ALL 9 detail pages.** Every
+    detail page (Patient, Request, Claim, Coverage plan, Prior-auth, Referral, Appeal, Review, Reprocessing batch)
+    now opens the same way; **match this when editing or adding a detail page**:
+    - A **back link kept** (`<BackLink to="/…" label="Back to …" />`) **then** a **breadcrumb**
+      (`{user.organizationName} / {nav group}`) + a hairline `Divider`, then a **header `Box`** (not a card) with a
+      `PageHeading` (`sx={{ mb: 0 }}`) + a **status `Chip`** (`size="small"`) in a `direction="row"` `Stack`, and a
+      one-line **subtitle** `Typography` below (the record's key facts — service date/charge, procedure/plan, disputed
+      claim link, plan metrics, batch counts, etc.). The title + status + subtitle were **lifted out of the old first
+      card** into this header.
+    - Below the header, the page's existing **cards are unchanged** (Lines, Timeline, Care team, Coverage
+      eligibility, Documents, Anomaly signals, adjudication breakdown, items table, decision actions, comments…).
+      Section headings are **`<h2>`** (`variant="subtitle1"` or `"h6"` + `component="h2"` + `sx={{ fontWeight: 700 }}`)
+      for heading order under the single `PageHeading` `<h1>`.
+    - **The actions card is guarded** so it never renders empty on a terminal record:
+      `{(actions.length > 0 || actionError) && (<Card>…</Card>)}` (Claim also includes `showAdjudicate ||
+      showReadjudicate`). Inside it, the divider that used to sit above the buttons is now conditional
+      (`{actionError && <Divider … />}`) since there's no longer a subtitle above it in the card.
+    - **Coverage plan** drops its old info card entirely (title/type/metrics live in the header, plan **type** as an
+      outlined chip). **Reprocessing batch detail** calls `useCurrentUser()` for the breadcrumb org and adds a
+      "Reprocessed claims" `<h2>` above its items table.
+    - **Pure visual restyle — keep it that way:** no data/mutation/logic changes, and preserve the test handles the
+      detail tests assert on (e.g. the reprocessing-detail test matches the exact text **"Plan: North PPO"**, so keep
+      plan and counts on **separate** subtitle lines — don't merge them).
 
 ## Infrastructure & deployment conventions (Phase 10; learned)
 - **⚠️ AWS cost/approval boundary (hard rule).** Never create, modify, or destroy AWS resources — no

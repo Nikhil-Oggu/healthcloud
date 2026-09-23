@@ -5147,3 +5147,110 @@ a skip link). So the footer must (a) add no heading elements that would compete 
 "Appearance" label is a plain `Typography`, not an `h*`; (b) keep every interactive control with an accessible
 name — the toggle buttons carry `aria-label`, the group has `aria-label="Color theme"`; and (c) introduce no
 color-contrast or ARIA violations. Because those invariants held, the test passed without modification.
+
+---
+
+## Redesigning all 9 detail pages onto the shared design language — 2026-09-23
+
+### What we built
+The final consistency pass on the frontend: every **detail page** (the page you reach by clicking a row in a
+list) was restyled onto the same "workspace design language" the lists, the shell footer, and the queues already
+use. Nine pages: Patient, Request, Claim, Coverage plan, Prior-auth, Referral, Appeal, Review, Reprocessing
+batch. It's a pure visual restyle — no data, mutation, or logic changed, and no test files needed editing.
+
+Notably, the user did **not** supply mockups this time — by now the pattern is well-established, so they asked us
+to apply it from memory and confirmed the plan before we started.
+
+### How it works
+Each detail page previously opened with a bare `BackLink` + a title/status/subtitle crammed **inside** the first
+`Card`. We lifted that into a proper header:
+
+```tsx
+<Box>
+  <BackLink to="/claims" label="Back to claims" />
+  <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+    {user?.organizationName ?? '—'}
+    <Box component="span" sx={{ mx: 1, opacity: 0.6 }}>/</Box>
+    Claims &amp; coverage
+  </Typography>
+  <Divider sx={{ mt: 1.5 }} />
+</Box>
+
+<Box>
+  <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', flexWrap: 'wrap', rowGap: 1 }}>
+    <PageHeading sx={{ mb: 0 }}>Claim {c.claimNumber}</PageHeading>
+    <Chip label={c.status} color={claimStatusColor(c.status)} size="small" />
+  </Stack>
+  <Typography color="text.secondary" sx={{ mt: 0.5 }}>Service date … · total charge …</Typography>
+</Box>
+```
+
+The existing cards (Lines, Timeline, Care team, adjudication breakdown, items table, decision actions…) stay
+below, unchanged except that their section headings became `<h2>` for correct heading order.
+
+Two structural touches:
+- **The actions card is guarded** so a terminal record (no available transitions) never renders an empty card:
+  `{(actions.length > 0 || actionError) && (<Card>…</Card>)}`. The divider that used to separate the (now removed)
+  in-card subtitle from the buttons became conditional on an error being shown.
+- **Coverage plan** dropped its info card entirely (title/type/metrics moved into the header, plan type as a
+  chip). **Reprocessing batch detail** had no `useCurrentUser()` before — we added it just for the breadcrumb org.
+
+### Key points to remember
+- **Preserve exact test text.** The reprocessing-batch-detail test asserts `getByText('Plan: North PPO')`. Our
+  first pass merged plan + counts into one subtitle line ("Plan: North PPO · 2 succeeded · …"), which broke that
+  exact-text matcher. Fix: keep plan and counts on **separate** `Typography` lines. Lesson: `getByText` matches an
+  element's full text content, so merging a matched string into a longer one breaks it.
+- **Two pages had no seed data** (Request, Reprocessing batch). We created a synthetic service request and ran a
+  reprocessing batch via the API (with the CSRF `X-XSRF-TOKEN` header read from the `XSRF-TOKEN` cookie) so we
+  could verify them live. The patients endpoint returns a **plain array**, not a `PageResponse`, so the fetch
+  helper had to handle both shapes.
+- **Switching demo users in dev:** we POST `/api/v1/dev-login` with just an email (the local dev stand-in) rather
+  than logging out, because the backend runs the `cognito` profile and a real logout would redirect to Cognito's
+  hosted UI. dev-login is CSRF-exempt and email-only (no password).
+- **Heading order matters for a11y:** each page has exactly one `<h1>` (the `PageHeading`); every section heading
+  is `component="h2"` so the order is h1 → h2 with no skipped levels.
+
+### Failures and how we fixed them
+- **One test failed** on the reprocessing detail page — the "Plan: North PPO" exact-text assertion, described
+  above. Fixed by keeping the two facts on separate lines. Everything else passed on the first run.
+- **A transient full-suite flake** (canvas/jsdom `getContext` + a "navigation not implemented" note) surfaced 2
+  spurious failures once earlier in the session; a clean re-run was green (183/183). Not related to these edits.
+
+### Interview Q&A
+
+#### 1. Beginner
+**Q: What's the difference between a "list page" and a "detail page" here?**
+A: A list page shows many records in a table or card list (e.g. all claims) with filters/search/pagination. A
+detail page shows one record (e.g. one claim) with its full information and actions. You reach a detail page by
+clicking a row in a list.
+
+**Q: Why redesign the detail pages at all if they worked fine?**
+A: Consistency. The lists had already moved to a polished breadcrumb + subtitle + card language, so clicking into
+a detail page produced a jarring style jump back to the old look. Matching them removes that seam.
+
+#### 2. Intermediate
+**Q: Why lift the title and status out of the first card into a header `Box`?**
+A: So every page — list or detail — has the same top structure: breadcrumb → divider → title + status + subtitle.
+Keeping the title inside a card made the detail pages structurally different from the lists and buried the record's
+identity inside a bordered box. A header box reads as the page's identity; the cards below are its content.
+
+**Q: How did you redesign 9 pages without breaking any tests?**
+A: The tests assert on behavior and content (record numbers, status text, button names, timelines, reason prompts)
+— not on visual structure. We only moved/re-wrapped presentational elements and kept every text string and
+control intact. The one place a string's DOM grouping changed (merging "Plan: North PPO" with counts) broke an
+exact-text matcher, and we reverted that specific merge.
+
+#### 3. Advanced
+**Q: Why guard the actions card with `{(actions.length > 0 || actionError) && …}` instead of always rendering it?**
+A: `allowedActions(status, roles)` returns an empty list for a terminal record or a role with no permitted
+transitions. Without the guard, the card's `CardContent` would render with no buttons and no error — an empty
+bordered box with padding, which looks like a rendering bug. The guard makes the card appear only when it has real
+content. `actionError` is included because an error can only arise from an action attempt, which implies actions
+existed.
+
+**Q: The Reprocessing batch detail didn't import `useCurrentUser` before — why did it need it now, and what's the
+cost?**
+A: The breadcrumb shows `{user.organizationName}`, which comes from the current-user query. Adding the hook is
+cheap: `useCurrentUser` reads the already-cached `/api/v1/me` result (the shell fetched it), so there's no extra
+network call — it just subscribes this component to that cached data. The only test consequence was ensuring the
+test renders within the `QueryClientProvider` it already used.

@@ -456,6 +456,34 @@
 
 ## Log (newest first)
 
+### 2026-09-23 — All 9 detail pages redesigned to the workspace design language ✅ (frontend)
+- **Why:** after the list/queue pages, the sidebar footer, and Manual review / Reprocessing were redesigned, the
+  **detail pages** (the pages you land on from a list row) were the last inconsistency — still the old "Back link +
+  bare heading + cards" era. The user confirmed to redesign all 9 with the established language (no per-page
+  mockups). Commit `567522f`, 9 files.
+- **Pages:** Patient, Request, Claim, Coverage plan, Prior-auth, Referral, Appeal, Review, Reprocessing batch.
+- **The pattern applied to each:** a **back link** (kept) + a **breadcrumb** (`{org} / {nav group}`) + hairline
+  divider, then a **header** with the title, a **status chip**, and a one-line subtitle — lifted **out** of the old
+  first card. Section headings became proper **`<h2>`** (`component="h2"`, `fontWeight: 700`) for heading order.
+  The existing cards (Lines, Timeline, Care team, Coverage eligibility, Documents, Anomaly signals, decision
+  actions, items table, etc.) are unchanged beneath the header.
+- **Per-page specifics:**
+  - Decision/detail pages (Claim, Prior-auth, Referral, Appeal, Review, Request): the actions card is now **guarded**
+    (`{(actions.length > 0 || actionError) && (…)}`) so a terminal record with no available actions never shows an
+    empty card; the leading divider inside it is conditional on an error being shown.
+  - Coverage plan: title/type/metrics moved into the header (plan **type** as a chip); the redundant info card dropped.
+  - Reprocessing batch detail gained a `useCurrentUser()` call (for the breadcrumb org) and a "Reprocessed claims"
+    section heading above its items table.
+- **Pure visual restyle, no behavior change** — every data read, mutation, transition/decision flow, and
+  test-critical handle preserved, so **no test files changed**. (One reprocessing-detail test asserts the exact text
+  "Plan: North PPO", so plan + counts were kept on separate lines rather than merged.)
+- **Verify:** typecheck clean, **183 tests / 40 files** pass, `npm run build` succeeds; **every page confirmed live**
+  in the browser as ORG_ADMIN — the two without seed data (Request, Reprocessing batch) after creating a synthetic
+  service request and running a reprocessing batch via the API to view them.
+- **Frontend is now fully on the workspace design language** — every list, the shell footer, and every detail page.
+  The only intentionally-separate designs remain the Dashboard (constellation hero), Login (bespoke landing), and
+  the 404/Access-denied status pages.
+
 ### 2026-09-23 — Sidebar footer redesigned (identity + Appearance control) ✅ (frontend)
 - **Why:** the user supplied a reference mockup for the sidebar footer (the user identity + theme switch +
   logout block) and, in a follow-up, asked to make the **identity the focal point** (bigger name) and the
