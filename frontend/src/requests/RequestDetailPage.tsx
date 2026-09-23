@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -37,6 +37,35 @@ import { PageHeading } from '../components/PageHeading'
 
 // Participant roles that may comment — mirrors the backend gate (server still enforces it).
 const COMMENT_ROLES = ['PATIENT', 'PROVIDER', 'CARE_COORDINATOR', 'ORG_ADMIN']
+
+/** A form field with the label sitting above the control (the design's label-on-top style). */
+function FormField({
+  id,
+  label,
+  children,
+  grow,
+  full,
+}: {
+  id: string
+  label: string
+  children: ReactNode
+  grow?: boolean
+  full?: boolean
+}) {
+  return (
+    <Box sx={{ flex: grow ? 1 : undefined, minWidth: grow ? 0 : undefined, width: full ? '100%' : undefined }}>
+      <Typography
+        component="label"
+        htmlFor={id}
+        variant="body2"
+        sx={{ display: 'block', mb: 0.75, fontWeight: 500, color: 'text.secondary' }}
+      >
+        {label}
+      </Typography>
+      {children}
+    </Box>
+  )
+}
 // Roles that may assign — mirrors the backend gate (server still enforces it).
 const ASSIGN_ROLES = ['CARE_COORDINATOR', 'ORG_ADMIN']
 
@@ -143,23 +172,26 @@ export function RequestDetailPage() {
               </Stack>
 
               {pending && reasonRequired(pending) && (
-                <Stack direction="row" spacing={1} sx={{ mt: 2, alignItems: 'flex-start' }}>
-                  <TextField
-                    label={`Reason to ${actionLabel(pending).toLowerCase()}`}
-                    size="small"
-                    fullWidth
-                    value={reason}
-                    onChange={(e) => setReason(e.target.value)}
-                  />
+                <Stack direction="row" spacing={1} sx={{ mt: 2, alignItems: 'flex-end' }}>
+                  <FormField id="request-reason" label={`Reason to ${actionLabel(pending).toLowerCase()}`} grow>
+                    <TextField
+                      id="request-reason"
+                      size="small"
+                      fullWidth
+                      value={reason}
+                      onChange={(e) => setReason(e.target.value)}
+                    />
+                  </FormField>
                   <Button
                     variant="contained"
                     size="small"
+                    sx={{ flexShrink: 0 }}
                     disabled={!reason.trim() || changeStatus.isPending}
                     onClick={() => void apply(pending, reason)}
                   >
                     Confirm
                   </Button>
-                  <Button size="small" onClick={() => setPending(null)}>
+                  <Button size="small" sx={{ flexShrink: 0 }} onClick={() => setPending(null)}>
                     Cancel
                   </Button>
                 </Stack>
@@ -291,28 +323,31 @@ function AssignmentCard({
                 )}
               </Alert>
             )}
-            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ alignItems: 'flex-start' }}>
-              <TextField
-                select
-                label="Assign to"
-                size="small"
-                sx={{ minWidth: 240 }}
-                slotProps={{ select: { native: true }, inputLabel: { shrink: true } }}
-                value={selected}
-                onChange={(e) => setSelected(e.target.value)}
-              >
-                <option value="">
-                  {assignableUsers.isPending ? 'Loading…' : 'Select a provider or reviewer'}
-                </option>
-                {(assignableUsers.data ?? []).map((u) => (
-                  <option key={u.userId} value={u.userId}>
-                    {u.fullName} ({u.role})
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} sx={{ alignItems: { xs: 'stretch', sm: 'flex-end' } }}>
+              <FormField id="request-assignee" label="Assign to" grow>
+                <TextField
+                  id="request-assignee"
+                  select
+                  size="small"
+                  fullWidth
+                  slotProps={{ select: { native: true } }}
+                  value={selected}
+                  onChange={(e) => setSelected(e.target.value)}
+                >
+                  <option value="">
+                    {assignableUsers.isPending ? 'Loading…' : 'Select a provider or reviewer'}
                   </option>
-                ))}
-              </TextField>
+                  {(assignableUsers.data ?? []).map((u) => (
+                    <option key={u.userId} value={u.userId}>
+                      {u.fullName} ({u.role})
+                    </option>
+                  ))}
+                </TextField>
+              </FormField>
               <Button
                 variant="contained"
                 size="small"
+                sx={{ flexShrink: 0 }}
                 disabled={!selected || assign.isPending}
                 onClick={() => void onAssign()}
               >
@@ -412,17 +447,19 @@ function CommentsCard({ requestId, canComment }: { requestId: string; canComment
               </Alert>
             )}
             <Box component="form" onSubmit={handleSubmit(onSubmit)} noValidate>
-              <Stack spacing={1} sx={{ alignItems: 'flex-start' }}>
-                <TextField
-                  label="Add a comment"
-                  size="small"
-                  fullWidth
-                  multiline
-                  minRows={2}
-                  {...register('body')}
-                  error={!!errors.body}
-                  helperText={errors.body?.message}
-                />
+              <Stack spacing={1.5} sx={{ alignItems: 'flex-start' }}>
+                <FormField id="request-comment" label="Add a comment" full>
+                  <TextField
+                    id="request-comment"
+                    size="small"
+                    fullWidth
+                    multiline
+                    minRows={2}
+                    {...register('body')}
+                    error={!!errors.body}
+                    helperText={errors.body?.message}
+                  />
+                </FormField>
                 <Button type="submit" variant="contained" size="small" disabled={addComment.isPending}>
                   {addComment.isPending ? 'Posting…' : 'Comment'}
                 </Button>

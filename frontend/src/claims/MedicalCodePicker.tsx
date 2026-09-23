@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Autocomplete, TextField } from '@mui/material'
+import { Autocomplete, Box, TextField, Typography } from '@mui/material'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../api/client'
 import type { MedicalCode } from '../api/types'
@@ -12,6 +12,12 @@ interface Props {
   helperText?: string
   /** Which catalog category to show. Defaults to Procedure (claim lines / prior auth); Diagnosis for referrals. */
   category?: 'Procedure' | 'Diagnosis'
+  /**
+   * Render the label ABOVE the field (the design's label-on-top style) instead of MUI's floating label.
+   * The accessible name is preserved via `aria-label`, so `getByLabelText(label)` still resolves. Default off,
+   * so the create forms (claims/prior-auth/referrals) keep their inline label unchanged.
+   */
+  labelAbove?: boolean
 }
 
 /**
@@ -27,6 +33,7 @@ export function MedicalCodePicker({
   error,
   helperText,
   category = 'Procedure',
+  labelAbove = false,
 }: Props) {
   const [input, setInput] = useState(value ?? '')
   const [debounced, setDebounced] = useState(input)
@@ -47,7 +54,7 @@ export function MedicalCodePicker({
     [search.data, category],
   )
 
-  return (
+  const control = (
     <Autocomplete<MedicalCode | string, false, false, true>
       freeSolo
       options={options}
@@ -75,9 +82,33 @@ export function MedicalCodePicker({
         )
       }
       renderInput={(params) => (
-        <TextField {...params} label={label} size="small" error={error} helperText={helperText} />
+        <TextField
+          {...params}
+          label={labelAbove ? undefined : label}
+          size="small"
+          error={error}
+          helperText={helperText}
+          // In label-above mode there's no floating label, so give the input its accessible name via aria-label
+          // (merged into the slotProps the Autocomplete supplies) — keeps getByLabelText(label) working.
+          slotProps={
+            labelAbove
+              ? { ...params.slotProps, htmlInput: { ...params.slotProps?.htmlInput, 'aria-label': label } }
+              : params.slotProps
+          }
+        />
       )}
-      sx={{ minWidth: 260 }}
+      sx={{ minWidth: labelAbove ? 0 : 260 }}
     />
+  )
+
+  if (!labelAbove) return control
+
+  return (
+    <Box sx={{ flex: 1, minWidth: 0 }}>
+      <Typography variant="body2" sx={{ display: 'block', mb: 0.75, fontWeight: 500, color: 'text.secondary' }}>
+        {label}
+      </Typography>
+      {control}
+    </Box>
   )
 }

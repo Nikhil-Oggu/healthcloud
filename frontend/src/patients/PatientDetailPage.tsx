@@ -245,6 +245,36 @@ function Field({ label, value }: { label: string; value: React.ReactNode }) {
   )
 }
 
+/**
+ * A form field with the label sitting above the control (the design's label-on-top style — matches the redesigned
+ * pages). The control must carry the matching `id` so `getByLabelText` and screen readers resolve the label.
+ */
+function FormField({
+  id,
+  label,
+  children,
+  grow,
+}: {
+  id: string
+  label: string
+  children: React.ReactNode
+  grow?: boolean
+}) {
+  return (
+    <Box sx={{ flex: grow ? 1 : undefined, minWidth: grow ? 0 : undefined }}>
+      <Typography
+        component="label"
+        htmlFor={id}
+        variant="body2"
+        sx={{ display: 'block', mb: 0.75, fontWeight: 500, color: 'text.secondary' }}
+      >
+        {label}
+      </Typography>
+      {children}
+    </Box>
+  )
+}
+
 // A care-team member, normalized across the provider and coordinator assignment tables.
 interface TeamMember {
   assignmentId: string
@@ -409,44 +439,59 @@ function AssignmentGroup({
 
         {canWrite && (
           <Box sx={{ mt: 2 }}>
-            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ alignItems: 'flex-start' }}>
-              <TextField
-                select
-                label={`Add ${noun}`}
-                size="small"
-                fullWidth
-                slotProps={{ select: { native: true }, inputLabel: { shrink: true } }}
-                value={userId}
-                onChange={(e) => setUserId(e.target.value)}
+            <Stack spacing={1.5}>
+              <FormField id={`assign-${noun}`} label={`Add ${noun}`}>
+                <TextField
+                  id={`assign-${noun}`}
+                  select
+                  size="small"
+                  fullWidth
+                  slotProps={{ select: { native: true } }}
+                  value={userId}
+                  onChange={(e) => setUserId(e.target.value)}
+                >
+                  <option value="">Select…</option>
+                  {candidates.map((c) => (
+                    <option key={c.userId} value={c.userId}>
+                      {c.fullName}
+                    </option>
+                  ))}
+                </TextField>
+              </FormField>
+              <Stack
+                direction={{ xs: 'column', sm: 'row' }}
+                spacing={1.5}
+                sx={{ alignItems: { xs: 'stretch', sm: 'flex-end' } }}
               >
-                <option value="">Select…</option>
-                {candidates.map((c) => (
-                  <option key={c.userId} value={c.userId}>
-                    {c.fullName}
-                  </option>
-                ))}
-              </TextField>
-              <TextField
-                label="From"
-                type="date"
-                size="small"
-                sx={{ minWidth: 160 }}
-                slotProps={{ inputLabel: { shrink: true } }}
-                value={effectiveFrom}
-                onChange={(e) => setEffectiveFrom(e.target.value)}
-              />
-              <TextField
-                label="To"
-                type="date"
-                size="small"
-                sx={{ minWidth: 160 }}
-                slotProps={{ inputLabel: { shrink: true } }}
-                value={effectiveTo}
-                onChange={(e) => setEffectiveTo(e.target.value)}
-              />
-              <Button variant="contained" onClick={onAssign} disabled={assign.isPending || !userId}>
-                {assign.isPending ? 'Assigning…' : 'Assign'}
-              </Button>
+                <FormField id={`assign-${noun}-from`} label="From" grow>
+                  <TextField
+                    id={`assign-${noun}-from`}
+                    type="date"
+                    size="small"
+                    fullWidth
+                    value={effectiveFrom}
+                    onChange={(e) => setEffectiveFrom(e.target.value)}
+                  />
+                </FormField>
+                <FormField id={`assign-${noun}-to`} label="To" grow>
+                  <TextField
+                    id={`assign-${noun}-to`}
+                    type="date"
+                    size="small"
+                    fullWidth
+                    value={effectiveTo}
+                    onChange={(e) => setEffectiveTo(e.target.value)}
+                  />
+                </FormField>
+                <Button
+                  variant="contained"
+                  onClick={onAssign}
+                  disabled={assign.isPending || !userId}
+                  sx={{ flexShrink: 0 }}
+                >
+                  {assign.isPending ? 'Assigning…' : 'Assign'}
+                </Button>
+              </Stack>
             </Stack>
             {candidates.length === 0 && (
               <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
@@ -569,38 +614,44 @@ function EnrollEligibilityForm({ patientId }: { patientId: string }) {
           </Alert>
         )}
         <Box component="form" onSubmit={handleSubmit(onSubmit)} noValidate>
-          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ alignItems: 'flex-start' }}>
-            <TextField
-              select label="Plan" size="small" fullWidth
-              slotProps={{ select: { native: true }, inputLabel: { shrink: true } }}
-              error={!!errors.coveragePlanId} helperText={errors.coveragePlanId?.message}
-              defaultValue=""
-              {...register('coveragePlanId')}
-            >
-              <option value="">Select…</option>
-              {(plans.data ?? []).map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name} ({p.planCode})
-                </option>
-              ))}
-            </TextField>
-            <TextField
-              label="Member ID" size="small" fullWidth
-              {...register('memberId')} error={!!errors.memberId} helperText={errors.memberId?.message}
-            />
-            <TextField
-              label="Coverage start" type="date" size="small" sx={{ minWidth: 190 }}
-              slotProps={{ inputLabel: { shrink: true } }}
-              {...register('effectiveFrom')} error={!!errors.effectiveFrom}
-              helperText={errors.effectiveFrom?.message}
-            />
-            <TextField
-              label="Coverage end (optional)" type="date" size="small" sx={{ minWidth: 190 }}
-              slotProps={{ inputLabel: { shrink: true } }}
-              {...register('effectiveTo')} error={!!errors.effectiveTo}
-              helperText={errors.effectiveTo?.message}
-            />
-            <Button type="submit" variant="contained" disabled={enroll.isPending}>
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ alignItems: { xs: 'stretch', sm: 'flex-start' } }}>
+            <FormField id="enroll-plan" label="Plan" grow>
+              <TextField
+                id="enroll-plan" select size="small" fullWidth
+                slotProps={{ select: { native: true } }}
+                error={!!errors.coveragePlanId} helperText={errors.coveragePlanId?.message}
+                defaultValue=""
+                {...register('coveragePlanId')}
+              >
+                <option value="">Select…</option>
+                {(plans.data ?? []).map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name} ({p.planCode})
+                  </option>
+                ))}
+              </TextField>
+            </FormField>
+            <FormField id="enroll-memberId" label="Member ID" grow>
+              <TextField
+                id="enroll-memberId" size="small" fullWidth
+                {...register('memberId')} error={!!errors.memberId} helperText={errors.memberId?.message}
+              />
+            </FormField>
+            <FormField id="enroll-start" label="Coverage start">
+              <TextField
+                id="enroll-start" type="date" size="small" sx={{ minWidth: 190 }}
+                {...register('effectiveFrom')} error={!!errors.effectiveFrom}
+                helperText={errors.effectiveFrom?.message}
+              />
+            </FormField>
+            <FormField id="enroll-end" label="Coverage end (optional)">
+              <TextField
+                id="enroll-end" type="date" size="small" sx={{ minWidth: 190 }}
+                {...register('effectiveTo')} error={!!errors.effectiveTo}
+                helperText={errors.effectiveTo?.message}
+              />
+            </FormField>
+            <Button type="submit" variant="contained" sx={{ mt: { sm: 3.5 } }} disabled={enroll.isPending}>
               {enroll.isPending ? 'Enrolling…' : 'Enroll'}
             </Button>
           </Stack>
@@ -907,71 +958,71 @@ function RecordDirectiveForm({ patientId }: { patientId: string }) {
         )}
 
         <Box component="form" onSubmit={handleSubmit(onSubmit)} noValidate>
-          <Stack spacing={2}>
+          <Stack spacing={2.5}>
             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-              <TextField select label="Effect" size="small" fullWidth slotProps={{ select: { native: true }, inputLabel: { shrink: true } }} {...register('effect')}>
-                <option value="GRANT">GRANT</option>
-                <option value="DENY">DENY</option>
-              </TextField>
-              <TextField select label="Purpose" size="small" fullWidth slotProps={{ select: { native: true }, inputLabel: { shrink: true } }} {...register('purpose')}>
-                {PURPOSES.map((x) => (
-                  <option key={x} value={x}>
-                    {x}
-                  </option>
-                ))}
-              </TextField>
-              <TextField select label="Data category" size="small" fullWidth slotProps={{ select: { native: true }, inputLabel: { shrink: true } }} {...register('dataCategory')}>
-                {CATEGORIES.map((x) => (
-                  <option key={x} value={x}>
-                    {x}
-                  </option>
-                ))}
-              </TextField>
+              <FormField id="consent-effect" label="Effect" grow>
+                <TextField id="consent-effect" select size="small" fullWidth slotProps={{ select: { native: true } }} {...register('effect')}>
+                  <option value="GRANT">GRANT</option>
+                  <option value="DENY">DENY</option>
+                </TextField>
+              </FormField>
+              <FormField id="consent-purpose" label="Purpose" grow>
+                <TextField id="consent-purpose" select size="small" fullWidth slotProps={{ select: { native: true } }} {...register('purpose')}>
+                  {PURPOSES.map((x) => (
+                    <option key={x} value={x}>
+                      {x}
+                    </option>
+                  ))}
+                </TextField>
+              </FormField>
+              <FormField id="consent-dataCategory" label="Data category" grow>
+                <TextField id="consent-dataCategory" select size="small" fullWidth slotProps={{ select: { native: true } }} {...register('dataCategory')}>
+                  {CATEGORIES.map((x) => (
+                    <option key={x} value={x}>
+                      {x}
+                    </option>
+                  ))}
+                </TextField>
+              </FormField>
             </Stack>
 
             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ alignItems: 'flex-start' }}>
-              <TextField select label="Scope" size="small" fullWidth slotProps={{ select: { native: true }, inputLabel: { shrink: true } }} {...register('scopeType')}>
-                <option value="ORGANIZATION">ORGANIZATION</option>
-                <option value="CARE_TEAM">CARE_TEAM</option>
-                <option value="PROVIDER">PROVIDER</option>
-              </TextField>
-              {scopeType === 'PROVIDER' && (
-                <TextField
-                  select
-                  label="Provider"
-                  size="small"
-                  fullWidth
-                  slotProps={{ select: { native: true }, inputLabel: { shrink: true } }}
-                  error={!!errors.scopeRefId}
-                  helperText={errors.scopeRefId?.message ?? 'Assigned providers only'}
-                  {...register('scopeRefId')}
-                >
-                  <option value="">Select a provider…</option>
-                  {(providerAssignments.data ?? [])
-                    .filter((a) => a.status === 'ACTIVE')
-                    .map((a) => (
-                      <option key={a.providerUserId} value={a.providerUserId}>
-                        {a.providerName}
-                      </option>
-                    ))}
+              <FormField id="consent-scopeType" label="Scope" grow>
+                <TextField id="consent-scopeType" select size="small" fullWidth slotProps={{ select: { native: true } }} {...register('scopeType')}>
+                  <option value="ORGANIZATION">ORGANIZATION</option>
+                  <option value="CARE_TEAM">CARE_TEAM</option>
+                  <option value="PROVIDER">PROVIDER</option>
                 </TextField>
+              </FormField>
+              {scopeType === 'PROVIDER' && (
+                <FormField id="consent-scopeRefId" label="Provider" grow>
+                  <TextField
+                    id="consent-scopeRefId"
+                    select
+                    size="small"
+                    fullWidth
+                    slotProps={{ select: { native: true } }}
+                    error={!!errors.scopeRefId}
+                    helperText={errors.scopeRefId?.message ?? 'Assigned providers only'}
+                    {...register('scopeRefId')}
+                  >
+                    <option value="">Select a provider…</option>
+                    {(providerAssignments.data ?? [])
+                      .filter((a) => a.status === 'ACTIVE')
+                      .map((a) => (
+                        <option key={a.providerUserId} value={a.providerUserId}>
+                          {a.providerName}
+                        </option>
+                      ))}
+                  </TextField>
+                </FormField>
               )}
-              <TextField
-                label="Effective from"
-                type="date"
-                size="small"
-                fullWidth
-                slotProps={{ inputLabel: { shrink: true } }}
-                {...register('effectiveFrom')}
-              />
-              <TextField
-                label="Effective to"
-                type="date"
-                size="small"
-                fullWidth
-                slotProps={{ inputLabel: { shrink: true } }}
-                {...register('effectiveTo')}
-              />
+              <FormField id="consent-effectiveFrom" label="Effective from" grow>
+                <TextField id="consent-effectiveFrom" type="date" size="small" fullWidth {...register('effectiveFrom')} />
+              </FormField>
+              <FormField id="consent-effectiveTo" label="Effective to" grow>
+                <TextField id="consent-effectiveTo" type="date" size="small" fullWidth {...register('effectiveTo')} />
+              </FormField>
             </Stack>
 
             <Box>

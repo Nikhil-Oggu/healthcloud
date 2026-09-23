@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { useParams } from 'react-router-dom'
 import { BackLink } from '../components/BackLink'
 import {
@@ -44,6 +44,33 @@ import {
 import { PageHeading } from '../components/PageHeading'
 
 const ADMIN_ROLES = ['ORG_ADMIN']
+
+/** A form field with the label sitting above the control (the design's label-on-top style). */
+function FormField({
+  id,
+  label,
+  children,
+  grow,
+}: {
+  id: string
+  label: string
+  children: ReactNode
+  grow?: boolean
+}) {
+  return (
+    <Box sx={{ flex: grow ? 1 : undefined, minWidth: grow ? 0 : undefined }}>
+      <Typography
+        component="label"
+        htmlFor={id}
+        variant="body2"
+        sx={{ display: 'block', mb: 0.75, fontWeight: 500, color: 'text.secondary' }}
+      >
+        {label}
+      </Typography>
+      {children}
+    </Box>
+  )
+}
 
 export function CoveragePlanDetailPage() {
   const { id = '' } = useParams()
@@ -204,9 +231,9 @@ function ExclusionsCard({ planId, canAdmin }: { planId: string; canAdmin: boolea
         {canAdmin && (
           <>
             <Divider sx={{ my: 2 }} />
-            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ alignItems: 'flex-start' }}>
-              <MedicalCodePicker value={code} onChange={setCode} label="Exclude a procedure" />
-              <Button variant="contained" size="small" disabled={!code.trim() || addExclusion.isPending} onClick={() => void onAdd()}>
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} sx={{ alignItems: { xs: 'stretch', sm: 'flex-end' } }}>
+              <MedicalCodePicker value={code} onChange={setCode} label="Exclude a procedure" labelAbove />
+              <Button variant="contained" size="small" sx={{ flexShrink: 0 }} disabled={!code.trim() || addExclusion.isPending} onClick={() => void onAdd()}>
                 Add exclusion
               </Button>
             </Stack>
@@ -335,19 +362,22 @@ function FeeScheduleCard({ planId, canAdmin }: { planId: string; canAdmin: boole
         {canAdmin && (
           <>
             <Divider sx={{ my: 2 }} />
-            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ alignItems: 'flex-start' }}>
-              <MedicalCodePicker value={code} onChange={setCode} label="Price a procedure" />
-              <TextField
-                label="Allowed amount"
-                type="number"
-                size="small"
-                slotProps={{ htmlInput: { step: '0.01', min: '0' } }}
-                value={amount}
-                onChange={(e) => setAmount(e.target.value)}
-              />
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} sx={{ alignItems: { xs: 'stretch', sm: 'flex-end' } }}>
+              <MedicalCodePicker value={code} onChange={setCode} label="Price a procedure" labelAbove />
+              <FormField id="fee-allowed-amount" label="Allowed amount">
+                <TextField
+                  id="fee-allowed-amount"
+                  type="number"
+                  size="small"
+                  slotProps={{ htmlInput: { step: '0.01', min: '0', 'aria-label': 'Allowed amount' } }}
+                  value={amount}
+                  onChange={(e) => setAmount(e.target.value)}
+                />
+              </FormField>
               <Button
                 variant="contained"
                 size="small"
+                sx={{ flexShrink: 0 }}
                 disabled={!code.trim() || !amountValid || addFeeSchedule.isPending}
                 onClick={() => void onAdd()}
               >
@@ -471,11 +501,12 @@ function PriorAuthRequirementsCard({ planId, canAdmin }: { planId: string; canAd
         {canAdmin && (
           <>
             <Divider sx={{ my: 2 }} />
-            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ alignItems: 'flex-start' }}>
-              <MedicalCodePicker value={code} onChange={setCode} label="Require prior auth for a procedure" />
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} sx={{ alignItems: { xs: 'stretch', sm: 'flex-end' } }}>
+              <MedicalCodePicker value={code} onChange={setCode} label="Require prior auth for a procedure" labelAbove />
               <Button
                 variant="contained"
                 size="small"
+                sx={{ flexShrink: 0 }}
                 disabled={!code.trim() || addRequirement.isPending}
                 onClick={() => void onAdd()}
               >
@@ -597,28 +628,31 @@ function NetworkProvidersCard({ planId, canAdmin }: { planId: string; canAdmin: 
         {canAdmin && (
           <>
             <Divider sx={{ my: 2 }} />
-            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ alignItems: 'flex-start' }}>
-              <TextField
-                select
-                label="Add a provider to the network"
-                size="small"
-                fullWidth
-                value={providerUserId}
-                onChange={(e) => setProviderUserId(e.target.value)}
-                slotProps={{ select: { native: true }, inputLabel: { shrink: true } }}
-              >
-                <option value="">
-                  {candidates.isPending ? 'Loading…' : 'Select a provider'}
-                </option>
-                {(candidates.data ?? []).map((c) => (
-                  <option key={c.userId} value={c.userId}>
-                    {c.fullName}
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} sx={{ alignItems: { xs: 'stretch', sm: 'flex-end' } }}>
+              <FormField id="network-add-provider" label="Add a provider to the network" grow>
+                <TextField
+                  id="network-add-provider"
+                  select
+                  size="small"
+                  fullWidth
+                  value={providerUserId}
+                  onChange={(e) => setProviderUserId(e.target.value)}
+                  slotProps={{ select: { native: true } }}
+                >
+                  <option value="">
+                    {candidates.isPending ? 'Loading…' : 'Select a provider'}
                   </option>
-                ))}
-              </TextField>
+                  {(candidates.data ?? []).map((c) => (
+                    <option key={c.userId} value={c.userId}>
+                      {c.fullName}
+                    </option>
+                  ))}
+                </TextField>
+              </FormField>
               <Button
                 variant="contained"
                 size="small"
+                sx={{ flexShrink: 0 }}
                 disabled={!providerUserId || addProvider.isPending}
                 onClick={() => void onAdd()}
               >
