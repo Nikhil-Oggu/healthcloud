@@ -456,6 +456,36 @@
 
 ## Log (newest first)
 
+### 2026-09-23 — RP-initiated Cognito logout (switch users same-window, no Incognito) ✅ (backend + frontend)
+- **Why:** the user wanted to check each provider's view (`provider@`/`provider2@` × NorthCare/Green Valley) but
+  found that after logging in as one, **Log out → Sign in** re-logged the **same** user. Root cause: our logout only
+  cleared the app's Spring `SESSION`; **Cognito kept its own hosted-UI (SSO) cookie**, so the next sign-in was silent.
+  The only workaround was a separate Incognito window per user. This was the documented Phase-10 "logout is
+  local-only" follow-up. Commit `7cad836` (pushed).
+- **Fix (code-only — no AWS change):** `GET /api/v1/auth/config` (`AuthConfigController`) now also returns
+  **`cognitoLogoutUrl`** = Cognito's **non-standard** hosted-UI logout URL
+  (`https://<hosted-ui-domain>/logout?client_id=..&logout_uri=..` — Cognito doesn't advertise an OIDC
+  `end_session_endpoint`, so Spring's `OidcClientInitiatedLogoutSuccessHandler` can't be used; we build it), or
+  `null` when Cognito isn't configured. Built from two new env-overridable props in `application-cognito.yml`
+  (`healthcloud.cognito.hosted-ui-domain`, `logout-redirect-uri`) + the registered client id — **no secret exposed**.
+  The SPA's `AppLayout.handleLogout` now `api.logout()`s then **full-page-redirects to `cognitoLogoutUrl`** (clears
+  the Cognito cookie, returns to `/`), falling back to a local `/login` navigation when the URL is absent (dev
+  without Cognito, so unaffected).
+- **No AWS change needed:** the logout return URL (`http://localhost:5173/` locally; the CloudFront URL on deploy)
+  is **already a registered "Sign out URL"** on the app client — confirmed via `describe-user-pool-client`.
+- **Verify:** new `AuthConfigControllerTest` **3/3** (disabled → no URL; enabled → URL with the URL-encoded
+  redirect; blank domain → null); frontend `npm run typecheck` + **183 tests** green; live
+  `/api/v1/auth/config` returns the URL; `curl` on Cognito `/logout` → **302 → http://localhost:5173/** (URL valid,
+  return registered). Files: `AuthConfigController.java` (+ test), `application-cognito.yml`, `api/types.ts`,
+  `AppLayout.tsx`.
+- **Env recovery note:** Docker Desktop had stopped mid-session (Postgres down → backend couldn't restart);
+  restarted Docker → `docker compose up -d postgres` → backend on `local,cognito`. (The Cognito client secret is
+  fetched at run time via `aws cognito-idp describe-user-pool-client … --query 'UserPoolClient.ClientSecret'`
+  command-substitution so it never lands in a shell arg, history, or output — the assistant never types it.)
+- **Provider views:** confirmed to the user that the earlier page redesign is **not per-user** — it's one shared
+  React codebase, so all four providers (and every role, both orgs) already have the new design; only the *data* +
+  role-gated bits differ. No per-provider work needed.
+
 ### 2026-09-23 — Core workspace pages redesigned to master-detail / card layouts ✅ (frontend)
 - **Why:** the user supplied per-page reference mockups and asked to bring the main in-app pages up to the same
   polished, consistent design as the new front page. Commit `8709846` (pushed to `origin/main`), 20 files.

@@ -4760,3 +4760,99 @@ reach the actual input element.
 A: So the secret never enters the conversation, the shell history as a literal, or command output — it flows straight
 from `aws cognito-idp describe-user-pool-client` into an env var. This mirrors how the deployed app injects it from
 Secrets Manager, and it respects the rule that the assistant never handles credentials in plaintext.
+
+---
+
+## RP-initiated logout with Amazon Cognito (a non-standard OIDC quirk) — 2026-09-23
+
+### What we built
+"Log out" used to clear only our app's session, but Cognito kept its own login cookie — so the next "Sign in"
+silently logged the **same** person back in (you had to use an Incognito window to switch users). We wired
+**RP-initiated logout**: logging out now also clears the Cognito hosted-UI session, so a different user can sign in
+in the same window. This closed a documented Phase-10 follow-up.
+
+### How it works
+- The backend's public `GET /api/v1/auth/config` gained a **`cognitoLogoutUrl`** field. It's built in
+  `AuthConfigController`:
+  ```java
+  return "https://" + hostedUiDomain + "/logout?client_id=" + cognito.getClientId()
+       + "&logout_uri=" + URLEncoder.encode(logoutRedirectUri, StandardCharsets.UTF_8);
+  ```
+  Returned only when Cognito is configured *and* the two new config values are set; otherwise `null`.
+- New env-overridable config in `application-cognito.yml`:
+  ```yaml
+  healthcloud:
+    cognito:
+      hosted-ui-domain: ${COGNITO_HOSTED_UI_DOMAIN:healthcloud-dev-….amazoncognito.com}
+      logout-redirect-uri: ${COGNITO_LOGOUT_REDIRECT_URI:http://localhost:5173/}
+  ```
+- The SPA's `AppLayout.handleLogout` fetches the config, calls `api.logout()` (clears the Spring `SESSION` cookie),
+  then does a **full-page redirect**: `window.location.assign(cognitoLogoutUrl)`. Cognito clears its cookie and
+  302-redirects back to the app, which lands on `/login`. If there's no logout URL (dev without Cognito), it falls
+  back to the previous client-side `navigate('/login')`.
+
+### Key points to remember
+- **Cognito's logout is NOT standard OIDC.** OIDC RP-initiated logout uses an `end_session_endpoint` (from the
+  discovery document) with `id_token_hint` + `post_logout_redirect_uri`. **Cognito doesn't advertise
+  `end_session_endpoint`** and uses a custom `/logout?client_id=..&logout_uri=..` instead — so Spring Security's
+  `OidcClientInitiatedLogoutSuccessHandler` does **not** work here. We build the URL by hand.
+- **Logout must be a full-page navigation, not a `fetch`.** Clearing a cookie on another origin (Cognito) requires
+  the browser to actually visit that origin. A background `fetch` can't do it. Hence `window.location.assign(...)`.
+- **The `logout_uri` must be pre-registered** as a "Sign out URL" on the Cognito app client, or Cognito rejects it.
+  Ours already had `http://localhost:5173/` (local) and the CloudFront URL (deploy) registered — so **no AWS change**.
+  Always check `aws cognito-idp describe-user-pool-client … --query 'UserPoolClient.LogoutURLs'` first.
+- **No secret is exposed.** The logout URL contains only the public hosted-UI domain, the (non-secret) client id, and
+  a pre-registered redirect — safe on a public, unauthenticated endpoint.
+- **The hosted-UI domain isn't derivable from the issuer.** The issuer is
+  `cognito-idp.<region>.amazonaws.com/<pool-id>`, but the hosted UI lives at `<domain>.auth.<region>.amazoncognito.com`
+  — a separate value, so it must be configured.
+
+### Failures and how we fixed them
+- **Backend wouldn't restart** after the change: the log showed `Connection to localhost:5432 refused`. Root cause:
+  **Docker Desktop had quit** mid-session, taking Postgres with it. Fix: `open -a Docker`, wait for the daemon,
+  `docker compose up -d postgres`, then restart the backend. Lesson: "connection refused on 5432" usually means the
+  container/daemon is down, not a code bug — check `docker info` / `docker ps` first.
+- **Couldn't open the Cognito domain in the in-app browser** (site blocked) to eyeball the redirect. Verified with
+  `curl -D -` instead — saw `HTTP/2 302` + `location: http://localhost:5173/`, which proves the client id + logout_uri
+  are accepted and the round-trip returns to the app.
+
+### Interview Q&A
+
+#### 1. Beginner
+**Q: Why did logging out and back in return the same user?**
+A: Two separate sessions exist — our app's session cookie *and* Cognito's own login cookie. We were only clearing
+ours. Cognito still considered the user logged in, so it re-issued a login without prompting.
+
+**Q: What is "RP-initiated logout"?**
+A: The Relying Party (our app) starts the logout at the identity provider (Cognito), not just locally — so the IdP's
+session is ended too. It's done by redirecting the browser to the IdP's logout URL.
+
+#### 2. Intermediate
+**Q: Why not use Spring Security's built-in OIDC logout handler?**
+A: `OidcClientInitiatedLogoutSuccessHandler` relies on the provider advertising an `end_session_endpoint` in its OIDC
+discovery document and accepting the standard parameters. Cognito does neither — it exposes a custom
+`/logout?client_id=..&logout_uri=..`. So we construct that URL ourselves and trigger it from the SPA.
+
+**Q: Why expose the logout URL from the backend instead of building it in the frontend?**
+A: The frontend doesn't (and shouldn't need to) know the hosted-UI domain or client id as build-time config. The
+backend already has them, and `/api/v1/auth/config` is the existing public probe the login page uses — so it's the
+natural single source of truth, and it stays `null` cleanly when Cognito is off.
+
+**Q: Why was no AWS/Terraform change required?**
+A: Cognito only redirects back to a `logout_uri` that's pre-registered on the app client. Those URLs
+(`localhost:5173`, the CloudFront domain) were already registered from earlier slices, so the feature was pure code.
+
+#### 3. Advanced
+**Q: What happens on logout if `/api/v1/auth/config` is unreachable?**
+A: `handleLogout` wraps the config fetch in try/catch; on failure `cognitoLogoutUrl` stays undefined and we fall back
+to `api.logout()` + a local `navigate('/login')`. So logout still works (app-local), just without clearing Cognito —
+a safe degradation rather than a broken button.
+
+**Q: Is there a security risk in putting the logout URL on a public endpoint?**
+A: No. It carries only public data (hosted-UI domain, non-secret client id, a pre-registered redirect). It grants no
+access; at most it lets anyone start a logout, which is harmless. The client *secret* is never involved.
+
+**Q: How would this differ on the deployed (CloudFront) environment?**
+A: Same code; only the two env vars change — `COGNITO_HOSTED_UI_DOMAIN` (same pool domain) and
+`COGNITO_LOGOUT_REDIRECT_URI` set to the CloudFront `https://…` origin (already a registered Sign-out URL). The
+backend then emits a logout URL that returns to the deployed app instead of localhost.
