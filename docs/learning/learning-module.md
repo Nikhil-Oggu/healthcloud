@@ -4966,3 +4966,109 @@ A: It mirrors each page's data model. Audit and Dead letters are server-paged (`
 is `totalElements` (the current page holds only `size` rows). Access review's endpoint returns **all active** grants
 as a plain array, so `rows.length` *is* the total. Using `rows.length` on a paged page would under-count to the page
 size.
+
+---
+
+## Redesigning the last two Claims & coverage queues (Manual review & Reprocessing) — 2026-09-23
+
+### What we built
+We brought the final two in-app pages still on the old stacked layout — **Manual review** (claim-reviews)
+and **Reprocessing** — onto the shared "workspace design language" the rest of the app already uses. The user
+supplied a before/after mockup for each. Both are **pure visual restyles**: same data, same API calls, same
+behavior, and — because we kept every accessibility handle the tests rely on — **no test files changed**.
+
+### How it works
+Both pages now open the same way as every other redesigned page: a **breadcrumb** (`{org} / Claims & coverage`)
++ a hairline `Divider`, then a **`PageHeading` with a one-line subtitle**.
+
+- **Manual review** (`src/claimreview/ClaimReviewsPage.tsx` + `CreateClaimReviewForm.tsx`): a two-column CSS grid
+  (`gridTemplateColumns: { xs: '1fr', md: '3fr 2fr' }`). The **reviews table** lives in a card on the left (its
+  search box + Status filter sit in a row above it); the **"New review" form** is a teal-top-accented card on the
+  right. When the caller can't open a review the table renders full-width instead.
+- **Reprocessing** (`src/reprocessing/ReprocessingBatchesPage.tsx` + `CreateReprocessingBatchForm.tsx`): a
+  teal-accented **"Run a batch"** card whose `CardContent` is itself a two-column grid — the plain-language
+  explanation on the left, the plan-select form + Run batch button on the right, separated by a `borderLeft`
+  divider that only appears at `md+` (so the columns stack cleanly on mobile). Below it, a **"Batch history"** card
+  wraps the filters + the batches table.
+
+The teal accent bar is just a top border on the card:
+
+```tsx
+<Card sx={{ borderTop: '3px solid', borderTopColor: 'primary.main' }}>
+```
+
+The form fields use the same label-above `Field` helper as the other redesigned forms — a `<Typography
+component="label" htmlFor={id}>` above a control that carries the matching `id`, so `getByLabelText(...)` still
+resolves without a floating MUI label.
+
+We also extended the shared **`EmptyState`** (`src/components/EmptyState.tsx`) with an optional second line:
+
+```tsx
+export function EmptyState({ message, description }: { message: string; description?: string }) { … }
+```
+
+It's backward-compatible — omit `description` for the old single-line look; when present, `message` renders
+bolder (a heading) with `description` muted beneath it. The Reprocessing batch-history empty state uses it
+("No batches yet." + "Batch results will appear here after a run.").
+
+### Key points to remember
+- These two pages **keep their wide data table** (like the Governance pages), unlike the card-list queues
+  (Claims/Appeals/etc.). A read-heavy ops table stays a table; the restyle just wraps it in a card and adds the
+  breadcrumb/subtitle header.
+- **Test-critical handles we deliberately preserved** (so the existing tests pass untouched):
+  - the sortable **"Review #"** / **"Batch #"** column headers (the tests click them and assert the `sort` param);
+  - the **Status** filter as a **non-native** `<TextField select>` (the tests use `getByRole('combobox', { name:
+    /status/i })` then a `role="option"` — a native select wouldn't expose those roles);
+  - the search box's accessible name via `slotProps={{ htmlInput: { 'aria-label': 'Search review #' } }}` — a
+    **placeholder is not an accessible name** for `getByRole('textbox', { name })`, so when we dropped the visible
+    label for the magnifier + placeholder we had to add the `aria-label`;
+  - `getByLabelText('Claim' / 'Reason' / 'Coverage plan')` on the forms — kept working via the `Field` `htmlFor`/`id`.
+- The two pages differ in shape on purpose: Manual review is **list ↔ form side by side** (the mockup put the
+  list on the left, form on the right — the reverse of Appeals), while Reprocessing is **a full-width action card
+  above a full-width history card** (the "run a job" action deserved more room than a narrow side column).
+
+### Failures and how we fixed them
+Nothing broke this session. Typecheck was clean on the first run, both pages' test files passed unchanged, the
+full suite stayed green (183 tests / 40 files), and the build succeeded. Each page was confirmed live in the
+browser preview as ORG_ADMIN and matched its mockup.
+
+### Interview Q&A
+
+#### 1. Beginner
+**Q: What is a "pure visual restyle"?**
+A: A change that alters only how a page looks — layout, spacing, cards, headings — without changing what data it
+loads, what the buttons do, or what the backend receives. Here, both pages call the exact same hooks and API
+methods as before; only the JSX/`sx` changed.
+
+**Q: Why didn't any test files need to change?**
+A: Because the tests assert on *behavior and accessibility*, not on visual structure: they find controls by role
+and accessible name (a sortable header button, a status combobox, a labeled textbox) and check the resulting API
+calls. We kept all of those handles intact, so the tests kept passing.
+
+#### 2. Intermediate
+**Q: Why keep a table on these pages when the other queues became card lists?**
+A: They're read-heavy operational views with several numeric columns (Reprocessing shows Succeeded/Failed/Total)
+and a sortable identifier. A table communicates that denser, comparison-oriented data better than a stack of
+cards, and it preserves server-side column sorting. The card-list pattern suits lighter, browse-one-at-a-time
+queues. This mirrors the choice already made for the Governance pages.
+
+**Q: Why add `description` to the shared `EmptyState` instead of writing custom empty markup on the page?**
+A: One reusable component keeps every empty state visually consistent and keeps the change backward-compatible in
+one place. Making `description` optional means the ~dozen existing single-line callers are untouched, while new
+callers can opt into the two-line variant. Inlining custom markup per page would fragment the look and duplicate
+styling.
+
+#### 3. Advanced
+**Q: A placeholder looks like a label — why is `aria-label` required for the search box test?**
+A: The accessibility *name* of an input comes from an associated `<label>`, `aria-label`, or `aria-labelledby` —
+**not** from its `placeholder` (placeholder is a hint, and assistive tech may ignore it). `getByRole('textbox',
+{ name })` matches on the accessible name, so once we replaced the visible MUI label with a magnifier icon +
+placeholder, the box had no accessible name until we added `slotProps={{ htmlInput: { 'aria-label': '…' } }}`.
+That's both a real accessibility fix and what keeps the test's query resolving.
+
+**Q: The Reprocessing "Run a batch" card splits into two columns with a divider — how do you make that collapse
+cleanly on mobile without a separate component?**
+A: Use a responsive `sx`: the inner `Box` is `display: 'grid'` with `gridTemplateColumns: { xs: '1fr', md: '1fr
+1fr' }`, and the right column's divider is `borderLeft: { xs: 0, md: '1px solid' }` with `pl: { xs: 0, md: 4 }`.
+At `xs` the two columns stack and the left border/padding disappear; at `md+` they sit side by side with the
+divider between them. No JS, no media-query component — MUI's breakpoint objects handle it.

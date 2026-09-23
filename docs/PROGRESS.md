@@ -456,6 +456,30 @@
 
 ## Log (newest first)
 
+### 2026-09-23 — Manual review & Reprocessing redesigned to the workspace design language ✅ (frontend)
+- **Why:** the user supplied per-page reference mockups (before/after) for the last two **Claims & coverage**
+  queues still on the old stacked layout — **Manual review** (claim-reviews) and **Reprocessing** — and asked to
+  bring them onto the same look as the earlier workspace-page redesign (commit `8709846`). Commit `c8d22b5`, 5 files.
+- **Shared design language applied:** a **breadcrumb** (`{org} / Claims & coverage`) + hairline divider, a
+  **subtitled `PageHeading`**, and softly-shadowed cards with a **teal top accent** on the create/run card — the
+  same tokens as the workspace-page redesign.
+- **Manual review** (`src/claimreview/`): breadcrumb + "Flag a claim and track its review." subtitle; a two-column
+  grid — the reviews table wrapped in a card (search + Status filter above it) on the **left**, and a teal-accented
+  **"New review"** form card (label-above `Field` fields + **Clear**/**Open review** buttons) on the **right**
+  (full-width history when the caller can't open a review).
+- **Reprocessing** (`src/reprocessing/`): breadcrumb + "Re-adjudicate claims after plan or enrollment changes."
+  subtitle; a teal-accented **"Run a batch"** card with an internal split (the explanation on the left, the
+  plan-select form + Run batch on the right, separated by a divider), then a **"Batch history"** card wrapping the
+  filters + the batches table.
+- **Shared `EmptyState`** gained an optional second `description` line (backward-compatible — existing single-line
+  usages unchanged); the batch-history empty state uses it ("No batches yet." + "Batch results will appear here…").
+- **Pure visual restyle, no behavior change** — every test-critical handle was preserved (the sortable
+  **Review #** / **Batch #** headers, the **Status** combobox, the search boxes' accessible names via
+  `slotProps.htmlInput`, and `getByLabelText('Claim' / 'Reason' / 'Coverage plan')` on the forms), so **no tests
+  needed changing**.
+- **Verify:** typecheck clean, **183 tests / 40 files** pass, `npm run build` succeeds; both pages confirmed live
+  in the browser preview (ORG_ADMIN).
+
 ### 2026-09-23 — Governance pages redesigned to the workspace design language ✅ (frontend)
 - **Why:** the user supplied per-page reference mockups (before/after) and asked to bring the three **Governance**
   pages — **Audit trail**, **Access review**, **Dead letters** — up to the same polished, consistent design as the

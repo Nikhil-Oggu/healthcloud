@@ -1237,6 +1237,20 @@ to the AWS deployment, Alertmanager routing, RDS PITR/snapshot DR — all on-dem
       underlying option **values** stay the raw enum.
     - **Kept exports:** `money` (from `claims/ClaimsPage.tsx`) and `percent` (from `coverage/CoveragePlansPage.tsx`)
       are imported by the corresponding **detail** pages — don't drop them when editing those files.
+    - **Manual review + Reprocessing (2026-09-23, commit `c8d22b5`) — the last two Claims & coverage queues,
+      brought onto this language.** Both are **read-heavy queues that KEEP their table** (like the Governance pages,
+      not the card-list queues) — the restyle wraps the existing table in a card and adds the breadcrumb + subtitle:
+      - **Manual review** (`src/claimreview/`): a two-column grid — the reviews table in a card (search + Status
+        filter above) on the **left** ↔ a teal-accented **"New review"** form card (label-above `Field` fields +
+        Clear/Open review) on the **right**; full-width table when the caller lacks the open role. The **sortable
+        "Review #" header, the Status combobox, the search box's `aria-label`, and `getByLabelText('Claim'/'Reason')`
+        are test-critical — keep them.**
+      - **Reprocessing** (`src/reprocessing/`): a teal-accented **"Run a batch"** card with an internal split
+        (explanation left / plan-select form + Run batch right, divided by a `borderLeft`), then a **"Batch history"**
+        card wrapping the filters + the batches table. **Sortable "Batch #" header, Status combobox, search
+        `aria-label`, and `getByLabelText('Coverage plan')` are test-critical.**
+      - **`EmptyState` (`src/components/EmptyState.tsx`)** now takes an optional **`description`** second line
+        (backward-compatible — omit it for the old single-line look; when present, `message` renders bolder).
   - **Governance page layouts (2026-09-23, commit `064451a`) — the current look of the three Governance pages.**
     The **Audit trail**, **Access review**, and **Dead letters** pages follow the same shared design language as the
     workspace pages above (breadcrumb `{org} / Governance` + divider, subtitled `PageHeading`, softly-shadowed
