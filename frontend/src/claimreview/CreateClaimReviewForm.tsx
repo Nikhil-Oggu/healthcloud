@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import type { ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -23,6 +24,23 @@ const createSchema = z.object({
 })
 // All fields are strings (no coercion), so input and output types coincide.
 type CreateForm = z.infer<typeof createSchema>
+
+/** A form field with the label sitting above the control (the design's label-on-top style). */
+function Field({ id, label, children }: { id: string; label: string; children: ReactNode }) {
+  return (
+    <Box>
+      <Typography
+        component="label"
+        htmlFor={id}
+        variant="body2"
+        sx={{ display: 'block', mb: 0.75, fontWeight: 500, color: 'text.secondary' }}
+      >
+        {label}
+      </Typography>
+      {children}
+    </Box>
+  )
+}
 
 export function CreateClaimReviewForm() {
   const claims = useClaims()
@@ -55,54 +73,72 @@ export function CreateClaimReviewForm() {
   }
 
   return (
-    <Card>
-      <CardContent>
-        <Typography variant="subtitle1" gutterBottom>
+    <Card sx={{ height: '100%', borderTop: '3px solid', borderTopColor: 'primary.main' }}>
+      <CardContent sx={{ p: { xs: 2.5, sm: 3 } }}>
+        <Typography variant="h6" component="h2" sx={{ fontWeight: 700, mb: 3 }}>
           New review
         </Typography>
+
         {submitError && (
           <Alert severity="error" sx={{ mb: 2 }} onClose={() => setSubmitError(null)}>
             {submitError}
           </Alert>
         )}
+
         <Box component="form" onSubmit={handleSubmit(onSubmit)} noValidate>
-          <Stack spacing={2}>
-            <TextField
-              select
-              label="Claim"
-              size="small"
-              fullWidth
-              defaultValue=""
-              slotProps={{ select: { native: true }, inputLabel: { shrink: true } }}
-              {...register('claimId')}
-              error={!!errors.claimId}
-              helperText={errors.claimId?.message ?? 'Any claim can be flagged for a manual review.'}
-            >
-              <option value="" disabled>
-                {claims.isPending ? 'Loading…' : 'Select a claim'}
-              </option>
-              {(claims.data ?? []).map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.claimNumber} ({c.status})
+          <Stack spacing={2.5}>
+            <Field id="claim-review-claimId" label="Claim">
+              <TextField
+                id="claim-review-claimId"
+                select
+                size="small"
+                fullWidth
+                slotProps={{ select: { native: true } }}
+                {...register('claimId')}
+                error={!!errors.claimId}
+                helperText={errors.claimId?.message ?? 'Any claim can be flagged for a manual review.'}
+              >
+                <option value="" disabled>
+                  {claims.isPending ? 'Loading…' : 'Select a claim'}
                 </option>
-              ))}
-            </TextField>
-            <TextField
-              label="Reason"
-              size="small"
-              fullWidth
-              multiline
-              minRows={2}
-              placeholder="Why is this claim being flagged for review? (optional)"
-              {...register('reason')}
-              error={!!errors.reason}
-              helperText={errors.reason?.message}
-            />
-            <Box>
+                {(claims.data ?? []).map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.claimNumber} ({c.status})
+                  </option>
+                ))}
+              </TextField>
+            </Field>
+
+            <Field id="claim-review-reason" label="Reason">
+              <TextField
+                id="claim-review-reason"
+                size="small"
+                fullWidth
+                multiline
+                minRows={4}
+                placeholder="Why is this claim being flagged for review? (optional)"
+                {...register('reason')}
+                error={!!errors.reason}
+                helperText={errors.reason?.message}
+              />
+            </Field>
+
+            <Stack direction="row" spacing={1.5} sx={{ justifyContent: 'space-between' }}>
+              <Button
+                variant="outlined"
+                color="inherit"
+                onClick={() => {
+                  reset()
+                  setSubmitError(null)
+                }}
+                disabled={createReview.isPending}
+              >
+                Clear
+              </Button>
               <Button type="submit" variant="contained" disabled={createReview.isPending}>
                 {createReview.isPending ? 'Opening…' : 'Open review'}
               </Button>
-            </Box>
+            </Stack>
           </Stack>
         </Box>
       </CardContent>

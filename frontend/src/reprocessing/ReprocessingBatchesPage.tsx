@@ -1,7 +1,12 @@
 import { useEffect, useState } from 'react'
 import { Link as RouterLink } from 'react-router-dom'
 import {
+  Box,
+  Card,
+  CardContent,
   Chip,
+  Divider,
+  InputAdornment,
   Link,
   MenuItem,
   Paper,
@@ -17,6 +22,7 @@ import {
   TextField,
   Typography,
 } from '@mui/material'
+import SearchOutlinedIcon from '@mui/icons-material/SearchOutlined'
 import type { ReprocessingBatchStatus } from '../api/types'
 import { useCurrentUser } from '../auth/useAuth'
 import { LoadingScreen } from '../components/LoadingScreen'
@@ -98,101 +104,140 @@ export function ReprocessingBatchesPage() {
 
   return (
     <Stack spacing={3}>
-      <PageHeading>Reprocessing</PageHeading>
+      {/* Breadcrumb */}
+      <Box>
+        <Typography variant="body2" color="text.secondary">
+          {user?.organizationName ?? '—'}
+          <Box component="span" sx={{ mx: 1, opacity: 0.6 }}>
+            /
+          </Box>
+          Claims &amp; coverage
+        </Typography>
+        <Divider sx={{ mt: 1.5 }} />
+      </Box>
+
+      {/* Title + subtitle */}
+      <Box>
+        <PageHeading sx={{ mb: 0.5 }}>Reprocessing</PageHeading>
+        <Typography color="text.secondary">Re-adjudicate claims after plan or enrollment changes.</Typography>
+      </Box>
 
       {canRun && <CreateReprocessingBatchForm />}
 
-      <Stack direction="row" spacing={2} sx={{ flexWrap: 'wrap', rowGap: 2 }}>
-        <TextField
-          label="Search batch #"
-          size="small"
-          value={search}
-          onChange={(e) => {
-            setSearch(e.target.value)
-            setPage(0)
-          }}
-          placeholder="e.g. RPB-1A2B"
-          sx={{ minWidth: 220, maxWidth: 340 }}
-        />
+      {/* Batch history */}
+      <Card>
+        <CardContent sx={{ p: { xs: 2.5, sm: 3 } }}>
+          <Stack
+            direction="row"
+            spacing={2}
+            sx={{ alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', rowGap: 1.5, mb: 2 }}
+          >
+            <Typography variant="h6" component="h2" sx={{ fontWeight: 700 }}>
+              Batch history
+            </Typography>
 
-        <TextField
-          select
-          label="Status"
-          size="small"
-          value={status}
-          onChange={(e) => {
-            setStatus(e.target.value as ReprocessingBatchStatus | '')
-            setPage(0)
-          }}
-          sx={{ minWidth: 220, maxWidth: 340 }}
-        >
-          <MenuItem value="">All statuses</MenuItem>
-          {STATUSES.map((s) => (
-            <MenuItem key={s} value={s}>
-              {s}
-            </MenuItem>
-          ))}
-        </TextField>
-      </Stack>
+            <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', flexWrap: 'wrap', rowGap: 1.5 }}>
+              <TextField
+                size="small"
+                placeholder="Search batch #"
+                value={search}
+                onChange={(e) => {
+                  setSearch(e.target.value)
+                  setPage(0)
+                }}
+                slotProps={{
+                  input: {
+                    startAdornment: (
+                      <InputAdornment position="start">
+                        <SearchOutlinedIcon fontSize="small" />
+                      </InputAdornment>
+                    ),
+                  },
+                  htmlInput: { 'aria-label': 'Search batch #' },
+                }}
+                sx={{ minWidth: 200 }}
+              />
+              <TextField
+                select
+                label="Status"
+                size="small"
+                value={status}
+                onChange={(e) => {
+                  setStatus(e.target.value as ReprocessingBatchStatus | '')
+                  setPage(0)
+                }}
+                sx={{ minWidth: 180 }}
+              >
+                <MenuItem value="">All statuses</MenuItem>
+                {STATUSES.map((s) => (
+                  <MenuItem key={s} value={s}>
+                    {s}
+                  </MenuItem>
+                ))}
+              </TextField>
+            </Stack>
+          </Stack>
 
-      <TableContainer component={Paper} elevation={0}>
-        <Table aria-label="Reprocessing batches">
-          <TableHead>
-            <TableRow>
-              {sortableHeader('batchNumber', 'Batch #')}
-              <TableCell>Plan</TableCell>
-              {sortableHeader('status', 'Status')}
-              <TableCell align="right">Succeeded</TableCell>
-              <TableCell align="right">Failed</TableCell>
-              <TableCell align="right">Total</TableCell>
-              <TableCell>Run</TableCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {rows.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={7}>
-                  <EmptyState message="No batches yet." />
-                </TableCell>
-              </TableRow>
-            ) : (
-              rows.map((b) => (
-                <TableRow key={b.id} hover>
-                  <TableCell>
-                    <Link component={RouterLink} to={`/reprocessing/${b.id}`}>
-                      {b.batchNumber}
-                    </Link>
-                  </TableCell>
-                  <TableCell>{b.coveragePlanName ?? '—'}</TableCell>
-                  <TableCell>
-                    <Chip label={b.status} size="small" color={reprocessingStatusColor(b.status)} />
-                  </TableCell>
-                  <TableCell align="right">{b.succeededCount}</TableCell>
-                  <TableCell align="right">{b.failedCount}</TableCell>
-                  <TableCell align="right">{b.totalCount}</TableCell>
-                  <TableCell>
-                    <Typography variant="caption" color="text.secondary">
-                      {new Date(b.createdAt).toLocaleString()}
-                    </Typography>
-                  </TableCell>
+          <TableContainer component={Paper} elevation={0}>
+            <Table aria-label="Reprocessing batches">
+              <TableHead>
+                <TableRow>
+                  {sortableHeader('batchNumber', 'Batch #')}
+                  <TableCell>Plan</TableCell>
+                  {sortableHeader('status', 'Status')}
+                  <TableCell align="right">Succeeded</TableCell>
+                  <TableCell align="right">Failed</TableCell>
+                  <TableCell align="right">Total</TableCell>
+                  <TableCell>Run</TableCell>
                 </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
-        <TablePagination
-          component="div"
-          count={batches.data.totalElements}
-          page={batches.data.page}
-          onPageChange={(_, newPage) => setPage(newPage)}
-          rowsPerPage={size}
-          onRowsPerPageChange={(e) => {
-            setSize(parseInt(e.target.value, 10))
-            setPage(0)
-          }}
-          rowsPerPageOptions={ROWS_PER_PAGE_OPTIONS}
-        />
-      </TableContainer>
+              </TableHead>
+              <TableBody>
+                {rows.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={7}>
+                      <EmptyState message="No batches yet." description="Batch results will appear here after a run." />
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  rows.map((b) => (
+                    <TableRow key={b.id} hover>
+                      <TableCell>
+                        <Link component={RouterLink} to={`/reprocessing/${b.id}`} sx={{ fontWeight: 600 }}>
+                          {b.batchNumber}
+                        </Link>
+                      </TableCell>
+                      <TableCell>{b.coveragePlanName ?? '—'}</TableCell>
+                      <TableCell>
+                        <Chip label={b.status} size="small" color={reprocessingStatusColor(b.status)} />
+                      </TableCell>
+                      <TableCell align="right">{b.succeededCount}</TableCell>
+                      <TableCell align="right">{b.failedCount}</TableCell>
+                      <TableCell align="right">{b.totalCount}</TableCell>
+                      <TableCell>
+                        <Typography variant="caption" color="text.secondary">
+                          {new Date(b.createdAt).toLocaleString()}
+                        </Typography>
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+            <TablePagination
+              component="div"
+              count={batches.data.totalElements}
+              page={batches.data.page}
+              onPageChange={(_, newPage) => setPage(newPage)}
+              rowsPerPage={size}
+              onRowsPerPageChange={(e) => {
+                setSize(parseInt(e.target.value, 10))
+                setPage(0)
+              }}
+              rowsPerPageOptions={ROWS_PER_PAGE_OPTIONS}
+            />
+          </TableContainer>
+        </CardContent>
+      </Card>
     </Stack>
   )
 }
