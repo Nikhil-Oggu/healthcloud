@@ -5357,3 +5357,120 @@ flexbox couldn't shrink the min-constrained select enough, so content overflowed
 out of view. Putting the select on its own full-width line removes it from the constrained row; the remaining
 From/To can shrink (`minWidth:0`) to share the row with a `flexShrink:0` button, which always fits. It's a
 constraint-satisfaction problem: reduce the number of inflexible items competing for one narrow row.
+
+---
+
+## Enriching the Grafana observability dashboard (and deciding what NOT to build) — 2026-09-24
+
+### What we built
+We ran the app locally, brought up the observability stack (Prometheus + Grafana + Jaeger), and **enriched the
+auto-provisioned Grafana "HealthCloud Overview" dashboard from 6 panels to 18** — turning a sparse dashboard into
+one that reads like a real production dashboard (headline KPI stats + grouped sections). We deliberately did *not*
+touch the app's frontend, Prometheus's UI, or Jaeger's UI, and we deliberately did *not* add more tracing spans.
+The session was as much about **judging what's worth doing** as about doing it.
+
+### How it works
+- **The two-tool split.** Prometheus **collects and stores** time-series metrics (it scrapes
+  `host.docker.internal:8080/actuator/prometheus` every 15s). Grafana **visualizes** what Prometheus stored — it
+  holds no data of its own. Jaeger stores **traces** (one request's journey as nested spans). You improve *Grafana*
+  (a dashboarding tool); you don't restyle Prometheus/Jaeger (fixed engineering tools).
+- **Provisioned dashboards hot-reload.** `infrastructure/observability/grafana/dashboards/healthcloud-overview.json`
+  is bind-mounted read-only into the Grafana container, and the file provider
+  (`provisioning/dashboards/dashboards.yml`, `updateIntervalSeconds: 15`) re-reads it every 15s. So editing the JSON
+  on the host hot-reloads the dashboard — **no container restart**.
+- **The dashboard JSON.** Each panel is an object with a `type` (`stat`, `timeseries`, or `row` as a section
+  divider), a `gridPos` (`{h,w,x,y}` on a 24-column grid), a `fieldConfig` (units/thresholds/colors), and
+  `targets` (the PromQL `expr`). We added a headline `stat` row, then `row` panels grouping Traffic & latency,
+  Domain, and Runtime.
+- **Verifying a change without screenshots.** We validated the JSON with `python3 -c json.load`, waited ~16s, then
+  read the live dashboard back through the **Grafana HTTP API** (`GET /api/dashboards/uid/healthcloud-overview`,
+  admin:admin) and counted 18 panels — a text-based proof the edit took effect.
+- **Making the domain panels real.** `healthcloud_adjudications_total` didn't exist yet (the counter is created on
+  the *first* adjudication). To populate it we drove a seeded claim through its real state machine over HTTP —
+  `PATCH /status` DRAFT→SUBMITTED→ACCEPTED, then `POST /adjudicate` (×4) — and confirmed Prometheus then showed
+  `{type=initial}=1, {type=reprocess}=3`.
+
+### Key points to remember
+- **Rule 2 lives here.** Dashboards *look* like proof, so honesty matters most. Before adding any panel, confirm
+  the metric actually exists (query it via Prometheus). We verified `process_uptime_seconds`, `process_cpu_usage`,
+  `system_cpu_usage`, `jvm_threads_live_threads`, `jvm_gc_pause_seconds_count`, `hikaricp_connections_*`, and the
+  domain gauge `healthcloud_outbox_pending`; only `healthcloud_adjudications_total` was missing-until-first-use.
+- **`... or vector(0)`** makes a stat panel read `0` (honest, true) instead of "No data" for a counter that hasn't
+  been emitted yet.
+- **When packaging for a portfolio, label it honestly:** the numbers are *synthetic local traffic*, not production
+  load. Show the *capability* (metrics + tracing + alerting wired up), never fabricated scale/SLO numbers.
+- **The three tools tell a complete story without any UI work beyond Grafana:** Grafana = the charts; Prometheus's
+  **Targets** page = proof scraping works (`healthcloud-backend → up`); Prometheus's **Alerts** page = proof real
+  alerting exists (5 rules, all `inactive` = healthy); Jaeger = one request's trace (the `adjudicate-claim` span).
+- **The higher-value move for "visibility" is packaging, not more building** — screenshots + a README "Observability"
+  section convert already-finished work into something recruiters can see.
+
+### Failures and how we fixed them
+- **`seq`/`curl` "command not found" in a non-interactive shell.** The tool shell started with a trimmed `PATH`.
+  Fix: `export PATH="/usr/bin:/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"` at the top of each script, and replace
+  `$(seq 1 N)` loops with a `while [ $i -lt N ]` counter.
+- **403 on `PATCH /claims/{id}/status` (CSRF).** State-changing requests need the CSRF handshake: after dev-login,
+  `GET /me` sets a readable `XSRF-TOKEN` cookie; extract it (`awk '/XSRF-TOKEN/{print $7}' jar`) and send it back as
+  the `X-XSRF-TOKEN` header. The first attempt also mangled headers by expanding an unquoted `$H` var — passing the
+  `-H` flags explicitly fixed it.
+- **`VALIDATION_FAILED: targetStatus must not be null`.** The status-change request body field is **`targetStatus`**,
+  not `status` (`{"targetStatus":"SUBMITTED","expectedVersion":0}`). Reading the actual error body (not just the
+  code) revealed the right field name immediately.
+- **A first `grep` false-positive** suggested PROGRESS.md already mentioned the dashboard work (2 hits) — but the
+  hits were unrelated old text; the honest check was **"which commit last touched each doc"** (`git log -1 -- <file>`),
+  which showed all three docs were last updated the day before, i.e. today's work was undocumented. Lesson: verify
+  documentation currency by commit history, not keyword grep.
+
+### Interview Q&A
+
+#### 1. Beginner
+**Q: What are Prometheus, Grafana, and Jaeger?**
+A: Prometheus is a time-series database that periodically scrapes and stores numeric metrics from your app. Grafana
+is a visualization tool that draws charts from a data source like Prometheus (it stores nothing itself). Jaeger is a
+distributed-tracing tool that shows one request's path through the system as a tree of timed spans. Metrics answer
+"is the system healthy?"; traces answer "why was this one request slow?".
+
+**Q: Why did you improve only Grafana and not Prometheus or Jaeger's UI?**
+A: Grafana is a *dashboarding* tool — customizing dashboards is its purpose. Prometheus and Jaeger have fixed,
+engineer-facing UIs you don't (and shouldn't) restyle. So "make the observability more visible" means enriching the
+Grafana dashboard, not editing the other tools' pages.
+
+**Q: What is `/actuator/prometheus`?**
+A: A Spring Boot Actuator endpoint that exposes the app's metrics in Prometheus's text format. Prometheus scrapes it
+on a schedule; Micrometer is the library that produces the metrics.
+
+#### 2. Intermediate
+**Q: How does a provisioned Grafana dashboard get updated without a restart?**
+A: The dashboard JSON is bind-mounted into the container and a file-provider (`dashboards.yml`) polls the folder
+every 15s (`updateIntervalSeconds`). Editing the file on the host is picked up automatically. We confirmed the
+reload by reading the dashboard back through Grafana's REST API and counting panels.
+
+**Q: How did you keep the dashboard honest (no fabricated data)?**
+A: Every panel's PromQL targets a metric we first confirmed exists by querying Prometheus. For a counter that isn't
+emitted until an event happens (`healthcloud_adjudications_total`), the stat uses `... or vector(0)` so it shows a
+truthful 0 rather than inventing a value or showing "No data".
+
+**Q: Why not add more Jaeger spans to make traces richer?**
+A: The custom `adjudicate-claim` span already demonstrates the tracing capability. Adding deeper spans means editing
+the money-critical adjudication engine for purely cosmetic trace depth — a poor risk/reward trade. Instrumentation
+should be added when you actually need to debug something or when trace depth is a specific story you want to tell.
+
+#### 3. Advanced
+**Q: You drove a real claim through its state machine to generate metrics. What did that exercise, end to end?**
+A: dev-login (session) → CSRF handshake (readable XSRF cookie echoed as a header) → optimistic-locked status
+transitions (`expectedVersion`) DRAFT→SUBMITTED→ACCEPTED → the adjudication engine command, which runs the pure
+calculator, updates the row-locked benefit accumulator, writes the adjudication + status-history + audit + outbox
+rows in one transaction, and increments the Micrometer counter on afterCommit. The counter's `type` label
+(`initial` vs `reprocess`) reflects that re-adjudication appends a new immutable version.
+
+**Q: The adjudication counter increments on `afterCommit`, not inline. Why does that matter for a dashboard?**
+A: Counting on transaction commit (via `TransactionSynchronizationManager`) guarantees a rolled-back adjudication is
+never counted, so the dashboard's "Adjudications" number can't drift above the number of decisions that actually
+persisted. It's the difference between "attempts" and "committed outcomes" — the dashboard shows the latter.
+
+**Q: How would this observability differ in the AWS deployment?**
+A: Locally, Prometheus scrapes and Jaeger receives OTLP directly. On AWS there's no collector wired yet, so tracing
+export no-ops and there's no cloud Prometheus scrape — documented, cost-gated follow-ups. Also `/actuator/prometheus`
+is unauthenticated only under the `local` profile; the deployed `demo,cognito` app keeps it authenticated. So the
+dashboards are a *local* capability demonstration, not a live production monitor — which is exactly how they should
+be labeled in a portfolio.

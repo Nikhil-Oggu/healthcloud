@@ -1461,7 +1461,14 @@ to the AWS deployment, Alertmanager routing, RDS PITR/snapshot DR — all on-dem
   Prometheus registry appends `_total`. That afterCommit pattern is the template for future domain counters.
 - **Dashboards (slice 2)** live in `infrastructure/observability/` — `prometheus.yml` (scrape config) + Grafana
   provisioning (datasource + the "HealthCloud Overview" dashboard JSON). Run them via the `observability` compose
-  profile (see How-to-run). Every panel shows **measured** values (rule 2 — no fabricated numbers).
+  profile (see How-to-run). Every panel shows **measured** values (rule 2 — no fabricated numbers). The dashboard
+  was **enriched 2026-09-24 (commit `2ad82b0`) from 6 → 18 panels** — a headline stat row (uptime, requests
+  served, request rate, latency p95, 5xx errors, adjudications) + three `row`-grouped sections (Traffic & latency;
+  Domain — claims & events incl. the `healthcloud_outbox_pending` gauge; Runtime — JVM/CPU/DB). **When adding a
+  panel, first confirm the metric exists** (query it via `/actuator/prometheus`/Prometheus) — an as-yet-unemitted
+  domain counter (e.g. `healthcloud_adjudications_total`, created only on the first adjudication) should use
+  `... or vector(0)` so a stat reads 0 rather than "No data". The dashboard is bind-mounted read-only and
+  Grafana's file provider re-reads it every 15s, so an edit to the JSON hot-reloads with no container restart.
 - **Tracing = Micrometer Tracing + OpenTelemetry → Jaeger (slice 3).** In Boot 4 tracing is opt-in via dedicated
   modules — `spring-boot-micrometer-tracing-opentelemetry` (bridge + `OpenTelemetryTracing`/`OtlpTracing`
   autoconfig) **plus an explicit `micrometer-tracing-bridge-otel`** (it's only a runtime transitive, so

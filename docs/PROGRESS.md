@@ -456,6 +456,35 @@
 
 ## Log (newest first)
 
+### 2026-09-24 — Grafana overview dashboard enriched (6 → 18 panels) ✅ (observability)
+- **Why:** while reviewing the running app + observability stack, the user wanted the dashboards to give *more
+  visibility* / read like a real production dashboard (for portfolio screenshots — README/LinkedIn). Grafana is the
+  one place in Phase 11 where a UI improvement is warranted (Prometheus + Jaeger are fixed off-the-shelf tools you
+  don't restyle; metrics/health have no UI of their own). So we enriched the auto-provisioned dashboard only.
+- **What:** rewrote `infrastructure/observability/grafana/dashboards/healthcloud-overview.json` from **6 → 18
+  panels**, organized into a **headline stat row** (Uptime · Requests served · Request rate · Latency p95 with
+  green/yellow/red thresholds · Server errors 5xx · Adjudications) and three grouped sections via `row` panels:
+  **Traffic & latency** (request rate by status; p50/p95/p99 latency), **Domain — claims & events** (adjudications
+  by outcome; the `healthcloud_outbox_pending` domain gauge), and **Runtime — JVM, CPU & database** (heap, CPU
+  process-vs-system, HikariCP pool, live threads, GC pause rate).
+- **Rule 2 (no unmeasured/fabricated claims):** before adding each panel I **queried `/actuator/prometheus` via
+  Prometheus to confirm the metric actually exists** — `process_uptime_seconds`, `process_cpu_usage`,
+  `system_cpu_usage`, `jvm_threads_live_threads`, `jvm_gc_pause_seconds_count`, `hikaricp_connections_*`,
+  `healthcloud_outbox_pending` all present; only `healthcloud_adjudications_total` was missing (it's created on the
+  *first* adjudication). The adjudication stat uses `... or vector(0)` so it reads 0 (honest) rather than "No data"
+  until an adjudication runs.
+- **Verified:** JSON valid (18 panels); Grafana re-provisioned it (bind-mounted, 15s file-provider poll — no
+  restart); read the live dashboard back via the Grafana API (18 panels present). Generated synthetic traffic +
+  walked a seeded claim DRAFT→SUBMITTED→ACCEPTED→**adjudicated** (then re-adjudicated ×3) so the domain panels
+  populate — Prometheus then showed `healthcloud_adjudications_total{type=initial}=1, {type=reprocess}=3`.
+- **Decision (my recommendation, user agreed):** did **NOT** add deeper Jaeger spans to the adjudication flow.
+  The custom `adjudicate-claim` span already proves the tracing capability; more spans would edit the
+  money-critical engine for cosmetic trace depth — poor risk/reward. The higher-value "visibility" move is
+  *packaging* (screenshots + a README Observability section), not more instrumentation.
+- **Files:** `infrastructure/observability/grafana/dashboards/healthcloud-overview.json` (only). Committed
+  `2ad82b0` + pushed. Pure config change — no app code, no behavior change. Note: the seeded DRAFT claim
+  `CLM-6A1A01` is now ADJUDICATED demo state; `./scripts/db-reset.sh` restores the original seed.
+
 ### 2026-09-23 — Detail-page embedded forms converted to label-above (glitch fix) ✅ (frontend)
 - **Why:** the user spotted that the detail pages' **embedded forms** still used MUI **floating labels** (notched
   into the field border) — cramped and inconsistent with the label-above style the rest of the redesign uses.
