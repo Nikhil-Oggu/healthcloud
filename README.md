@@ -1,6 +1,11 @@
 # HealthCloud — Consent-Aware Care Coordination & Claims Platform
 
-> **Status: Phases 0–11 complete** (feature-complete; final validation & portfolio packaging in progress).
+> **Status: all 12 phases complete** (feature-complete, validated, and packaged — including a
+> sanitized [evidence pack](docs/evidence/) with live security-boundary transcripts, observability
+> captures, and an on-demand AWS deployment).
+>
+> 🔎 **Short on time?** Jump to the [evidence pack](docs/evidence/) (proof it actually works), the
+> [security model](#security-model-deep-dive), or the [core engineering story](#the-core-engineering-story).
 >
 > ⚠️ This is a healthcare-**inspired**, HIPAA-**aligned** engineering portfolio project built on
 > **synthetic data only**. It is **not** HIPAA-certified, is **not** used with real patient data, and
@@ -167,6 +172,9 @@ Built one verified slice at a time across 12 phases. Highlights by domain:
   out-of-pocket max → exclusions → prior-auth → provider network), with cross-claim benefit
   accumulators and immutable, versioned re-adjudication. For any decision it can show which plan
   applied and how every dollar was computed.
+
+  ![Explainable claim adjudication — per-line allowed / copay / deductible / coinsurance / plan-paid / member](docs/evidence/screenshots/ui-05-claim-adjudication.png)
+
 - **Advanced claims** — prior authorization, referrals, appeals (wired into re-adjudication), anomaly
   signals, manual review, batch reprocessing, and provider-network enforcement.
 - **Security & governance** — an append-only audit log made **tamper-evident** with a per-org
@@ -262,6 +270,9 @@ afterthought).
   images run on ARM64/Graviton; the RDS and Cognito secrets are injected from Secrets Manager (never
   in code or state); CloudFront terminates HTTPS in front of the ALB so the live Cognito OIDC login
   completes over HTTPS.
+
+  ![Live Amazon Cognito hosted login (branded) on the deployed HTTPS URL](docs/evidence/screenshots/aws/aws-02-cognito-login.png)
+
 - **Cost discipline.** The stack is **on-demand**: `apply → capture evidence → terraform destroy`
   back to ~$0 (the state bucket is kept). It is **not** left running. This project ran on a personal
   AWS account with credits; the app itself costs roughly $0.08–0.10/hr while up.
@@ -359,6 +370,10 @@ This project is deliberate about what it is *not*:
 
 ## Documentation index
 
+- **Evidence pack** *(start here for proof):* [`docs/evidence/`](docs/evidence/) — measured test
+  results, live security-boundary HTTP transcripts (cross-tenant secure-404, consent masking,
+  relationship gate, invalid-transition), observability captures (Grafana/Prometheus/Jaeger), 11 app
+  UI screenshots, the live AWS deployment, and [resume bullets](docs/evidence/resume-bullets.md).
 - **Design source of truth:** `docs/source-of-truth/HealthCloud_Final_Source_of_Truth.pdf`
 - **Roadmap:** [`docs/PLAN.md`](docs/PLAN.md) · **Progress log:** [`docs/PROGRESS.md`](docs/PROGRESS.md)
 - **Architecture decisions:** [`docs/adr/`](docs/adr/)
