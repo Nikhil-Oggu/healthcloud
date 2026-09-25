@@ -1,5 +1,6 @@
 # HealthCloud — Consent-Aware Care Coordination & Claims Platform
 
+[![CI](https://github.com/Nikhil-Oggu/healthcloud/actions/workflows/ci.yml/badge.svg)](https://github.com/Nikhil-Oggu/healthcloud/actions/workflows/ci.yml)
 ![Java 25](https://img.shields.io/badge/Java-25-ED8B00?logo=openjdk&logoColor=white)
 ![Spring Boot 4.1](https://img.shields.io/badge/Spring%20Boot-4.1.0-6DB33F?logo=springboot&logoColor=white)
 ![Spring Security](https://img.shields.io/badge/Spring%20Security-6DB33F?logo=springsecurity&logoColor=white)
