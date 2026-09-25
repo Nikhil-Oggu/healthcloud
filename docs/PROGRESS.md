@@ -457,6 +457,35 @@
 
 ## Log (newest first)
 
+### 2026-09-25 — README recruiter-polish + repository made PUBLIC ✅ (post-roadmap, docs-only)
+- **No code/behavior change** — this was a documentation + repo-visibility session after the roadmap
+  was already complete. All 12 phases stay COMPLETE.
+- **README brought to recruiter-ready state** (a series of small, committed edits):
+  - **Status line** updated to reflect all 12 phases done; a top-of-file **"🔎 Short on time?"** pointer
+    to the evidence pack / security model / core-engineering story; status + short-on-time merged into a
+    two-line blockquote; the "all 12 phases complete" status label dropped in favour of the packaging note.
+  - **Tech-stack badge row** added under the title, then **expanded to the full stack** (36 shields.io
+    badges) and finally **flattened** (category side-headings removed — badges flow in order); a **live CI
+    status badge** added first once the repo went public.
+  - **Two evidence screenshots embedded** — the claim-adjudication breakdown (Feature tour) and the branded
+    Cognito login (Cloud section) — then **two observability screenshots** (Grafana 18-panel + Jaeger trace,
+    with captions) added to the Cloud/observability area, with a link to `docs/evidence/observability.md`.
+  - **Documentation index trimmed** to outward-facing docs (dropped the source-of-truth PDF, PLAN/PROGRESS,
+    and the resume-bullets link; the files themselves are untouched in the repo).
+  - **Intro wording**: **HealthCloud** bolded, "production-style" → "production-grade", redundant "-style" removed.
+  - **Accuracy fix (real bug):** the seeded tenant name **"NorthCare Clinic" → "NorthCare Health"** (matches
+    `DevDataSeeder.java:92` and the AWS evidence doc); architecture-diagram SPA label **React 19 → 19.2**.
+  - **Verified against the repo** before/while editing: **43 Flyway migrations**, **30 domain packages**,
+    **694 tests** (511 backend + 183 frontend), org names, and all 36 badge URLs + embedded PNGs — all confirmed.
+- **Repository made PUBLIC** (`gh repo edit … --visibility public`) so recruiters can actually reach the
+  README, screenshots, evidence pack, and code. **Pre-publish safety scan was clean** — no `.tfstate`/`.env`/key
+  files ever tracked, no AWS access keys or private keys in current files *or* full history, no hardcoded
+  secrets. The only in-repo credentials are the **intentional synthetic demo passwords** (throwaway Cognito
+  accounts, no real data — the documented, deliberate choice). See [[local-cognito-dev-client]].
+- **Repo URL (now public):** https://github.com/Nikhil-Oggu/healthcloud
+- **AWS remains DOWN** (on-demand); README correctly states there is no always-on URL. Optional next items
+  unchanged: the user's demo video, and standing the deploy up briefly for a live interview walkthrough.
+
 ### 2026-09-25 — Phase 12 slice 6: evidence pack + resume bullets ✅ (portfolio — Phase 12 COMPLETE)
 - **Slice 6 built `docs/evidence/`** — the "show me, don't tell me" proof folder — as sub-slices, each committed:
   - **6a — scaffold + fresh tests** (`README.md` index + acceptance-criteria→evidence map; `test-results.md`).

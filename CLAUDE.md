@@ -9,6 +9,15 @@ healthcare portfolio application built on **synthetic data only**. Full frozen d
 `docs/source-of-truth/HealthCloud_Final_Source_of_Truth.pdf` (the single source of truth for every
 *what-to-build* decision). The roadmap is `docs/PLAN.md`.
 
+**The GitHub repo is PUBLIC (since 2026-09-25):** `github.com/Nikhil-Oggu/healthcloud` — the recruiter-facing
+artifact. So **everything committed is world-visible** (rules 1 & 5 are load-bearing, not aspirational: no real
+data, no secrets — the Cognito client secret / DB password stay in env + Secrets Manager, never in the repo).
+The only in-repo credentials are the **intentional synthetic demo passwords** on the login page (throwaway
+Cognito accounts reaching no real data — the documented deliberate choice). `README.md` is the top-of-repo
+engineering case study (12-phase status, a full tech-stack badge row incl. a live CI badge, embedded evidence
+screenshots — claim adjudication, branded Cognito login, Grafana/Jaeger — and links to `docs/evidence/`); keep
+its measured numbers (currently 43 Flyway migrations, 30 domain packages, 694 tests) in sync when they change.
+
 ## Non-negotiable rules (from the source-of-truth)
 1. **Synthetic data only.** No real patient, employer, client, or production data — ever.
 2. **No unmeasured claims.** Never state a performance, security, uptime, cost, or coverage number

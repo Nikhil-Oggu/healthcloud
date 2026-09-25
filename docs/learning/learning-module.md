@@ -5654,3 +5654,84 @@ assistant never handles the password, and the PNG still lands on disk.
 A: Investigate the cause before publishing. Here the 5xx came from our own malformed test requests, so we restarted the
 service clean and recaptured, and documented the explanation — rather than either hiding the errors or misattributing
 them to the product. That's the project's no-unmeasured-claims rule applied to evidence.
+
+---
+
+## Making a portfolio README & taking a repo public safely — 2026-09-25
+
+### What we built
+No product code changed this session. We turned `README.md` into a recruiter-ready engineering case study
+and made the GitHub repository **public** so recruiters can actually reach it. Concretely: a tech-stack badge
+row (plus a live CI status badge), a reordered intro, embedded evidence screenshots, an accuracy fix, a trimmed
+documentation index, and a pre-publish secret scan before flipping visibility to public.
+
+### How it works
+- **Shields.io badges.** A badge is just an image URL: `https://img.shields.io/badge/<label>-<message>-<color>?logo=<slug>&logoColor=white`.
+  Spaces are `%20`, a literal `+` is `%2B`, a middle dot `·` is `%C2%B7`. Markdown embeds it with `![alt](url)`.
+  The `logo` slug comes from **simple-icons**; if a slug doesn't exist the badge still renders — just without an
+  icon (graceful degradation), which is why a `200` from `curl` doesn't guarantee the *logo* showed.
+- **Live CI badge.** GitHub serves `https://github.com/<owner>/<repo>/actions/workflows/<file>.yml/badge.svg`.
+  It reflects the latest run on the default branch and updates itself. **It 404s for a private repo** — it only
+  works once the repo is public. We wrapped it in a link to the workflow runs: `[![CI](…badge.svg)](…/ci.yml)`.
+- **Markdown badge flow.** Consecutive `![]()` lines with *no blank line between them* render on one wrapping
+  row (GitHub treats single newlines as spaces). A blank line starts a new paragraph. That's how the badge block
+  flows as one row, and how a bold label could sit inline with its group (before we removed the labels).
+- **Embedded screenshots** use repo-relative paths (`docs/evidence/screenshots/…png`) so they render on the
+  GitHub repo page. An italic line under the image is the visible caption (alt text isn't shown visually).
+- **Making the repo public:** `gh repo edit <owner>/<repo> --visibility public --accept-visibility-change-consequences`,
+  confirmed with `gh repo view … --json visibility`.
+
+### Key points to remember
+- **Public repo = everything committed is world-visible, including full git history.** Before flipping, scan
+  both the working tree *and* history for secrets: `git grep -nIE 'AKIA[0-9A-Z]{16}|-----BEGIN [A-Z ]*PRIVATE KEY-----' $(git rev-list --all)`
+  and `git log --all --diff-filter=A --name-only` filtered for `.tfstate`/`.env`/`.pem`/`id_rsa`. Ours was clean.
+- **Intentional exception:** the synthetic demo passwords in the login page are deliberately public (throwaway
+  Cognito accounts, no real data) — a documented decision, not a leak.
+- **Verify numbers against the repo, don't trust prose.** We confirmed 43 Flyway migrations
+  (`ls db/migration | grep -c '^V'`), 30 domain packages, and the 694 test count before letting them stand.
+- **Caught a real doc bug:** the README called the tenant "NorthCare Clinic" but `DevDataSeeder.java` seeds the
+  org as **"NorthCare Health"** ("NorthCare Main Clinic" is the *facility*). Cross-checking docs against source
+  catches these.
+- **A `200` on a badge URL ≠ the logo rendered.** For AWS service icons (Cognito/ECS/RDS/S3), simple-icons
+  removed the per-service glyphs, so those badges use the generic `amazonwebservices` logo.
+
+### Failures and how we fixed them
+- **CI badge 404.** Adding the badge naively failed because the repo was still **private** — GitHub doesn't serve
+  badge SVGs for private repos. Fix: make the repo public first, re-check the URL returns `200 image/svg+xml`,
+  then add the badge. (General lesson: verify an external asset URL before committing a reference to it.)
+- Nothing else broke — the rest was incremental edits, each verified (badge URLs curl-checked, embedded PNGs
+  confirmed as real images) and committed one at a time.
+
+### Interview Q&A
+
+#### 1. Beginner
+**Q: What makes a good portfolio README?**
+A: Lead with *what the project is* in one sentence, then proof it works. Ours opens with a one-line description,
+a tech-stack badge row, a synthetic-data disclaimer, quick "jump to the evidence" links, and only then the deeper
+story. Recruiters skim, so visuals (badges, screenshots) and a clear structure matter.
+
+**Q: What is a README badge?**
+A: A small status/label image, usually from shields.io or a CI provider, embedded with Markdown image syntax.
+Some are static (e.g. "Java 25"); others are live (a CI badge that turns red when tests fail).
+
+#### 2. Intermediate
+**Q: Why did the CI badge only work after going public?**
+A: GitHub serves workflow badge SVGs for public repos anonymously; for private repos that endpoint returns 404
+to unauthenticated requests, so the image renders broken. Publish first, then reference it.
+
+**Q: How do you make a private repo public responsibly?**
+A: Treat it as an irreversible publish. Scan the working tree and full history for secrets and state files,
+confirm the only committed credentials are intentional/synthetic, then flip visibility. Assume anything ever
+committed could be cached/indexed even if you later remove it.
+
+#### 3. Advanced
+**Q: A secret was committed three commits ago but removed in the latest commit. Is it safe to go public?**
+A: No. `git` retains it in history, so a public repo exposes it. Removing it in HEAD isn't enough — you'd rewrite
+history (e.g. `git filter-repo`) to purge it from every commit, force-push, and then **rotate the secret anyway**,
+because you must assume it was already captured. Prevention (env + Secrets Manager, never committing secrets, a
+pre-commit/secret-scan gate) is far cheaper than remediation.
+
+**Q: Why keep measured numbers (migrations, tests, packages) in the README when they can go stale?**
+A: They're concrete, checkable credibility signals — and staleness is the risk, so you verify them against the
+repo whenever you touch them (and ideally automate the check). The project's "no unmeasured claims" rule means a
+number in the README must be one you can reproduce from the codebase on demand.
