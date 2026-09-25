@@ -144,7 +144,7 @@ an `organization_id` tenant key on every tenant-owned row.
 ```mermaid
 flowchart LR
     subgraph Client
-      SPA[React 19 SPA<br/>Vite · MUI · TanStack Query]
+      SPA[React 19.2 SPA<br/>Vite · MUI · TanStack Query]
     end
     subgraph Edge
       CF[CloudFront HTTPS]
@@ -361,7 +361,7 @@ cd frontend && npm run typecheck # TypeScript typecheck
 docker compose --profile observability up -d prometheus grafana jaeger  # metrics/traces/dashboards
 ```
 
-Two synthetic tenants are seeded — **NorthCare Clinic** and **Green Valley Clinic** — with a full set
+Two synthetic tenants are seeded — **NorthCare Health** and **Green Valley Clinic** — with a full set
 of roles each (patient, provider, care coordinator, claims reviewer, admin, auditor). Two
 organizations is the minimum needed to *prove* tenant isolation.
 
