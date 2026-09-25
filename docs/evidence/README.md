@@ -12,7 +12,7 @@
 |----------|------|--------|
 | Test suite results | [test-results.md](test-results.md) | The whole suite is green (measured counts, backend + frontend) |
 | Security boundary transcripts | [security-proofs.md](security-proofs.md) | Real HTTP request/response proof of the security model |
-| Observability screenshots | [screenshots/](screenshots/) | Metrics dashboards, Prometheus, distributed tracing work |
+| Observability screenshots | [observability.md](observability.md) | Metrics dashboards, Prometheus, distributed tracing work |
 | Application UI screenshots | [screenshots/](screenshots/) | The app runs end-to-end across every major screen |
 | Live AWS cloud capture | [screenshots/aws/](screenshots/aws/) | The app deploys and runs on AWS over HTTPS with real Cognito login |
 | Resume bullets | [resume-bullets.md](resume-bullets.md) | Interview-ready, measured summaries of the work |
@@ -30,7 +30,7 @@ criterion to the artifact that proves it:
 | A consent-controlled field is withheld unless consent allows it | [security-proofs.md](security-proofs.md) → *Consent field masking* |
 | Invalid / concurrent state transitions are rejected, not silently applied | [security-proofs.md](security-proofs.md) → *Invalid state transition* |
 | For any adjudication decision, the platform shows how every amount was computed | Application UI → *Claim adjudication breakdown* screenshot |
-| The system is observable (metrics, dashboards, tracing) | [screenshots/](screenshots/) → Grafana / Prometheus / Jaeger |
+| The system is observable (metrics, dashboards, tracing) | [observability.md](observability.md) → Grafana / Prometheus / Jaeger |
 | The system deploys to the cloud and runs there | [screenshots/aws/](screenshots/aws/) |
 
 ## How this pack was produced
