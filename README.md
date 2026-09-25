@@ -1,6 +1,5 @@
 # HealthCloud — Consent-Aware Care Coordination & Claims Platform
 
-**Backend**
 ![Java 25](https://img.shields.io/badge/Java-25-ED8B00?logo=openjdk&logoColor=white)
 ![Spring Boot 4.1](https://img.shields.io/badge/Spring%20Boot-4.1.0-6DB33F?logo=springboot&logoColor=white)
 ![Spring Security](https://img.shields.io/badge/Spring%20Security-6DB33F?logo=springsecurity&logoColor=white)
@@ -10,12 +9,8 @@
 ![Spring Kafka](https://img.shields.io/badge/Spring%20Kafka-6DB33F?logo=springboot&logoColor=white)
 ![Micrometer](https://img.shields.io/badge/Micrometer-117A96)
 ![OpenTelemetry](https://img.shields.io/badge/OpenTelemetry-425CC7?logo=opentelemetry&logoColor=white)
-
-**Database**
 ![PostgreSQL 17](https://img.shields.io/badge/PostgreSQL-17-4169E1?logo=postgresql&logoColor=white)
 ![Flyway](https://img.shields.io/badge/Flyway-CC0200?logo=flyway&logoColor=white)
-
-**Frontend**
 ![React 19.2](https://img.shields.io/badge/React-19.2-61DAFB?logo=react&logoColor=black)
 ![TypeScript 6](https://img.shields.io/badge/TypeScript-6-3178C6?logo=typescript&logoColor=white)
 ![Vite 8](https://img.shields.io/badge/Vite-8-646CFF?logo=vite&logoColor=white)
@@ -24,27 +19,17 @@
 ![React Hook Form](https://img.shields.io/badge/React%20Hook%20Form-EC5990?logo=reacthookform&logoColor=white)
 ![Zod](https://img.shields.io/badge/Zod-3E67B1?logo=zod&logoColor=white)
 ![Material UI 9](https://img.shields.io/badge/Material%20UI-9-007FFF?logo=mui&logoColor=white)
-
-**Messaging**
 ![Apache Kafka](https://img.shields.io/badge/Apache%20Kafka-231F20?logo=apachekafka&logoColor=white)
-
-**Auth**
 ![Amazon Cognito](https://img.shields.io/badge/Amazon%20Cognito-DD344C?logo=amazonwebservices&logoColor=white)
 ![Spring BFF](https://img.shields.io/badge/Spring%20BFF-session%20%2B%20CSRF-6DB33F?logo=springsecurity&logoColor=white)
-
-**Cloud**
 ![AWS](https://img.shields.io/badge/AWS-232F3E?logo=amazonwebservices&logoColor=white)
 ![ECS Fargate](https://img.shields.io/badge/ECS%20Fargate-FF9900?logo=amazonwebservices&logoColor=white)
 ![RDS](https://img.shields.io/badge/RDS-527FFF?logo=amazonwebservices&logoColor=white)
 ![S3 / CloudFront](https://img.shields.io/badge/S3%20%2F%20CloudFront-8C4FFF?logo=amazonwebservices&logoColor=white)
 ![Terraform](https://img.shields.io/badge/Terraform-7B42BC?logo=terraform&logoColor=white)
 ![Docker](https://img.shields.io/badge/Docker-2496ED?logo=docker&logoColor=white)
-
-**CI/CD**
 ![GitHub Actions](https://img.shields.io/badge/GitHub%20Actions-2088FF?logo=githubactions&logoColor=white)
 ![GHCR](https://img.shields.io/badge/GHCR-181717?logo=github&logoColor=white)
-
-**Testing**
 ![JUnit 5](https://img.shields.io/badge/JUnit%205-25A162?logo=junit5&logoColor=white)
 ![Testcontainers](https://img.shields.io/badge/Testcontainers-291A54?logo=testcontainers&logoColor=white)
 ![MockMvc](https://img.shields.io/badge/MockMvc-6DB33F?logo=spring&logoColor=white)
