@@ -365,8 +365,8 @@ This project is deliberate about what it is *not*:
 - **Runbooks:** [`docs/runbooks/`](docs/runbooks/) (triage workflow, alert response, backup & restore)
 - **Architecture diagrams:** [`docs/architecture/architecture.md`](docs/architecture/architecture.md) (deployment · module map · request/authorization pipeline · event flow)
 - **Entity-relationship diagram:** [`docs/er-diagram/er-diagram.md`](docs/er-diagram/er-diagram.md) (the 50-table data model, by domain)
+- **Threat model:** [`docs/threat-model/threat-model.md`](docs/threat-model/threat-model.md) (STRIDE over the real trust boundaries)
 - **Design system:** [`docs/design/design-system.md`](docs/design/design-system.md)
-- *The threat model is added in a later Phase 12 slice and will be linked here.*
 
 ---
 
