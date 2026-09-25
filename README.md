@@ -373,9 +373,7 @@ This project is deliberate about what it is *not*:
 - **Evidence pack** *(start here for proof):* [`docs/evidence/`](docs/evidence/) — measured test
   results, live security-boundary HTTP transcripts (cross-tenant secure-404, consent masking,
   relationship gate, invalid-transition), observability captures (Grafana/Prometheus/Jaeger), 11 app
-  UI screenshots, the live AWS deployment, and [resume bullets](docs/evidence/resume-bullets.md).
-- **Design source of truth:** `docs/source-of-truth/HealthCloud_Final_Source_of_Truth.pdf`
-- **Roadmap:** [`docs/PLAN.md`](docs/PLAN.md) · **Progress log:** [`docs/PROGRESS.md`](docs/PROGRESS.md)
+  UI screenshots, and the live AWS deployment.
 - **Architecture decisions:** [`docs/adr/`](docs/adr/)
 - **Runbooks:** [`docs/runbooks/`](docs/runbooks/) (triage workflow, alert response, backup & restore)
 - **Architecture diagrams:** [`docs/architecture/architecture.md`](docs/architecture/architecture.md) (deployment · module map · request/authorization pipeline · event flow)
