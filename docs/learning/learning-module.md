@@ -5561,3 +5561,96 @@ a defect. A plain-text re-render then screenshotted cleanly, and the user confir
 A: The existing ADRs (001, 002, 004) already used the source-of-truth numbers, and the ADR index references its
 17-ADR list. Writing an "ADR-003" with a different title than the source reserves would create a conflict. So I read
 Appendix A (via `pypdf`) to get the canonical titles and matched them exactly.
+
+---
+
+## Phase 12 slice 6 — building an evidence pack (proof, not prose) — 2026-09-25
+
+### What we built
+The final slice of the whole project: `docs/evidence/`, a curated, sanitized "proof folder" a recruiter or
+interviewer can open to see the system actually works — instead of just reading claims about it. Six sub-slices:
+test results, live security-boundary HTTP transcripts, observability screenshots, application-UI screenshots, a live
+AWS cloud capture, and interview-ready resume bullets. Everything is synthetic data and every number is measured.
+
+### How it works
+- **6a — test results.** Re-ran the full suite fresh and saved the real numbers to `test-results.md`: backend **511**
+  (`mvnw clean verify`, Testcontainers) + frontend **183** + typecheck + build = **694 green**.
+- **6b — security transcripts (`security-proofs.md`).** Brought up Postgres + the backend (`local` profile) and used
+  `curl` to capture real request/response pairs proving the §60 acceptance criteria: cross-tenant **secure-404**,
+  consent **field-masking with a before/after GRANT flip**, the **relationship gate** (same PROVIDER role → 200 for
+  the assigned provider, 404 for the unassigned one; list scoping 3/2/0), and **409 INVALID_STATE_TRANSITION**. This
+  is the strongest evidence because it's real and fully reproducible in text.
+- **6c/6d/6e — screenshots.** Captured with **headless Google Chrome** (`--headless=new --screenshot=…`) and, for the
+  interactive cloud login, **playwright-core** driving the installed Chrome — writing PNGs *straight to disk* in
+  `docs/evidence/screenshots/`. Covered Grafana/Prometheus/Jaeger (6c), all 11 major app screens (6d), and the live
+  AWS deploy over HTTPS (6e).
+- **6f — resume bullets (`resume-bullets.md`).** Measured-only bullets + interview talking points, then this doc
+  close-out (PROGRESS / CLAUDE / learning-module).
+- Each `.md` embeds its screenshots with captions so it renders self-described on GitHub; the evidence `README.md`
+  maps each source-of-truth acceptance criterion to the artifact that proves it.
+
+### Key points to remember
+- **The browser pane can't save screenshots to disk; headless Chrome can.** `"/Applications/Google Chrome.app/…/Google
+  Chrome" --headless=new --screenshot=out.png --window-size=W,H URL` writes a real PNG. Gotcha: on a *live* page
+  (Grafana, a dev server) headless Chrome **writes the file but then hangs on exit** (the page keeps a connection open,
+  so `--virtual-time-budget` never completes) — so run it in the background, poll until the PNG size is stable, then
+  kill Chrome. For an *interactive* capture (user logs in), `playwright-core` with `channel: 'chrome'` reuses the
+  installed browser (no download) and can wait for the post-login URL before screenshotting.
+- **A stale deploy is invisible until you look.** ECR images are pushed **manually** (not from CI), so the live AWS
+  app had silently lagged behind *all* the post-Phase-11 UI work — the deployed login/dashboard looked nothing like the
+  current build. Fix: rebuild both images (ARM64) → `crane push` to ECR → `aws ecs update-service --force-new-deployment`.
+- **Cognito hosted-UI branding is per-app-client and lives only in AWS, not in Terraform.** A fresh `terraform apply`
+  *recreates* the app client and the branding reverts to the plain default. The real branding lived on the hand-made
+  local client (`2apbhhj…`); we copied its exact CSS + logo onto the deployed TF client (`u6nf6l…`) with
+  `get-ui-customization` → `set-ui-customization`. This is documented drift, not a bug.
+- **Honesty in the evidence.** An early Grafana capture showed 7 spurious 5xx — traced to *our own* malformed debug
+  requests (empty path variables → `NoResourceFoundException`), not a product bug. We restarted clean (with Kafka up)
+  and recaptured so the dashboard shows 0 errors, and wrote the reason down rather than hiding it.
+
+### Failures and how we fixed them
+- **Screenshots wouldn't persist from the browser pane** → switched to headless Chrome / playwright-core writing PNGs
+  directly to `docs/evidence/screenshots/`.
+- **Headless Chrome hung on live pages** (wrote the PNG, never exited) → background + poll-for-stable-file + kill.
+- **A shell (zsh) parameter-modifier bug** mangled `healthcloud-$svc:current`/`:latest` into `…urrent`/`…atest`
+  (`:l`/`:c` are zsh modifiers), so the first crane push targeted non-existent repos → fixed by brace-quoting
+  (`${svc}`).
+- **The interactive login capture timed out twice** because the user logged into their *own* browser (the local
+  Cognito client) instead of the playwright window (the deployed client) → landed the capture window straight on the
+  branded login and confirmed via the redirect's `client_id` which client was which; third attempt captured.
+- **The deployed Cognito login didn't match the user's "actual" one** → discovered it was a *different app client* with
+  its own branding; copied the exact CSS + logo across. (Also spotted, and documented as a follow-up, that the deployed
+  `cognitoLogoutUrl` points to `localhost:5173` — a deployed-config fix for later.)
+
+### Interview Q&A
+
+#### 1. Beginner
+**Q: What is an "evidence pack" and why build one?**
+A: A curated folder of proof — test output, request/response transcripts, screenshots — that lets someone verify the
+system works without running it. For a portfolio it turns "I built X" into "here's X working."
+
+**Q: What does a "secure 404" prove in the transcripts?**
+A: When a NorthCare user asks for a Green Valley record, the API returns 404 (not 403). 403 would confirm the record
+exists; 404 reveals nothing. The same id returns 200 for the owning tenant — same request, opposite result, decided by
+the backend-derived tenant.
+
+#### 2. Intermediate
+**Q: Why did the live AWS app look older than your local app, and how did you fix it?**
+A: Container images are pushed to ECR manually rather than from CI, so the running deploy had fallen behind the current
+code. I rebuilt both images for ARM64, pushed them with `crane`, and forced a new ECS deployment so the task pulled the
+current `:latest`.
+
+**Q: Why did the Cognito login page lose its branding after a Terraform apply?**
+A: Hosted-UI branding is attached to a specific Cognito *app client* and is applied out-of-band (AWS CLI), not in
+Terraform. `apply` recreated the client, so the branding wasn't there. I copied the exact CSS + logo from the branded
+client onto the new one with `set-ui-customization`.
+
+#### 3. Advanced
+**Q: How do you capture a screenshot that requires an authenticated session, to a file, without typing the password yourself?**
+A: Launch a real browser via playwright-core (`channel: 'chrome'`, headed) pointed at the app; the *user* enters their
+own credentials in that window; the script `waitForURL` on the post-login app URL, then `page.screenshot({path})`. The
+assistant never handles the password, and the PNG still lands on disk.
+
+**Q: How do you keep evidence honest when the raw capture looks bad (e.g., unexpected 5xx)?**
+A: Investigate the cause before publishing. Here the 5xx came from our own malformed test requests, so we restarted the
+service clean and recaptured, and documented the explanation — rather than either hiding the errors or misattributing
+them to the product. That's the project's no-unmeasured-claims rule applied to evidence.
