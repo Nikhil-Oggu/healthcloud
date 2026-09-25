@@ -14,7 +14,7 @@
 | Security boundary transcripts | [security-proofs.md](security-proofs.md) | Real HTTP request/response proof of the security model |
 | Observability screenshots | [observability.md](observability.md) | Metrics dashboards, Prometheus, distributed tracing work |
 | Application UI screenshots | [ui.md](ui.md) | The app runs end-to-end across every major screen |
-| Live AWS cloud capture | [screenshots/aws/](screenshots/aws/) | The app deploys and runs on AWS over HTTPS with real Cognito login |
+| Live AWS cloud capture | [aws.md](aws.md) | The app deploys and runs on AWS over HTTPS with real Cognito login |
 | Resume bullets | [resume-bullets.md](resume-bullets.md) | Interview-ready, measured summaries of the work |
 
 ## Acceptance criteria → evidence map
@@ -31,7 +31,7 @@ criterion to the artifact that proves it:
 | Invalid / concurrent state transitions are rejected, not silently applied | [security-proofs.md](security-proofs.md) → *Invalid state transition* |
 | For any adjudication decision, the platform shows how every amount was computed | [ui.md](ui.md) → *Claim adjudication breakdown* |
 | The system is observable (metrics, dashboards, tracing) | [observability.md](observability.md) → Grafana / Prometheus / Jaeger |
-| The system deploys to the cloud and runs there | [screenshots/aws/](screenshots/aws/) |
+| The system deploys to the cloud and runs there | [aws.md](aws.md) |
 
 ## How this pack was produced
 
