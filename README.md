@@ -52,7 +52,7 @@
 ![Testing Library](https://img.shields.io/badge/Testing%20Library-E33332?logo=testinglibrary&logoColor=white)
 ![axe-core](https://img.shields.io/badge/axe--core-663399)
 
-HealthCloud is a multi-tenant, production-style platform for healthcare-style **care coordination**
+**HealthCloud** is a multi-tenant, production-grade platform for healthcare **care coordination**
 and **claims adjudication**. Its engineering value is not in any single feature — it is in answering,
 on every request, the question that authentication alone cannot: *should **this** person see **this**
 data, for **this** reason, right now — and is that decision auditable?*
@@ -64,6 +64,7 @@ data, for **this** reason, right now — and is that decision auditable?*
 
 > **Feature-complete, validated, and packaged** — including a sanitized [evidence pack](docs/evidence/)
 > with live security-boundary transcripts, observability captures, and an on-demand AWS deployment.
+>
 > 🔎 **Short on time?** Jump to the [evidence pack](docs/evidence/) (proof it actually works), the
 > [security model](#security-model-deep-dive), or the [core engineering story](#the-core-engineering-story).
 
