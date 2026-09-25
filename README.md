@@ -317,6 +317,17 @@ afterthought).
   liveness/readiness probes, Prometheus alert rules, a non-destructive backup/restore drill, and
   runbooks — all runnable locally behind an opt-in Docker Compose profile.
 
+  ![Grafana HealthCloud Overview dashboard — 18 panels](docs/evidence/screenshots/observability-grafana-overview.png)
+
+  *Grafana "HealthCloud Overview" (18 panels): request rate, p95 latency, 0 server 5xx, JVM/CPU/DB, and the `healthcloud_adjudications_total` domain counter — all measured values.*
+
+  ![Jaeger distributed trace — nested adjudicate-claim span](docs/evidence/screenshots/observability-jaeger-trace.png)
+
+  *Jaeger: one request's distributed trace, with the `@Observed` `adjudicate-claim` span nested under the HTTP server span (OpenTelemetry over OTLP).*
+
+  Full observability evidence — including the Prometheus scrape targets — is in
+  [`docs/evidence/observability.md`](docs/evidence/observability.md).
+
 > **Honesty note:** thresholds in the alert rules are demo *targets*, not measured SLOs; Prometheus/
 > Jaeger are wired locally, with AWS wiring documented as an on-demand follow-up.
 
