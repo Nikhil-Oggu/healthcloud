@@ -363,9 +363,10 @@ This project is deliberate about what it is *not*:
 - **Roadmap:** [`docs/PLAN.md`](docs/PLAN.md) · **Progress log:** [`docs/PROGRESS.md`](docs/PROGRESS.md)
 - **Architecture decisions:** [`docs/adr/`](docs/adr/)
 - **Runbooks:** [`docs/runbooks/`](docs/runbooks/) (triage workflow, alert response, backup & restore)
+- **Architecture diagrams:** [`docs/architecture/architecture.md`](docs/architecture/architecture.md) (deployment · module map · request/authorization pipeline · event flow)
+- **Entity-relationship diagram:** [`docs/er-diagram/er-diagram.md`](docs/er-diagram/er-diagram.md) (the 50-table data model, by domain)
 - **Design system:** [`docs/design/design-system.md`](docs/design/design-system.md)
-- *Architecture & ER diagrams and the threat model are added in the remaining Phase 12 slices and will
-  be linked here.*
+- *The threat model is added in a later Phase 12 slice and will be linked here.*
 
 ---
 
