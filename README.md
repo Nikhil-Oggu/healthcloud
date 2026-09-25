@@ -1,21 +1,31 @@
 # HealthCloud — Consent-Aware Care Coordination & Claims Platform
 
+![Java 25](https://img.shields.io/badge/Java-25-orange?logo=openjdk&logoColor=white)
+![Spring Boot 4.1](https://img.shields.io/badge/Spring%20Boot-4.1-6DB33F?logo=springboot&logoColor=white)
+![PostgreSQL 17](https://img.shields.io/badge/PostgreSQL-17-4169E1?logo=postgresql&logoColor=white)
+![React 19](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)
+![TypeScript](https://img.shields.io/badge/TypeScript-6-3178C6?logo=typescript&logoColor=white)
+![Kafka](https://img.shields.io/badge/Apache%20Kafka-231F20?logo=apachekafka&logoColor=white)
+![AWS](https://img.shields.io/badge/AWS-ECS%20%C2%B7%20RDS%20%C2%B7%20CloudFront-232F3E?logo=amazonwebservices&logoColor=white)
+![Terraform](https://img.shields.io/badge/Terraform-7B42BC?logo=terraform&logoColor=white)
+![Docker](https://img.shields.io/badge/Docker-2496ED?logo=docker&logoColor=white)
+
+HealthCloud is a multi-tenant, production-style platform for healthcare-style **care coordination**
+and **claims adjudication**. Its engineering value is not in any single feature — it is in answering,
+on every request, the question that authentication alone cannot: *should **this** person see **this**
+data, for **this** reason, right now — and is that decision auditable?*
+
+> ⚠️ This is a healthcare-**inspired**, HIPAA-**aligned** engineering portfolio project built on
+> **synthetic data only**. It is **not** HIPAA-certified, is **not** used with real patient data, and
+> is not production healthcare software. Every performance/security/coverage figure here is
+> **measured, not claimed** — where a number would be a guess, it is labelled a *target* or omitted.
+
 > **Status: all 12 phases complete** (feature-complete, validated, and packaged — including a
 > sanitized [evidence pack](docs/evidence/) with live security-boundary transcripts, observability
 > captures, and an on-demand AWS deployment).
 >
 > 🔎 **Short on time?** Jump to the [evidence pack](docs/evidence/) (proof it actually works), the
 > [security model](#security-model-deep-dive), or the [core engineering story](#the-core-engineering-story).
->
-> ⚠️ This is a healthcare-**inspired**, HIPAA-**aligned** engineering portfolio project built on
-> **synthetic data only**. It is **not** HIPAA-certified, is **not** used with real patient data, and
-> is not production healthcare software. Every performance/security/coverage figure here is
-> **measured, not claimed** — where a number would be a guess, it is labelled a *target* or omitted.
-
-HealthCloud is a multi-tenant, production-style platform for healthcare-style **care coordination**
-and **claims adjudication**. Its engineering value is not in any single feature — it is in answering,
-on every request, the question that authentication alone cannot: *should **this** person see **this**
-data, for **this** reason, right now — and is that decision auditable?*
 
 **Why it's interesting:** access is decided by a layered pipeline —
 `identity → organization → role → patient relationship → consent → purpose of use → field-level visibility → ALLOW/DENY → audit` —
