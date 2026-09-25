@@ -5474,3 +5474,90 @@ export no-ops and there's no cloud Prometheus scrape — documented, cost-gated 
 is unauthenticated only under the `local` profile; the deployed `demo,cognito` app keeps it authenticated. So the
 dashboards are a *local* capability demonstration, not a live production monitor — which is exactly how they should
 be labeled in a portfolio.
+
+---
+
+## Phase 12 — packaging the project for a portfolio (validation, README, diagrams, threat model, ADRs) — 2026-09-24
+
+### What we built
+Phase 12 turns a finished system into something you can *show and defend*. This session covered slices 1–5:
+(1) a full-suite **validation run** to capture real numbers, (2) the **README** rewritten as an engineering case
+study, (3) **architecture + ER diagrams**, (4) a **STRIDE threat model**, and (5) the **Architecture Decision
+Records** (all 17 from the source-of-truth + ADR-018). No application code changed — this is documentation and
+proof — but it was done to engineering standards: measured, grounded in real code, and honest about limits.
+
+### How it works
+- **Validation run (slice 1):** `./mvnw -B clean verify` (backend, Testcontainers → a real Postgres per test) =
+  **511** tests; frontend `tsc --noEmit` + Vitest (**183**) + `npm run build`. **694 total, all green.** These
+  measured numbers are what every later doc cites — nothing guessed (rule 2).
+- **README as a case study (slice 2):** 15 sections + a TOC, with two inline **Mermaid** diagrams (the
+  authorization pipeline + a high-level architecture). Mermaid-in-markdown renders natively on GitHub, so there are
+  no binary image files to maintain.
+- **Diagrams (slice 3):** `docs/architecture/architecture.md` (4 diagrams: deployment, module map, request/auth
+  pipeline, event flow) and `docs/er-diagram/er-diagram.md` (the 50-table model as 7 domain-grouped `erDiagram`
+  blocks). The ERD was built from **ground truth** — the real tables/columns/foreign keys were pulled from the
+  running Postgres via `information_schema`, so nothing was invented.
+- **Threat model (slice 4):** `docs/threat-model/threat-model.md` — STRIDE over the real trust boundaries, with a
+  data-flow diagram + a threat table per category. Every mitigation was spot-checked against the actual code before
+  being written down.
+- **ADRs (slices 5 + 5b):** all 17 source-of-truth ADRs + ADR-018. Numbering had to match the source-of-truth, so
+  we read its Appendix A out of the PDF.
+
+### Key points to remember
+- **Measured, not claimed.** The entire phase only states numbers we actually observed.
+- **Mermaid for repo diagrams** — text, diffable, GitHub-native. Verify with `mermaid.parse` (the engine GitHub
+  itself uses), not by eyeballing.
+- **Build the ERD from the live schema** (`information_schema`), not from memory or the design doc — those drift.
+- **Ground every threat-model mitigation in real code.** A threat model that lists protections you don't have is
+  worse than none.
+- **Editorial honesty for a portfolio.** The recruiter-facing README doc index links portfolio artifacts only; the
+  internal `CLAUDE.md` working-rules file and this learning module aren't *featured* there (but stay in the repo).
+  AI assistance is normal in 2026 and visible in git co-author trailers — the confident, honest posture ("I
+  designed and built this with AI assistance and can defend every decision") is stronger than hiding it.
+
+### Failures and how we fixed them
+- **The PDF wouldn't render.** The Read tool needs `poppler` (`pdftoppm`), which isn't installed; `pdftotext` was
+  also absent. Fix: the system Python 3.9 had **`pypdf`** — used it to extract the text and locate Appendix A
+  (pages 104–105). The user also sent an image of Appendix A that matched the extraction exactly, double-confirming
+  the ADR numbering.
+- **ER diagrams looked blank in screenshots.** Mermaid v11 renders `erDiagram` labels with SVG `<foreignObject>`
+  (HTML-in-SVG), which the desktop screenshot pipeline doesn't rasterize — so a screenshot showed an empty box even
+  though the DOM had 114 label nodes. Confirmed correctness two independent ways (all blocks pass `mermaid.parse`;
+  a plain-text re-render screenshotted cleanly), and the user confirmed they render on GitHub (which draws Mermaid
+  client-side, where `foreignObject` works).
+- **The first markdown-preview harness threw** `code.replace is not a function` — a `marked` v12 renderer-API
+  mismatch. Fix: pre-extract the ` ```mermaid ` fences with a regex, render the markdown, then re-inject them as
+  `<div class="mermaid">` before calling `mermaid.run`.
+
+### Interview Q&A
+
+#### Beginner
+**Q: Why run the whole test suite before writing the README?**
+A: So every number in the docs (694 tests) is measured, not guessed. Claiming "hundreds of tests" without running
+them risks being wrong — and a reviewer can check the repo.
+
+**Q: Why put diagrams as Mermaid text instead of images?**
+A: GitHub renders Mermaid natively, and text diagrams live in version control — they diff, review, and update like
+code, with no binary files to keep in sync.
+
+#### Intermediate
+**Q: How did you ensure the ER diagram matched the real database?**
+A: I queried `information_schema` on the running Postgres for every table, column, and foreign key and built the
+diagram from that — rather than from memory or the design doc, either of which could have drifted from what was
+actually built.
+
+**Q: What makes a threat model credible rather than theater?**
+A: Every mitigation is tied to a real mechanism in the code (with a pointer), and the residual risks / out-of-scope
+items are stated honestly. A threat model that claims protections you don't have is actively misleading.
+
+#### Advanced
+**Q: Your ER diagrams rendered blank in a screenshot but you shipped them — how did you know they were right?**
+A: Two independent checks. (1) All 11 Mermaid blocks passed `mermaid.parse`, the exact engine GitHub uses to
+render — a valid parse means it renders. (2) DOM inspection showed the SVG held the full content (114
+`foreignObject` label nodes, 135 paths); the "blank" was a screenshot-rasterization limitation for HTML-in-SVG, not
+a defect. A plain-text re-render then screenshotted cleanly, and the user confirmed on GitHub.
+
+**Q: Why match the source-of-truth's ADR numbering instead of inventing your own?**
+A: The existing ADRs (001, 002, 004) already used the source-of-truth numbers, and the ADR index references its
+17-ADR list. Writing an "ADR-003" with a different title than the source reserves would create a conflict. So I read
+Appendix A (via `pypdf`) to get the canonical titles and matched them exactly.

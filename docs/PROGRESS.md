@@ -546,6 +546,10 @@
   local filesystem stand-in, S3 is the target), **012** ECS Fargate target deployment, **013** Terraform + GitHub
   Actions, **017** PostgreSQL-first for cache/search (no Redis/OpenSearch/RLS). ADR README index now shows **all 17
   SoT ADRs (001–017) Accepted, plus ADR-018**. Each grounded in real code with honest limitations.
+- **Continuity docs synced (5c):** brought **CLAUDE.md** (Current-implementation status now notes Phase 12 in
+  progress with slices 1–5) and **docs/learning/learning-module.md** (appended a Phase-12 session note — validation,
+  README, diagrams, threat model, ADRs, with the `pypdf` + `foreignObject` gotchas and interview Q&A) up to date, so
+  all three continuity docs reflect this session's work.
 - **Next:** slice 6 — evidence pack (`docs/evidence/`) + resume bullets (relaunch observability on-demand for
   dashboard screenshots).
 
