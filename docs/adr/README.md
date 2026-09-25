@@ -24,19 +24,19 @@ The source-of-truth defines 17 ADRs (see §Appendix A). We add/refine them as ph
 | 003 | Backend-derived tenant context | Accepted |
 | 004 | Cognito + Spring BFF | Accepted |
 | 005 | Hybrid authorization | Accepted |
-| 006 | Limited clinical context | Pending |
-| 007 | Bounded synthetic claims engine | Pending |
-| 008 | PostgreSQL metadata + private S3 documents | Pending |
+| 006 | Limited clinical context | Accepted |
+| 007 | Bounded synthetic claims engine | Accepted |
+| 008 | PostgreSQL metadata + private S3 documents | Accepted |
 | 009 | Transactional outbox + Kafka | Accepted |
 | 010 | Per-organization HMAC audit chains | Accepted |
 | 011 | Concurrency strategy | Accepted |
-| 012 | ECS Fargate target deployment | Pending |
-| 013 | Terraform + GitHub Actions | Pending |
+| 012 | ECS Fargate target deployment | Accepted |
+| 013 | Terraform + GitHub Actions | Accepted |
 | 014 | Immutable consent and claim decisions | Accepted |
 | 015 | On-demand full AWS validation | Accepted |
 | 016 | Single-origin browser architecture | Accepted |
-| 017 | PostgreSQL first for cache/search | Pending |
+| 017 | PostgreSQL first for cache/search | Accepted |
 | 018 | Dev-login stand-in (local only) | Accepted |
 
-The six **Pending** ADRs (006, 007, 008, 012, 013, 017) reflect decisions that were made and implemented; they
-are simply not yet written up as records — a documented follow-up.
+All 17 source-of-truth ADRs (001–017) are now recorded, plus ADR-018 (an emergent decision). ADR-008 notes an
+honest gap: private-S3 document storage is the target design, while local dev uses a filesystem stand-in.
