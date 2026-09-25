@@ -62,10 +62,8 @@ data, for **this** reason, right now — and is that decision auditable?*
 > is not production healthcare software. Every performance/security/coverage figure here is
 > **measured, not claimed** — where a number would be a guess, it is labelled a *target* or omitted.
 
-> **Status: all 12 phases complete** (feature-complete, validated, and packaged — including a
-> sanitized [evidence pack](docs/evidence/) with live security-boundary transcripts, observability
-> captures, and an on-demand AWS deployment).
->
+> **Feature-complete, validated, and packaged** — including a sanitized [evidence pack](docs/evidence/)
+> with live security-boundary transcripts, observability captures, and an on-demand AWS deployment.
 > 🔎 **Short on time?** Jump to the [evidence pack](docs/evidence/) (proof it actually works), the
 > [security model](#security-model-deep-dive), or the [core engineering story](#the-core-engineering-story).
 
