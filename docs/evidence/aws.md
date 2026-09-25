@@ -15,18 +15,19 @@ and [`../adr/ADR-015-on-demand-full-aws-validation.md`](../adr/ADR-015-on-demand
 
 ## Live app over HTTPS
 
-The deployed sign-in page, served over HTTPS through CloudFront. The production build exposes **only
-"Sign in with Cognito"** — the local `dev-login` bypass is compiled out and disabled on the deploy
-(the `demo,cognito` profile), so Cognito is the single path in.
+The deployed landing page, served over HTTPS through CloudFront. Sign-in is **only via Cognito** — the
+local `dev-login` bypass is compiled out and disabled on the deploy (the `demo,cognito` profile), so
+Cognito is the single path in.
 
-![Deployed HealthCloud sign-in over HTTPS](screenshots/aws/aws-01-landing-https.png)
+![Deployed HealthCloud landing over HTTPS](screenshots/aws/aws-01-landing-https.png)
 
 ## Real Amazon Cognito login
 
-Clicking "Sign in with Cognito" redirects (OIDC authorization-code + PKCE) to the **Amazon Cognito
-hosted login** — real managed authentication, not an app-rendered form.
+Clicking "Sign in" redirects (OIDC authorization-code + PKCE) to the **Amazon Cognito hosted login** —
+real managed authentication, not an app-rendered form. The hosted UI carries the HealthCloud branding
+(logo, dark theme, teal accent) applied to the app client.
 
-![Amazon Cognito hosted login page](screenshots/aws/aws-02-cognito-login.png)
+![Amazon Cognito hosted login page (branded)](screenshots/aws/aws-02-cognito-login.png)
 
 ## Authenticated on the cloud
 
@@ -44,11 +45,11 @@ database** (never from the token) — the layered security model working end-to-
 - Identity from Cognito, **roles/tenant from the DB** — the same authorization model proven locally,
   running in the cloud.
 
-> **Note on the deployed UI.** These cloud screenshots show an **earlier build** of the frontend (a
-> top-nav layout). Per the project's workflow, ECR images are pushed manually rather than from CI, so
-> the deployed image lags the current codebase. The **current, polished UI** (sidebar shell, bespoke
-> landing, etc.) is captured against the live local build in [ui.md](ui.md); this page's purpose is to
-> prove **deployment + real HTTPS authentication**, which it does regardless of the frontend build age.
+> **Build note.** For this capture the current frontend + backend images were rebuilt (ARM64) and
+> pushed to ECR, and the deployed Cognito app client was branded to match the app — so these cloud
+> screenshots reflect the current build. Per the project workflow, ECR images are pushed manually
+> (`crane`) rather than from CI, and the Cognito hosted-UI branding is applied via the AWS CLI (it is
+> not yet in Terraform — a documented drift item in `CLAUDE.md`).
 
 ## Reproduce
 
