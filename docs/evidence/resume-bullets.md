@@ -37,6 +37,44 @@
   including negative security tests (cross-tenant, consent-masking, invalid-transition) as first-class
   acceptance proof.
 
+## Resume bullets — with metrics (ATS-friendly, pick 4–6)
+
+> Same project, framed **metric-first** for resume/ATS scanning. **Every number here is real** —
+> counted (tests, tables, phases, layers) or **measured** (the load-test latency/throughput, the
+> AWS hourly cost) — never an invented performance/uptime figure (project rule #2). The one runtime
+> performance number (throughput/latency) is from a **local, single-node** k6 run and is labeled as
+> such — see [`load-test.md`](load-test.md). Keep that "local single-node" qualifier if you use it,
+> so it holds up in an interview.
+
+- **Delivered a multi-tenant healthcare platform across 12 delivery phases** — **30 domain modules,
+  50 PostgreSQL tables over 43 Flyway migrations** (Java 25 / Spring Boot 4.1, React 19 / TypeScript)
+  — with tenant identity **derived server-side on every request**, never trusted from the client.
+- **Engineered a 5-layer authorization pipeline** (tenant → role → patient-relationship →
+  consent+purpose → field-masking) with **secure-404** denials, so two users with the *same role*
+  get different results — enforced entirely on the backend and validated by negative security tests.
+- **Load-tested the authenticated read path with k6 at 50 concurrent users**, measuring **~107
+  requests/sec at a p95 latency of 38 ms with a 0% error rate** (local single-node) across the full
+  authorization pipeline plus live PostgreSQL reads.
+- **Backed the system with 694 automated tests** (511 backend on Testcontainers against real
+  PostgreSQL + 183 frontend), including **cross-tenant, consent-masking, and invalid-transition
+  negative security tests** treated as first-class acceptance criteria.
+- **Built an explainable claims-adjudication engine** (eligibility, deductible, copay, coinsurance,
+  out-of-pocket max, exclusions, prior-auth, provider network) that records **per line** exactly how
+  every dollar was computed, with **immutable, versioned** re-adjudication.
+- **Implemented event-driven processing** with the transactional-outbox pattern + Kafka — idempotent
+  consumer, retry/backoff, a dead-letter queue, and admin replay — surfaced across **8 server-side
+  paginated, searchable work queues**.
+- **Added a tamper-evident audit trail** — a per-organization **HMAC-SHA-256 hash chain** keyed from
+  a secret held *outside* the database — with **on-demand integrity verification** that detects any
+  modified, deleted, reordered, or inserted record.
+- **Provisioned reproducible AWS infrastructure with Terraform** (ECS Fargate, RDS, CloudFront/HTTPS,
+  Cognito OIDC via a Spring BFF) on an on-demand apply→verify→destroy cycle measured at **~$0.08–0.10/hr
+  (~$0 at rest)** — saving **~$32/mo** by routing Fargate egress through public subnets instead of a NAT
+  gateway — shipped through **GitHub Actions CI/CD (4 gated jobs)** publishing images to GHCR.
+- **Instrumented full observability** — Micrometer→**Prometheus/Grafana** metrics (18-panel dashboard),
+  OpenTelemetry→**Jaeger** tracing, health/readiness probes, **5 alert rules**, and a rehearsed
+  backup/restore drill — with the frontend **WCAG 2.2 AA-aligned** behind an automated axe-core gate.
+
 ## Shorter variants (for tighter formats)
 
 - **Backend-heavy:** "Multi-tenant Spring Boot 4.1 platform with backend-derived tenancy, a 5-layer

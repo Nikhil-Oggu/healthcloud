@@ -457,6 +457,25 @@
 
 ## Log (newest first)
 
+### 2026-09-25 — Local load test (k6) + metric-forward resume bullets ✅ (post-roadmap)
+- **New: `perf/k6/`** — the project's first executed load test (the `k6` perf tool was in the frozen
+  stack but never run). `perf/k6/read-path.js` simulates real user sessions against the running backend
+  (dev-login once per VU → repeated `GET /me` + `/patients` + `/claims`), so it exercises the **full
+  authorization pipeline + real Postgres reads**, not a trivial health ping. `perf/k6/README.md` documents
+  how to run it (via the `grafana/k6` Docker image — no host install).
+- **Measured (local, single-node dev setup):** ramping to **50 concurrent users** over ~2 min →
+  **12,947 requests, 0 failures (0.00% error rate)**, **~107 req/s**, latency **median 13.6 ms / p95 38.3 ms
+  / max 293 ms**. Both k6 thresholds passed. Captured in **`docs/evidence/load-test.md`** (clearly labeled
+  as a local single-node measurement, not a production/SLA figure — rule #2).
+- **Bug found + fixed in the test (not the app):** the first run reported a 98% error rate because k6
+  resets its cookie jar between iterations, dropping the session cookie after each VU's first iteration
+  (reads → 401). Fixed by stashing the `SESSION` cookie value in per-VU JS state and re-applying it each
+  iteration ("log in once, then browse"). The app itself was correct throughout.
+- **`docs/evidence/resume-bullets.md`**: added a new **"Resume bullets — with metrics (ATS-friendly)"**
+  section (the original 8 concise bullets left untouched, as requested) — metric-first framing using only
+  real counted/measured numbers, including the load-test latency/throughput (labeled local single-node).
+- **No production-load claim** is made anywhere — the honest local number is included with its scope caveat.
+
 ### 2026-09-25 — README recruiter-polish + repository made PUBLIC ✅ (post-roadmap, docs-only)
 - **No code/behavior change** — this was a documentation + repo-visibility session after the roadmap
   was already complete. All 12 phases stay COMPLETE.

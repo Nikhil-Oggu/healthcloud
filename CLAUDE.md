@@ -113,6 +113,15 @@ export PATH="/opt/homebrew/opt/openjdk@25/bin:/usr/local/bin:/opt/homebrew/bin:$
   the app runs via `mvnw` or the `backend` container); the app exports traces over OTLP to Jaeger. Config lives in
   `infrastructure/observability/`. `--profile observability down` to stop.
 - **Tests:** `cd backend && ./mvnw test` (uses Testcontainers → Docker must be running)
+- **Load test (k6, `perf/k6/`):** with the backend running on the `local` profile, from the repo root run
+  `docker run --rm -i --add-host=host.docker.internal:host-gateway -v "$PWD/perf/k6:/scripts" grafana/k6 run
+  /scripts/read-path.js` (k6 via the Docker image — no host install). `read-path.js` drives the **authenticated
+  read path** (dev-login once per VU → repeated `GET /me`+`/patients`+`/claims`) so it exercises the full authz
+  pipeline + real Postgres. **Gotcha:** k6 resets its cookie jar per iteration — persist the `SESSION` cookie in
+  per-VU JS state and re-apply it each iteration (the script does this) or reads 401 after the first iteration.
+  Results are **local, single-node** numbers (rule 2 — never quote as production/SLA); the captured run lives in
+  `docs/evidence/load-test.md` (~107 req/s, p95 38 ms, 0% errors @ 50 VUs). The frozen stack (§29) also names
+  Playwright + axe-core (E2E/accessibility) — those remain documented follow-ups.
 - **Health:** `curl localhost:8080/actuator/health` · **Login+me:**
   `curl -c j -X POST localhost:8080/api/v1/dev-login --data email=provider@northcare.example.org && curl -b j localhost:8080/api/v1/me`
 - The **`local`** OR **`demo`** profile seeds synthetic demo data; **only `local` exposes `dev-login`**
@@ -1549,7 +1558,7 @@ to the AWS deployment, Alertmanager routing, RDS PITR/snapshot DR — all on-dem
 ## Repo layout
 `backend/` `frontend/` `worker/` `infrastructure/{terraform,environments}` `api/openapi/`
 `docs/{architecture,er-diagram,events,threat-model,adr,runbooks,evidence,learning,design,source-of-truth}/`
-`synthetic-data/` `scripts/` `.github/workflows/` · plus `CLAUDE.md`, `docs/PLAN.md`,
+`synthetic-data/` `scripts/` `perf/k6/` (load tests) `.github/workflows/` · plus `CLAUDE.md`, `docs/PLAN.md`,
 `docs/PROGRESS.md`, `docker-compose.yml`, `README.md`.
 
 ## Version control (learned; avoid re-discovering)
