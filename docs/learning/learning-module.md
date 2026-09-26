@@ -5878,3 +5878,112 @@ session creation bounded (one per VU). The choice depends on which path you're t
 A: It's responsive under this modest load on this hardware, and correct (0% errors) — but "fast" is
 only meaningful against a target and a representative environment. Without production-sized infra and
 data, ~40ms is an encouraging local signal, not a capacity claim.
+
+---
+
+## Capturing a k6 dashboard image & keeping metrics consistent across docs — 2026-09-25
+
+### What we built
+A visual for the k6 load test in the README — the same treatment the Grafana/Jaeger observability
+screenshots get — plus the discipline for keeping a re-run's numbers consistent everywhere they appear.
+k6 normally only prints a terminal summary, so the challenge was turning a run into a shareable image
+without inventing anything.
+
+### How it works
+**1. k6's built-in web dashboard.** Re-running with two env vars turns the run into a self-contained
+HTML report with charts:
+
+```bash
+docker run --rm -i --add-host=host.docker.internal:host-gateway \
+  -e K6_WEB_DASHBOARD=true -e K6_WEB_DASHBOARD_EXPORT=/out/k6-report.html \
+  -v "$PWD/perf/k6:/scripts" -v "$SCRATCH:/out" \
+  grafana/k6 run /scripts/read-path.js
+```
+
+The report has three parts: **Overview** (request rate, VUs, transfer rate, latency over time),
+**Timings** (per-phase latency charts — waiting/connecting/sending/receiving/TLS/blocked), and a
+**Summary** trends table (avg/max/med/min/p90/p95/p99 per metric + counters/rates/gauges).
+
+**2. Screenshot the HTML to disk with playwright-core.** The in-app browser pane can't save an image to
+disk, so — exactly as the observability screenshots were captured — a tiny Node script loads playwright
+from the frontend's `node_modules` and screenshots the report:
+
+```js
+import { createRequire } from 'module';
+const require = createRequire('/Users/oggu/Desktop/healthcloud/frontend/node_modules/');
+const { chromium } = require('playwright-core');
+
+const browser = await chromium.launch({ channel: 'chrome', headless: true });
+const ctx = await browser.newContext({ viewport: { width: 1440, height: 1000 }, deviceScaleFactor: 2 });
+const page = await ctx.newPage();
+await page.goto('file:///.../k6-report.html', { waitUntil: 'networkidle' });
+await page.waitForTimeout(4000);                 // let charts render
+await page.screenshot({ path: OUT, fullPage: true }); // whole report
+await browser.close();
+```
+
+**3. Embed** the PNG in `README.md` (Testing & quality) and `docs/evidence/load-test.md`.
+
+### Key points to remember
+- **`fullPage: true` captures the whole scrollable page; `clip: {x,y,width,height}` captures a region —
+  but a clip is limited to the viewport unless the viewport itself is tall enough.** I first tried
+  `clip` for a tidy "Overview only" crop and it silently capped at the 1000px viewport height; the
+  complete report needed `fullPage`.
+- **`deviceScaleFactor: 2`** renders the image at 2× for crisp text/charts.
+- **If an embedded image shows exact numbers, the surrounding text MUST match those numbers.** The
+  Summary trends table in the full report shows *that run's* figures, so switching from the earlier run
+  to the dashboard run meant re-canonicalizing every doc that cites numbers: `README.md`,
+  `docs/evidence/load-test.md` (results table **and** the raw summary block), `resume-bullets.md`,
+  `docs/PROGRESS.md`, and this learning module. A `grep -rn` sweep for the old values
+  (`38.3`, `12,947`, `13.6 ms`, `293 ms`) confirmed none were left stale.
+- **Crop vs. complete is a real trade-off.** A crop (charts only, no aggregate numbers) lets you keep
+  older cited numbers without conflict; the complete report shows every detail but forces the number
+  sync above. The user wanted the complete report, so we went full + canonicalized.
+- **Removing a committed file:** use `git rm` (not just `rm`) for the replaced crop, and check
+  `git status` so the delete is staged.
+- **GitHub caches the rendered README for a few seconds after a push** — a new image can appear missing
+  at first; reload with a cache-busting query (`?t=2`) to see it.
+- Runs vary run-to-run by only a couple of percent (p95 38.3 → 39.8 ms, 12,947 → 12,896 requests),
+  which is why "~107 req/s" with a tilde is the safest way to state throughput.
+
+### Failures and how we fixed them
+- **Clip screenshot came out too short.** `clip: { height: 1460 }` produced a 2000px-tall image
+  (viewport 1000 × 2), cutting off lower panels — clips can't exceed the viewport. Not a crash; the fix
+  was to use `fullPage: true` (and a taller viewport would also work).
+- **Image looked missing on GitHub right after pushing.** The rendered README was cached; a hard reload
+  with a cache-bust query showed it. Not a markdown/path bug — the relative path
+  `docs/evidence/screenshots/...` was correct.
+- **Potential number contradiction** between a newly embedded image and older cited text — avoided by
+  making the dashboard run canonical across all five docs and grep-verifying no stale figures remained.
+
+### Interview Q&A
+
+#### 1. Beginner
+**Q: k6 has no GUI — how did you get a dashboard image?**
+A: k6 ships a built-in web dashboard that, with `K6_WEB_DASHBOARD_EXPORT`, writes a self-contained HTML
+report of the run. I rendered that HTML in a headless browser and screenshotted it to a PNG.
+
+**Q: Why screenshot with playwright instead of the in-app browser?**
+A: The in-app browser pane can't save a file to disk. Playwright (headless Chrome) can write the PNG
+straight to a path, which is what an embedded README image needs.
+
+#### 2. Intermediate
+**Q: Why did switching the image force edits to five documents?**
+A: The full report's Summary table shows that run's exact numbers. If the README text said 38.3 ms but
+the picture said 39.8 ms, that's a contradiction. So I made the dashboard run the single canonical run
+and updated every doc that quotes figures, then grep-swept for leftovers.
+
+**Q: `fullPage` vs `clip` — when would you use each?**
+A: `clip` for a tight region that fits in the viewport (a hero crop); `fullPage` for the entire
+scrollable document. My clip was silently capped to the viewport height, so for the complete report I
+used `fullPage`.
+
+#### 3. Advanced
+**Q: Is it honest to embed a chart from a re-run rather than the originally cited run?**
+A: Only if you make that run canonical everywhere, which I did — the image and every quoted number now
+describe the same run. The alternative (a crop with no visible aggregates) is also honest but shows less
+detail. What's *not* acceptable is an image whose numbers disagree with the text.
+
+**Q: Any downside to committing the full-report PNG?**
+A: It's a tall (2880×8880) image, so it's a larger binary in git and renders as a long strip on GitHub.
+The trade-off was accepted because the user wanted complete detail; a crop would be lighter but lossy.
