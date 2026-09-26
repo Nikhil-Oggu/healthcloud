@@ -474,6 +474,12 @@
 - **`docs/evidence/resume-bullets.md`**: added a new **"Resume bullets — with metrics (ATS-friendly)"**
   section (the original 8 concise bullets left untouched, as requested) — metric-first framing using only
   real counted/measured numbers, including the load-test latency/throughput (labeled local single-node).
+- **Dashboard screenshot added** — re-ran the test with k6's built-in web dashboard
+  (`K6_WEB_DASHBOARD=true` + `K6_WEB_DASHBOARD_EXPORT`), rendered the HTML report headlessly via
+  playwright-core, and cropped the Overview panels to
+  `docs/evidence/screenshots/load-test-k6-overview.png` (request rate ramp, VUs, p95 latency, 0
+  failures). Embedded in the **README** (Testing & quality) and `docs/evidence/load-test.md` — the k6
+  analog to the Grafana/Jaeger observability screenshots.
 - **No production-load claim** is made anywhere — the honest local number is included with its scope caveat.
 
 ### 2026-09-25 — README recruiter-polish + repository made PUBLIC ✅ (post-roadmap, docs-only)

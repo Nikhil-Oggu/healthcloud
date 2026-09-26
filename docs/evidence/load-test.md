@@ -6,6 +6,17 @@
 > honest measure of the app's read-path behavior on one developer machine — nothing more.
 > They are included because a *real measured* number is worth more than an invented one.
 
+## Dashboard
+
+k6's built-in web dashboard (`K6_WEB_DASHBOARD=true`) for a run of this test. The **request rate**
+(green) ramps to the 50-VU plateau and holds, **p95 request duration** (blue) stays low throughout,
+and **request failures** (purple) remain flat at zero — the classic healthy load-test shape.
+
+![k6 web dashboard — request rate, VUs, transfer rate, and p95 latency over the run](screenshots/load-test-k6-overview.png)
+
+> The chart is from a run of the same read-path test; run-to-run the aggregate numbers vary by only
+> a couple of percent (see the measured table below).
+
 ## What was tested
 
 The **authenticated read path** — the flow a real user drives most often:

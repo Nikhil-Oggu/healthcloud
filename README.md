@@ -302,6 +302,9 @@ afterthought).
   *not* quoted as a production/SLA figure (see the no-unmeasured-claims rule) — full results, environment,
   and scope caveat in [`docs/evidence/load-test.md`](docs/evidence/load-test.md).
 
+  ![k6 web dashboard — request rate ramping to the 50-user plateau, p95 latency staying low, and request failures flat at zero](docs/evidence/screenshots/load-test-k6-overview.png)
+  *k6's built-in web dashboard for a run of the read-path test: request rate (green) ramps to the 50-VU plateau, p95 latency (blue) stays low, and failures (purple) hold at zero.*
+
 ---
 
 ## Cloud deployment & operations
