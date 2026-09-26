@@ -5987,3 +5987,89 @@ detail. What's *not* acceptable is an image whose numbers disagree with the text
 **Q: Any downside to committing the full-report PNG?**
 A: It's a tall (2880×8880) image, so it's a larger binary in git and renders as a long strip on GitHub.
 The trade-off was accepted because the user wanted complete detail; a crop would be lighter but lossy.
+
+---
+
+## Cropping a PNG in place with headless Chromium (no ImageMagick) — 2026-09-25
+
+### What we built
+Trimmed a screenshot in the repo — the branded Amazon Cognito login capture
+(`docs/evidence/screenshots/aws/aws-02-cognito-login.png`) — which had a small login card floating in a
+large empty grey background. The task was to crop tight to the card. The catch: the host had **no
+ImageMagick and no Python PIL**, so we cropped using the one image tool we always have — a **headless
+browser**.
+
+### How it works
+The trick is to render the PNG at its natural size at the page origin, then screenshot a rectangular
+`clip`. At `deviceScaleFactor: 1`, one CSS pixel maps to exactly one image pixel, so the clip
+coordinates are just image coordinates.
+
+**1. A trivial HTML wrapper** that shows the image at natural size with no margins:
+
+```html
+<!doctype html><html><head><style>
+  html,body{margin:0;padding:0} img{display:block;width:1200px;height:900px}
+</style></head>
+<body><img src="file:///…/aws-02-cognito-login.png"></body></html>
+```
+
+**2. A playwright-core script** that clips the card region (measured on the 1200×900 source):
+
+```js
+const ctx = await browser.newContext({ viewport: { width: 1200, height: 900 }, deviceScaleFactor: 1 });
+const page = await ctx.newPage();
+await page.goto('file:///…/crop.html', { waitUntil: 'networkidle' });
+await page.screenshot({ path: OUT, clip: { x: 380, y: 12, width: 440, height: 435 } });
+```
+
+**3. Replace the file in place** (`cp cropped.png docs/evidence/screenshots/aws/aws-02-cognito-login.png`)
+so the README/`aws.md` references and alt text stay identical — the crop propagates to every embed.
+
+To find the clip coordinates, we simply **opened the PNG and measured** the card's edges against the
+known 1200×900 canvas (card ≈ x 423–775, y 30–415), then padded slightly.
+
+### Key points to remember
+- **`deviceScaleFactor: 1` gives 1:1 pixel mapping** between clip coords and image pixels. Use 2 only if
+  you *want* to upscale — but upscaling a fixed-resolution PNG adds no real detail (it just softens).
+- **`clip` is bounded by the viewport**, so set the viewport at least as large as the source (here
+  1200×900). (This is the same gotcha as the k6 dashboard crop — see that session's notes.)
+- **Replace the file in place** rather than adding a new filename: every embed (README + `aws.md`) picks
+  up the crop automatically and no markdown/alt-text changes are needed. Git history keeps the original.
+- **playwright-core is loaded from the frontend's `node_modules`** via `createRequire(...)` and launched
+  with `channel: 'chrome', headless: true` — the same pattern used to capture every screenshot in the
+  evidence pack (the in-app browser pane can't save files to disk).
+- This generalizes: **a headless browser is a capable image tool** — render + `clip` to crop, or draw to
+  a `<canvas>` for recolor/format changes — when ImageMagick/PIL aren't installed.
+
+### Failures and how we fixed them
+Nothing broke. Worth noting the checks that *prevented* problems: we first confirmed the crop tools were
+missing (`which magick convert`, `python3 -c "import PIL"`) before reaching for the browser, and we
+previewed the cropped output before overwriting the committed file, so a bad crop never got shipped.
+
+### Interview Q&A
+
+#### 1. Beginner
+**Q: You had no ImageMagick — how did you crop an image?**
+A: I rendered the PNG in a headless Chromium page at its natural size and took a screenshot of just the
+region I wanted (`clip`). A browser is an image renderer, so it can crop.
+
+**Q: Why replace the file instead of adding a new one?**
+A: The README and the AWS evidence doc both reference that exact path. Overwriting it means the crop shows
+up everywhere with zero markdown changes, and the alt text stays accurate.
+
+#### 2. Intermediate
+**Q: Why `deviceScaleFactor: 1`?**
+A: It makes one CSS pixel equal one image pixel, so the `clip` rectangle is expressed directly in the
+source image's coordinates. A factor of 2 would double the output resolution but only by upscaling — no
+new detail, just a larger, slightly softer file.
+
+**Q: How did you choose the clip rectangle?**
+A: I opened the 1200×900 source and measured the card's bounding box (≈ x 423–775, y 30–415), then added
+a little padding for breathing room → `{ x: 380, y: 12, width: 440, height: 435 }`.
+
+#### 3. Advanced
+**Q: What are the limits of browser-based image editing, and when would you still want a real tool?**
+A: A browser handles crop (via `clip`) and, through `<canvas>`, recolor/resize/format conversion — fine
+for one-off asset tweaks. For batch processing, precise color management, lossless transforms, or CI
+automation, a dedicated tool (ImageMagick, libvips/sharp, PIL) is faster and scriptable without spinning
+up Chromium. The browser approach is a pragmatic fallback when those aren't installed.

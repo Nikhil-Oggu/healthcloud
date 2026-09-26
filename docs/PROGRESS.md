@@ -457,6 +457,16 @@
 
 ## Log (newest first)
 
+### 2026-09-25 — Evidence-screenshot cleanup: cropped the Cognito login capture ✅ (docs-only)
+- **Cropped `docs/evidence/screenshots/aws/aws-02-cognito-login.png`** (1200×900 → 440×435) to frame the
+  branded login card and drop the large empty grey background. Used in the README **Cloud deployment &
+  operations** section and `docs/evidence/aws.md`; the image reference + alt text are unchanged, so no
+  markdown edits were needed (the crop applies everywhere the file is embedded).
+- **How (no ImageMagick/PIL on the host):** rendered the PNG 1:1 in headless Chromium via playwright-core
+  (an `<img>` at natural size, `deviceScaleFactor: 1`) and screenshotted a `clip` region — the reusable
+  way to crop an image with only a browser available. See the learning module for the technique.
+- Committed `07bcd00`, pushed. No behavior change.
+
 ### 2026-09-25 — Local load test (k6) + metric-forward resume bullets ✅ (post-roadmap)
 - **New: `perf/k6/`** — the project's first executed load test (the `k6` perf tool was in the frozen
   stack but never run). `perf/k6/read-path.js` simulates real user sessions against the running backend
