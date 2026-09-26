@@ -464,8 +464,8 @@
   authorization pipeline + real Postgres reads**, not a trivial health ping. `perf/k6/README.md` documents
   how to run it (via the `grafana/k6` Docker image — no host install).
 - **Measured (local, single-node dev setup):** ramping to **50 concurrent users** over ~2 min →
-  **12,947 requests, 0 failures (0.00% error rate)**, **~107 req/s**, latency **median 13.6 ms / p95 38.3 ms
-  / max 293 ms**. Both k6 thresholds passed. Captured in **`docs/evidence/load-test.md`** (clearly labeled
+  **12,896 requests, 0 failures (0.00% error rate)**, **~107 req/s**, latency **median 15.0 ms / p95 39.8 ms
+  / max 368 ms**. Both k6 thresholds passed. Captured in **`docs/evidence/load-test.md`** (clearly labeled
   as a local single-node measurement, not a production/SLA figure — rule #2).
 - **Bug found + fixed in the test (not the app):** the first run reported a 98% error rate because k6
   resets its cookie jar between iterations, dropping the session cookie after each VU's first iteration
@@ -476,10 +476,11 @@
   real counted/measured numbers, including the load-test latency/throughput (labeled local single-node).
 - **Dashboard screenshot added** — re-ran the test with k6's built-in web dashboard
   (`K6_WEB_DASHBOARD=true` + `K6_WEB_DASHBOARD_EXPORT`), rendered the HTML report headlessly via
-  playwright-core, and cropped the Overview panels to
-  `docs/evidence/screenshots/load-test-k6-overview.png` (request rate ramp, VUs, p95 latency, 0
-  failures). Embedded in the **README** (Testing & quality) and `docs/evidence/load-test.md` — the k6
-  analog to the Grafana/Jaeger observability screenshots.
+  playwright-core, and saved the **full report** (Overview + per-phase Timings + Summary trends table)
+  to `docs/evidence/screenshots/load-test-k6-dashboard.png`. Embedded in the **README** (Testing &
+  quality) and `docs/evidence/load-test.md` — the k6 analog to the Grafana/Jaeger observability
+  screenshots. The numbers above are this dashboard run (an earlier crop-only version was replaced with
+  the complete report so no detail is lost).
 - **No production-load claim** is made anywhere — the honest local number is included with its scope caveat.
 
 ### 2026-09-25 — README recruiter-polish + repository made PUBLIC ✅ (post-roadmap, docs-only)

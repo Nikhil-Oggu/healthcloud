@@ -8,14 +8,13 @@
 
 ## Dashboard
 
-k6's built-in web dashboard (`K6_WEB_DASHBOARD=true`) for a run of this test. The **request rate**
-(green) ramps to the 50-VU plateau and holds, **p95 request duration** (blue) stays low throughout,
-and **request failures** (purple) remain flat at zero — the classic healthy load-test shape.
+k6's built-in web dashboard (`K6_WEB_DASHBOARD=true`), full report for the run captured below. The
+**Overview** charts show the **request rate** (green) ramping to the 50-VU plateau and holding, **p95
+request duration** (blue) staying low, and **request failures** (purple) flat at zero. The **Timings**
+section breaks latency into per-phase percentiles (waiting, connecting, sending, receiving, TLS), and
+the **Summary** trends table lists every metric — the classic healthy load-test shape end to end.
 
-![k6 web dashboard — request rate, VUs, transfer rate, and p95 latency over the run](screenshots/load-test-k6-overview.png)
-
-> The chart is from a run of the same read-path test; run-to-run the aggregate numbers vary by only
-> a couple of percent (see the measured table below).
+![k6 web dashboard (full report) — Overview charts, per-phase Timings, and the Summary trends table](screenshots/load-test-k6-dashboard.png)
 
 ## What was tested
 
@@ -53,28 +52,30 @@ deployment would separate them and be sized very differently.
 
 | Metric | Value |
 |---|---|
-| Total requests | **12,947** (0 failed) |
+| Total requests | **12,896** (0 failed) |
 | Error rate | **0.00%** |
 | Throughput | **~107 requests/sec** |
-| Latency — average | 17.1 ms |
-| Latency — median | 13.6 ms |
-| Latency — p90 | 27.4 ms |
-| Latency — **p95** | **38.3 ms** |
-| Latency — max | 293 ms |
-| Completed user iterations | 4,299 |
+| Latency — average | 18.4 ms |
+| Latency — median | 15.0 ms |
+| Latency — p90 | 29.2 ms |
+| Latency — **p95** | **39.8 ms** |
+| Latency — p99 | 77 ms |
+| Latency — max | 368 ms |
+| Completed user iterations | 4,282 |
 | Peak concurrent users | 50 |
+| Data received / sent | 9.82 MB / 2.61 MB |
 
 Both k6 thresholds passed: `http_req_failed rate<0.01` (actual 0.00%) and
-`http_req_duration p(95)<800ms` (actual 38.3ms).
+`http_req_duration p(95)<800ms` (actual 39.8ms).
 
 ### Raw k6 summary
 
 ```
   █ TOTAL RESULTS
 
-    checks_total.......: 12947   107.405492/s
-    checks_succeeded...: 100.00% 12947 out of 12947
-    checks_failed......: 0.00%   0 out of 12947
+    checks_total.......: 12896   107.072029/s
+    checks_succeeded...: 100.00% 12896 out of 12896
+    checks_failed......: 0.00%   0 out of 12896
 
     ✓ login is 200
     ✓ me is 200
@@ -82,13 +83,13 @@ Both k6 thresholds passed: `http_req_failed rate<0.01` (actual 0.00%) and
     ✓ claims is 200
 
     HTTP
-    http_req_duration..............: avg=17.14ms min=3.18ms med=13.6ms max=293.27ms p(90)=27.4ms p(95)=38.34ms
-    http_req_failed................: 0.00%  0 out of 12947
-    http_reqs......................: 12947  107.405492/s
+    http_req_duration..............: avg=18.37ms min=3.37ms med=15.04ms max=367.67ms p(90)=29.23ms p(95)=39.8ms
+    http_req_failed................: 0.00%  0 out of 12896
+    http_reqs......................: 12896  107.072029/s
 
     EXECUTION
-    iteration_duration.............: avg=1.05s   min=1.01s  med=1.04s  max=1.37s    p(90)=1.08s  p(95)=1.11s
-    iterations.....................: 4299   35.663568/s
+    iteration_duration.............: avg=1.05s   min=1.01s  med=1.04s   max=1.52s    p(90)=1.08s  p(95)=1.11s
+    iterations.....................: 4282   35.552298/s
     vus_max........................: 50
 ```
 
@@ -96,7 +97,7 @@ Both k6 thresholds passed: `http_req_failed rate<0.01` (actual 0.00%) and
 
 **Proves:** under 50 concurrent users on a single dev machine, the authenticated read path —
 including the full authorization pipeline and real Postgres reads — served ~107 req/s with a
-**p95 of 38ms and zero errors**. The app is correct and responsive under modest concurrent load.
+**p95 of 39.8ms and zero errors**. The app is correct and responsive under modest concurrent load.
 
 **Does NOT prove:** production throughput, latency at scale, or any SLA. Real capacity depends on
 production-sized infrastructure (instance sizes, connection pool, data volume, network) that this

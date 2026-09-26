@@ -5800,8 +5800,8 @@ docker run --rm -i --add-host=host.docker.internal:host-gateway \
   (app via `mvnw`, Postgres in Docker, load generator on the same laptop). It is labeled that way
   everywhere and must never be quoted as a production/SLA figure. A *real measured* number with a scope
   caveat beats an invented "handled X req/s in production" that collapses under interview questioning.
-- **Measured result (local single-node, 50 VUs, ~2 min):** 12,947 requests, **0 failures (0.00%)**,
-  **~107 req/s**, latency median 13.6 ms / **p95 38.3 ms** / max 293 ms. Both thresholds passed.
+- **Measured result (local single-node, 50 VUs, ~2 min):** 12,896 requests, **0 failures (0.00%)**,
+  **~107 req/s**, latency median 15.0 ms / **p95 39.8 ms** / max 368 ms. Both thresholds passed.
 - **Docker networking:** `--add-host=host.docker.internal:host-gateway` lets the containerized k6 reach
   a backend running on the host — portable across Docker Desktop and Linux.
 - **Resume framing:** metric-first bullets (`action + scope/number + result`) scan better for recruiters
@@ -5874,7 +5874,7 @@ A: One login per request stresses the auth/session-creation path and bloats the 
 login per VU (what we did) models "log in once, then browse," isolates the *read* path, and keeps
 session creation bounded (one per VU). The choice depends on which path you're trying to measure.
 
-**Q: The p95 was 38ms locally — is the app "fast"?**
+**Q: The p95 was ~40ms locally — is the app "fast"?**
 A: It's responsive under this modest load on this hardware, and correct (0% errors) — but "fast" is
 only meaningful against a target and a representative environment. Without production-sized infra and
-data, 38ms is an encouraging local signal, not a capacity claim.
+data, ~40ms is an encouraging local signal, not a capacity claim.

@@ -53,7 +53,7 @@
   consent+purpose → field-masking) with **secure-404** denials, so two users with the *same role*
   get different results — enforced entirely on the backend and validated by negative security tests.
 - **Load-tested the authenticated read path with k6 at 50 concurrent users**, measuring **~107
-  requests/sec at a p95 latency of 38 ms with a 0% error rate** (local single-node) across the full
+  requests/sec at a p95 latency of 39.8 ms with a 0% error rate** (local single-node) across the full
   authorization pipeline plus live PostgreSQL reads.
 - **Backed the system with 694 automated tests** (511 backend on Testcontainers against real
   PostgreSQL + 183 frontend), including **cross-tenant, consent-masking, and invalid-transition

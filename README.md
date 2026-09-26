@@ -298,12 +298,12 @@ afterthought).
 - **Load-tested (honestly).** A [k6](https://k6.io) load test ([`perf/k6/read-path.js`](perf/k6/read-path.js))
   drives the authenticated read path — login → tenant-scoped, relationship-gated list reads — at **50
   concurrent users**. Measured on a **local, single-node dev setup**: **~107 requests/sec at a p95 latency
-  of 38 ms with a 0% error rate** over 12,947 requests. These are an honest local signal, deliberately
+  of 39.8 ms with a 0% error rate** over 12,896 requests. These are an honest local signal, deliberately
   *not* quoted as a production/SLA figure (see the no-unmeasured-claims rule) — full results, environment,
   and scope caveat in [`docs/evidence/load-test.md`](docs/evidence/load-test.md).
 
-  ![k6 web dashboard — request rate ramping to the 50-user plateau, p95 latency staying low, and request failures flat at zero](docs/evidence/screenshots/load-test-k6-overview.png)
-  *k6's built-in web dashboard for a run of the read-path test: request rate (green) ramps to the 50-VU plateau, p95 latency (blue) stays low, and failures (purple) hold at zero.*
+  ![k6 web dashboard (full report) — Overview (request rate, VUs, transfer rate, p95 latency), per-phase Timings, and the Summary trends table with 0 failures](docs/evidence/screenshots/load-test-k6-dashboard.png)
+  *k6's built-in web dashboard (full report): the Overview charts show request rate ramping to the 50-VU plateau with p95 latency low and failures flat at zero; the Timings section breaks latency into per-phase percentiles; and the Summary trends table lists every metric (avg 18.4 ms, p95 39.8 ms, p99 77 ms; 12,896 requests at ~107/s; checks 100%, failures 0%).*
 
 ---
 
