@@ -5735,3 +5735,146 @@ pre-commit/secret-scan gate) is far cheaper than remediation.
 A: They're concrete, checkable credibility signals — and staleness is the risk, so you verify them against the
 repo whenever you touch them (and ideally automate the check). The project's "no unmeasured claims" rule means a
 number in the README must be one you can reproduce from the codebase on demand.
+
+---
+
+## Load testing with k6 & honest metrics for a portfolio — 2026-09-25
+
+### What we built
+The project's **first executed load test**. `k6` had always been in the frozen tech stack (§29,
+"k6 (perf)") but was never run. In this session we wrote and ran a real load test against the
+running backend, captured honest measured numbers, and used them to add a metric-forward,
+ATS-friendly resume-bullets section — without inventing any performance figures.
+
+New/changed files:
+- `perf/k6/read-path.js` — the load-test script.
+- `perf/k6/README.md` — how to run it.
+- `docs/evidence/load-test.md` — the captured results + scope caveat.
+- `docs/evidence/resume-bullets.md` — added a "Resume bullets — with metrics" section (originals kept).
+- `docs/PROGRESS.md`, `CLAUDE.md` — log entry + repo-layout/how-to-run/gotcha.
+
+### How it works
+The test targets the **authenticated read path** — the flow a real user drives most — so the number
+reflects real work (authorization + DB reads), not a trivial health-check ping.
+
+Each k6 **virtual user (VU)** logs in once via the local `dev-login` stand-in, then loops over
+`GET /me`, `GET /patients`, `GET /claims` with 1s think-time:
+
+```js
+export const options = {
+  scenarios: {
+    read_path: {
+      executor: 'ramping-vus',
+      startVUs: 0,
+      stages: [
+        { duration: '30s', target: 50 }, // ramp up
+        { duration: '1m', target: 50 },  // hold
+        { duration: '30s', target: 0 },  // ramp down
+      ],
+    },
+  },
+  thresholds: {
+    http_req_failed: ['rate<0.01'],
+    http_req_duration: ['p(95)<800'],
+  },
+};
+```
+
+It runs via the **`grafana/k6` Docker image** (no host install), reaching the host-run backend at
+`host.docker.internal:8080`:
+
+```bash
+docker run --rm -i --add-host=host.docker.internal:host-gateway \
+  -v "$PWD/perf/k6:/scripts" grafana/k6 run /scripts/read-path.js
+```
+
+### Key points to remember
+- **k6 concepts:** a *VU* is one simulated concurrent user; an *iteration* is one run of the default
+  function; `ramping-vus` changes concurrency over `stages`; *thresholds* are pass/fail gates on
+  metrics (a breach fails the run but still prints the real numbers). Key metrics: `http_req_duration`
+  (latency, with `p(95)` etc.), `http_req_failed` (error rate), `http_reqs` (throughput/sec).
+- **Why the read path, not a health ping:** hitting `/me` + `/patients` + `/claims` after a real login
+  exercises the full authorization pipeline (tenant → role → relationship gate) and real Postgres
+  reads — so the latency actually means something.
+- **Honest-metrics discipline (project rule #2):** the run is a **local, single-node** measurement
+  (app via `mvnw`, Postgres in Docker, load generator on the same laptop). It is labeled that way
+  everywhere and must never be quoted as a production/SLA figure. A *real measured* number with a scope
+  caveat beats an invented "handled X req/s in production" that collapses under interview questioning.
+- **Measured result (local single-node, 50 VUs, ~2 min):** 12,947 requests, **0 failures (0.00%)**,
+  **~107 req/s**, latency median 13.6 ms / **p95 38.3 ms** / max 293 ms. Both thresholds passed.
+- **Docker networking:** `--add-host=host.docker.internal:host-gateway` lets the containerized k6 reach
+  a backend running on the host — portable across Docker Desktop and Linux.
+- **Resume framing:** metric-first bullets (`action + scope/number + result`) scan better for recruiters
+  and ATS. We only used **counted** facts (694 tests, 50 tables, 43 migrations, 12 phases, 5 authz
+  layers, 18 ADRs) and **measured** ones (the k6 latency/throughput, the ~$0.08–0.10/hr AWS cost) — no
+  fabricated uptime/throughput.
+
+### Failures and how we fixed them
+- **First run reported a 98% error rate — a bug in the test, not the app.** Logins were 200, but the
+  reads succeeded exactly once per VU then failed. **Root cause:** k6 **resets its cookie jar between
+  iterations**, so after each VU's first iteration the `SESSION` cookie was gone and `/me` etc.
+  returned 401. My "log in once" flag wrongly assumed the cookie would persist.
+- **Fix:** JS module state *does* persist for a VU's lifetime, so stash the cookie *value* there and
+  re-apply it to the (reset) jar every iteration:
+  ```js
+  let sessionCookie = null; // per-VU, survives iterations
+  export default function () {
+    if (!sessionCookie) {
+      const res = http.post(`${BASE}/api/v1/dev-login`, { email: EMAIL });
+      const c = res.cookies['SESSION'];
+      if (c && c.length) sessionCookie = c[0].value;
+    }
+    if (sessionCookie) http.cookieJar().set(BASE, 'SESSION', sessionCookie);
+    // ...reads...
+  }
+  ```
+  The corrected run passed with 0% errors. The app was correct throughout — the diagnosis was as
+  valuable as the fix (proved the 401s were a client-side cookie issue, not a server bug).
+
+### Interview Q&A
+
+#### 1. Beginner
+**Q: What is load testing, and how is it different from "production load"?**
+A: Load testing is when *you* generate simulated traffic on purpose and measure how the system copes.
+"Production load" is *real users* hitting a live system over time. You can load-test any time on your
+own machine; you can only have production load once real people use a deployed product.
+
+**Q: What is a "virtual user" in k6?**
+A: One simulated concurrent client running the test script in a loop. 50 VUs ≈ 50 users acting at once.
+
+**Q: What does p95 latency mean?**
+A: 95% of requests were faster than that value. It captures the "typical worst case" better than an
+average, which can hide slow outliers.
+
+#### 2. Intermediate
+**Q: Why test the authenticated read path instead of a health endpoint?**
+A: A health ping measures almost nothing. Logging in then reading tenant-scoped lists exercises the
+real authorization pipeline and database, so the latency reflects actual application work.
+
+**Q: Why label the result "local, single-node," and why does that matter?**
+A: Because the app, database, and load generator all shared one laptop, and the data was synthetic —
+so the numbers describe a dev setup, not production capacity. Quoting them as production would be
+dishonest and would fall apart in an interview. The project's rules forbid unmeasured/misrepresented
+claims, and honesty reads as senior judgment.
+
+**Q: How did you diagnose the 98%-error first run?**
+A: The per-check counts showed each read succeeded exactly once per VU. Since login was 200 and the
+first iteration's reads worked, the failure had to be the session not surviving into later iterations
+— i.e. k6's per-iteration cookie-jar reset — not a server bug.
+
+#### 3. Advanced
+**Q: What would you change to get production-meaningful numbers?**
+A: Run the load generator on a separate host from the app; deploy on production-sized infrastructure
+(instance types, a tuned connection pool, realistic data volume); use a data set and access pattern
+that mirror production; and measure over a longer, steadier period. Only then would throughput/latency
+generalize beyond a laptop.
+
+**Q: Modeling one login per VU vs one per request — what's the trade-off?**
+A: One login per request stresses the auth/session-creation path and bloats the session store; one
+login per VU (what we did) models "log in once, then browse," isolates the *read* path, and keeps
+session creation bounded (one per VU). The choice depends on which path you're trying to measure.
+
+**Q: The p95 was 38ms locally — is the app "fast"?**
+A: It's responsive under this modest load on this hardware, and correct (0% errors) — but "fast" is
+only meaningful against a target and a representative environment. Without production-sized infra and
+data, 38ms is an encouraging local signal, not a capacity claim.
