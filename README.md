@@ -295,6 +295,12 @@ afterthought).
 - **Review discipline.** Project-specific `code-reviewer` and `security-reviewer` subagents encode
   HealthCloud's own invariants (tenant scoping, the authorization layering, one-transaction + history,
   field-masking leaks, PHI-in-logs, financial double-apply) and run before security-sensitive commits.
+- **Load-tested (honestly).** A [k6](https://k6.io) load test ([`perf/k6/read-path.js`](perf/k6/read-path.js))
+  drives the authenticated read path — login → tenant-scoped, relationship-gated list reads — at **50
+  concurrent users**. Measured on a **local, single-node dev setup**: **~107 requests/sec at a p95 latency
+  of 38 ms with a 0% error rate** over 12,947 requests. These are an honest local signal, deliberately
+  *not* quoted as a production/SLA figure (see the no-unmeasured-claims rule) — full results, environment,
+  and scope caveat in [`docs/evidence/load-test.md`](docs/evidence/load-test.md).
 
 ---
 
@@ -419,9 +425,10 @@ This project is deliberate about what it is *not*:
 ## Documentation index
 
 - **Evidence pack** *(start here for proof):* [`docs/evidence/`](docs/evidence/) — measured test
-  results, live security-boundary HTTP transcripts (cross-tenant secure-404, consent masking,
-  relationship gate, invalid-transition), observability captures (Grafana/Prometheus/Jaeger), 11 app
-  UI screenshots, and the live AWS deployment.
+  results, a [k6 load-test capture](docs/evidence/load-test.md) (local single-node), live
+  security-boundary HTTP transcripts (cross-tenant secure-404, consent masking, relationship gate,
+  invalid-transition), observability captures (Grafana/Prometheus/Jaeger), 11 app UI screenshots, and
+  the live AWS deployment.
 - **Architecture decisions:** [`docs/adr/`](docs/adr/)
 - **Runbooks:** [`docs/runbooks/`](docs/runbooks/) (triage workflow, alert response, backup & restore)
 - **Architecture diagrams:** [`docs/architecture/architecture.md`](docs/architecture/architecture.md) (deployment · module map · request/authorization pipeline · event flow)
